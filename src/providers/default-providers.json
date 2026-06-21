@@ -1,0 +1,32 @@
+{
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.openai.com/v1",
+      "defaultModel": "gpt-5.5"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "sdkType": "anthropic",
+      "defaultBaseUrl": "https://api.anthropic.com",
+      "defaultModel": "claude-opus-4-8"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.deepseek.com",
+      "defaultModel": "deepseek-v4-flash"
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "sdkType": "google",
+      "defaultBaseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "defaultModel": "gemini-3.5-flash"
+    }
+  ]
+}

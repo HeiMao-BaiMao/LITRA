@@ -11,6 +11,7 @@ export interface EpisodeList {
 
 export interface EpisodeSummary {
   content: string;
+  oneLiner: string;
   updatedAt: string;
 }
 

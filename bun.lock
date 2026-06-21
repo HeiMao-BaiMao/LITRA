@@ -17,6 +17,7 @@
         "@tauri-apps/plugin-store": "^2",
         "ai": "^6.0.208",
         "openai": "^6.44.0",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@tauri-apps/cli": "^2",

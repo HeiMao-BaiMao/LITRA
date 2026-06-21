@@ -9,10 +9,12 @@ export interface ProjectNavActions {
   onSelectView: (view: ProjectView) => void;
   onUpdateSummary?: (episodeId: string, text: string) => void;
   onUpdateMemo?: (episodeId: string, text: string) => void;
+  onGenerateSummary?: (episodeId: string) => void;
 }
 
 let currentSummaryCallback: ((text: string) => void) | null = null;
 let summaryUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
+let currentGenerateSummaryCallback: (() => void) | null = null;
 let currentMemoCallback: ((text: string) => void) | null = null;
 let memoUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -73,8 +75,9 @@ export function renderEpisodeSummary(
   episodeId: string | null,
   summary: string | undefined,
   onUpdate?: (episodeId: string, text: string) => void,
+  onGenerate?: (episodeId: string) => void,
 ): void {
-  const { episodeSummary } = getElements();
+  const { episodeSummary, btnGenerateSummary } = getElements();
 
   if (episodeId && onUpdate) {
     currentSummaryCallback = (text) => onUpdate(episodeId, text);
@@ -84,6 +87,14 @@ export function renderEpisodeSummary(
     currentSummaryCallback = null;
     episodeSummary.disabled = true;
     episodeSummary.placeholder = "エピソードを選択してください...";
+  }
+
+  if (episodeId && onGenerate) {
+    currentGenerateSummaryCallback = () => onGenerate(episodeId);
+    btnGenerateSummary.disabled = false;
+  } else {
+    currentGenerateSummaryCallback = null;
+    btnGenerateSummary.disabled = true;
   }
 
   episodeSummary.value = summary ?? "";
@@ -116,7 +127,7 @@ export function setActiveNav(view: ProjectView): void {
 }
 
 export function bindProjectNavActions(actions: ProjectNavActions): void {
-  const { btnNewEpisode, navCharacters, navWorld, episodeSummary, episodeMemo } = getElements();
+  const { btnNewEpisode, navCharacters, navWorld, episodeSummary, episodeMemo, btnGenerateSummary } = getElements();
 
   btnNewEpisode.addEventListener("click", () => {
     actions.onNewEpisode();
@@ -128,6 +139,11 @@ export function bindProjectNavActions(actions: ProjectNavActions): void {
 
   navWorld.addEventListener("click", () => {
     actions.onSelectView("world");
+  });
+
+  btnGenerateSummary.addEventListener("click", () => {
+    if (!currentGenerateSummaryCallback) return;
+    currentGenerateSummaryCallback();
   });
 
   episodeSummary.addEventListener("input", () => {

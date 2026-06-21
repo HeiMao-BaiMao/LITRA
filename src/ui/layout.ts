@@ -18,7 +18,18 @@ export interface AppElements {
   navCharacters: HTMLButtonElement;
   navWorld: HTMLButtonElement;
   episodeSummary: HTMLTextAreaElement;
+  btnGenerateSummary: HTMLButtonElement;
+  summarySection: HTMLElement;
+  btnPopoutSummary: HTMLButtonElement;
+  memoSection: HTMLElement;
+  btnToggleMemo: HTMLButtonElement;
+  btnPopoutMemo: HTMLButtonElement;
   episodeMemo: HTMLTextAreaElement;
+  chatPanel: HTMLElement;
+  btnToggleChat: HTMLButtonElement;
+  btnPopoutChat: HTMLButtonElement;
+  settingsSection: HTMLElement;
+  btnPopoutSettings: HTMLButtonElement;
   settingsPanel: HTMLElement;
   settingsModal: HTMLElement;
   settingsForm: HTMLFormElement;
@@ -26,6 +37,7 @@ export interface AppElements {
   settingApiKey: HTMLInputElement;
   settingBaseUrl: HTMLInputElement;
   settingModel: HTMLInputElement;
+  settingModelSelect: HTMLSelectElement;
   btnFetchModels: HTMLButtonElement;
   settingTemperature: HTMLInputElement;
   settingMaxTokens: HTMLInputElement;
@@ -75,7 +87,18 @@ export function getElements(): AppElements {
   const navCharacters = document.querySelector<HTMLButtonElement>("#nav-characters");
   const navWorld = document.querySelector<HTMLButtonElement>("#nav-world");
   const episodeSummary = document.querySelector<HTMLTextAreaElement>("#episode-summary");
+  const btnGenerateSummary = document.querySelector<HTMLButtonElement>("#btn-generate-summary");
+  const summarySection = document.querySelector<HTMLElement>("#summary-section");
+  const btnPopoutSummary = document.querySelector<HTMLButtonElement>("#btn-popout-summary");
+  const memoSection = document.querySelector<HTMLElement>("#memo-section");
+  const btnToggleMemo = document.querySelector<HTMLButtonElement>("#btn-toggle-memo");
+  const btnPopoutMemo = document.querySelector<HTMLButtonElement>("#btn-popout-memo");
   const episodeMemo = document.querySelector<HTMLTextAreaElement>("#episode-memo");
+  const chatPanel = document.querySelector<HTMLElement>("#chat-panel");
+  const btnToggleChat = document.querySelector<HTMLButtonElement>("#btn-toggle-chat");
+  const btnPopoutChat = document.querySelector<HTMLButtonElement>("#btn-popout-chat");
+  const settingsSection = document.querySelector<HTMLElement>("#settings-section");
+  const btnPopoutSettings = document.querySelector<HTMLButtonElement>("#btn-popout-settings");
   const settingsPanel = document.querySelector<HTMLElement>("#settings-panel");
   const settingsModal = document.querySelector<HTMLElement>("#settings-modal");
   const settingsForm = document.querySelector<HTMLFormElement>("#settings-form");
@@ -83,6 +106,7 @@ export function getElements(): AppElements {
   const settingApiKey = document.querySelector<HTMLInputElement>("#setting-api-key");
   const settingBaseUrl = document.querySelector<HTMLInputElement>("#setting-base-url");
   const settingModel = document.querySelector<HTMLInputElement>("#setting-model");
+  const settingModelSelect = document.querySelector<HTMLSelectElement>("#setting-model-select");
   const btnFetchModels = document.querySelector<HTMLButtonElement>("#btn-fetch-models");
   const settingTemperature = document.querySelector<HTMLInputElement>("#setting-temperature");
   const settingMaxTokens = document.querySelector<HTMLInputElement>("#setting-max-tokens");
@@ -122,6 +146,7 @@ export function getElements(): AppElements {
     !settingApiKey ||
     !settingBaseUrl ||
     !settingModel ||
+    !settingModelSelect ||
     !btnFetchModels ||
     !settingTemperature ||
     !settingMaxTokens ||
@@ -147,7 +172,18 @@ export function getElements(): AppElements {
     !navCharacters ||
     !navWorld ||
     !episodeSummary ||
+    !btnGenerateSummary ||
+    !summarySection ||
+    !btnPopoutSummary ||
+    !memoSection ||
+    !btnToggleMemo ||
+    !btnPopoutMemo ||
     !episodeMemo ||
+    !chatPanel ||
+    !btnToggleChat ||
+    !btnPopoutChat ||
+    !settingsSection ||
+    !btnPopoutSettings ||
     !settingsPanel ||
     !projectModal ||
     !projectList ||
@@ -178,7 +214,18 @@ export function getElements(): AppElements {
     navCharacters,
     navWorld,
     episodeSummary,
+    btnGenerateSummary,
+    summarySection,
+    btnPopoutSummary,
+    memoSection,
+    btnToggleMemo,
+    btnPopoutMemo,
     episodeMemo,
+    chatPanel,
+    btnToggleChat,
+    btnPopoutChat,
+    settingsSection,
+    btnPopoutSettings,
     settingsPanel,
     settingsModal,
     settingsForm,
@@ -186,6 +233,7 @@ export function getElements(): AppElements {
     settingApiKey,
     settingBaseUrl,
     settingModel,
+    settingModelSelect,
     btnFetchModels,
     settingTemperature,
     settingMaxTokens,

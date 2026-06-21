@@ -7,6 +7,7 @@ import type {
   Provider,
 } from "../settings.ts";
 import type { ProviderConfig, ProviderEntry } from "../providers/config.ts";
+import { DEEPSEEK_FIXED_MODELS } from "../ai/model-list.ts";
 
 export function renderProviderOptions(config: ProviderConfig): void {
   const { settingProvider } = getElements();
@@ -79,6 +80,36 @@ function updateAdvancedVisibility(provider: Provider): void {
   }
 }
 
+function populateDeepSeekModelSelect(currentModel: string): void {
+  const { settingModelSelect } = getElements();
+  settingModelSelect.innerHTML = "";
+  for (const id of DEEPSEEK_FIXED_MODELS) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    settingModelSelect.appendChild(option);
+  }
+  settingModelSelect.value = DEEPSEEK_FIXED_MODELS.includes(currentModel)
+    ? currentModel
+    : DEEPSEEK_FIXED_MODELS[0];
+}
+
+function updateModelInputMode(provider: Provider): void {
+  const { settingModel, settingModelSelect } = getElements();
+  const isDeepSeek = provider === "deepseek";
+
+  settingModel.classList.toggle("hidden", isDeepSeek);
+  settingModelSelect.classList.toggle("hidden", !isDeepSeek);
+}
+
+function updateModelFetchState(provider: Provider): void {
+  const { btnFetchModels } = getElements();
+  const isDeepSeek = provider === "deepseek";
+
+  btnFetchModels.disabled = isDeepSeek;
+  btnFetchModels.textContent = isDeepSeek ? "DeepSeek は固定" : "取得";
+}
+
 export function renderSettings(settings: AiSettings): void {
   const {
     settingProvider,
@@ -98,10 +129,13 @@ export function renderSettings(settings: AiSettings): void {
     settingAnthropicThinkingBudget,
   } = getElements();
 
+  const { settingModelSelect } = getElements();
+
   settingProvider.value = settings.provider;
   settingApiKey.value = settings.apiKey;
   settingBaseUrl.value = settings.baseUrl;
   settingModel.value = settings.model;
+  settingModelSelect.value = settings.model;
   settingTemperature.value = String(settings.temperature);
   settingMaxTokens.value = String(settings.maxTokens);
   settingTopP.value = optionalNumberInput(settings.topP);
@@ -115,6 +149,9 @@ export function renderSettings(settings: AiSettings): void {
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
 
   updateAdvancedVisibility(settings.provider);
+  updateModelFetchState(settings.provider);
+  updateModelInputMode(settings.provider);
+  populateDeepSeekModelSelect(settings.model);
 }
 
 export function readSettingsFromModal(): AiSettings {
@@ -123,6 +160,7 @@ export function readSettingsFromModal(): AiSettings {
     settingApiKey,
     settingBaseUrl,
     settingModel,
+    settingModelSelect,
     settingTemperature,
     settingMaxTokens,
     settingTopP,
@@ -136,11 +174,15 @@ export function readSettingsFromModal(): AiSettings {
     settingAnthropicThinkingBudget,
   } = getElements();
 
+  const provider = settingProvider.value as Provider;
+  const model =
+    provider === "deepseek" ? settingModelSelect.value.trim() : settingModel.value.trim();
+
   return {
-    provider: settingProvider.value as Provider,
+    provider,
     apiKey: settingApiKey.value.trim(),
     baseUrl: settingBaseUrl.value.trim(),
-    model: settingModel.value.trim(),
+    model,
     temperature: Number(settingTemperature.value),
     maxTokens: Number(settingMaxTokens.value),
     topP: parseOptionalNumber(settingTopP.value),
@@ -198,12 +240,16 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
 
     const entry = actions.onChange(provider);
     if (entry) {
-      const { settingBaseUrl, settingModel } = getElements();
+      const { settingBaseUrl, settingModel, settingModelSelect } = getElements();
       settingBaseUrl.value = entry.defaultBaseUrl;
       settingModel.value = entry.defaultModel;
+      settingModelSelect.value = entry.defaultModel;
     }
 
     updateAdvancedVisibility(provider);
+    updateModelFetchState(provider);
+    updateModelInputMode(provider);
+    populateDeepSeekModelSelect(entry?.defaultModel ?? "");
   });
 }
 

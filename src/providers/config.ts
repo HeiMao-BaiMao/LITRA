@@ -22,38 +22,9 @@ export interface ProviderConfig {
 const CONFIG_FILE = "providers.json";
 const BASE_DIR = BaseDirectory.AppConfig;
 
-const DEFAULT_CONFIG: ProviderConfig = {
-  providers: [
-    {
-      id: "openai",
-      name: "OpenAI",
-      sdkType: "openai",
-      defaultBaseUrl: "https://api.openai.com/v1",
-      defaultModel: "gpt-5.5",
-    },
-    {
-      id: "anthropic",
-      name: "Anthropic",
-      sdkType: "anthropic",
-      defaultBaseUrl: "https://api.anthropic.com",
-      defaultModel: "claude-opus-4-6",
-    },
-    {
-      id: "deepseek",
-      name: "DeepSeek",
-      sdkType: "openai",
-      defaultBaseUrl: "https://api.deepseek.com",
-      defaultModel: "deepseek-v4-flash",
-    },
-    {
-      id: "google",
-      name: "Google",
-      sdkType: "google",
-      defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
-      defaultModel: "gemini-3.5-flash",
-    },
-  ],
-};
+import defaultProviders from "./default-providers.json" with { type: "json" };
+
+const DEFAULT_CONFIG: ProviderConfig = defaultProviders as ProviderConfig;
 
 async function initializeDefaultConfig(): Promise<void> {
   const text = JSON.stringify(DEFAULT_CONFIG, null, 2);

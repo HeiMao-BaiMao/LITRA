@@ -1,4 +1,4 @@
-import { streamText, type ModelMessage } from "ai";
+import { streamText, type ModelMessage, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
 import { buildProviderOptions } from "./provider-options.ts";
 import {
@@ -29,12 +29,46 @@ function buildAdvancedOptions(settings: AiSettings) {
   };
 }
 
+interface ToolResultLike {
+  toolName: string;
+  input: unknown;
+  output: unknown;
+}
+
+async function consumeStream(
+  result: {
+    textStream: AsyncIterable<string>;
+    toolResults: PromiseLike<ToolResultLike[]>;
+  },
+  onChunk: (chunk: string) => void,
+  onToolResult?: (toolName: string, input: unknown, output: unknown) => void,
+): Promise<void> {
+  const textConsumer = (async () => {
+    for await (const chunk of result.textStream) {
+      onChunk(chunk);
+    }
+  })();
+
+  const toolConsumer = (async () => {
+    const results = await result.toolResults;
+    if (onToolResult) {
+      for (const item of results) {
+        onToolResult(item.toolName, item.input, item.output);
+      }
+    }
+  })();
+
+  await Promise.all([textConsumer, toolConsumer]);
+}
+
 export interface StreamChatOptions {
   settings: AiSettings;
   messages: ModelMessage[];
   onChunk: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
+  tools?: ToolSet;
+  onToolResult?: (toolName: string, input: unknown, output: unknown) => void;
 }
 
 export interface StreamContinuationOptions {
@@ -43,6 +77,8 @@ export interface StreamContinuationOptions {
   onChunk: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
+  tools?: ToolSet;
+  onToolResult?: (toolName: string, input: unknown, output: unknown) => void;
 }
 
 export interface StreamRewriteOptions {
@@ -68,6 +104,8 @@ export async function streamChat({
   onChunk,
   abortSignal,
   settingsContext,
+  tools,
+  onToolResult,
 }: StreamChatOptions): Promise<void> {
   try {
     const result = streamText({
@@ -77,12 +115,11 @@ export async function streamChat({
       temperature: settings.temperature,
       maxOutputTokens: settings.maxTokens,
       abortSignal,
+      tools,
       ...buildAdvancedOptions(settings),
     });
 
-    for await (const chunk of result.textStream) {
-      onChunk(chunk);
-    }
+    await consumeStream(result, onChunk, onToolResult);
   } catch (error) {
     console.error("streamChat error:", error);
     throw error;
@@ -95,6 +132,8 @@ export async function streamContinuation({
   onChunk,
   abortSignal,
   settingsContext,
+  tools,
+  onToolResult,
 }: StreamContinuationOptions): Promise<void> {
   try {
     const result = streamText({
@@ -104,12 +143,11 @@ export async function streamContinuation({
       temperature: settings.temperature,
       maxOutputTokens: settings.maxTokens,
       abortSignal,
+      tools,
       ...buildAdvancedOptions(settings),
     });
 
-    for await (const chunk of result.textStream) {
-      onChunk(chunk);
-    }
+    await consumeStream(result, onChunk, onToolResult);
   } catch (error) {
     console.error("streamContinuation error:", error);
     throw error;
@@ -135,9 +173,7 @@ export async function streamRewrite({
       ...buildAdvancedOptions(settings),
     });
 
-    for await (const chunk of result.textStream) {
-      onChunk(chunk);
-    }
+    await consumeStream(result, onChunk);
   } catch (error) {
     console.error("streamRewrite error:", error);
     throw error;
@@ -162,9 +198,7 @@ export async function streamFeedback({
       ...buildAdvancedOptions(settings),
     });
 
-    for await (const chunk of result.textStream) {
-      onChunk(chunk);
-    }
+    await consumeStream(result, onChunk);
   } catch (error) {
     console.error("streamFeedback error:", error);
     throw error;

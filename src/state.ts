@@ -17,6 +17,12 @@ export interface AppState {
   currentEpisodeId: string | null;
   currentCharacterId: string | null;
   currentWorldEntryId: string | null;
+  memoCollapsed: boolean;
+  chatCollapsed: boolean;
+  memoDetached: boolean;
+  chatDetached: boolean;
+  summaryDetached: boolean;
+  settingsDetached: boolean;
 }
 
 export const state: AppState = {
@@ -31,4 +37,10 @@ export const state: AppState = {
   currentEpisodeId: null,
   currentCharacterId: null,
   currentWorldEntryId: null,
+  memoCollapsed: false,
+  chatCollapsed: false,
+  memoDetached: false,
+  chatDetached: false,
+  summaryDetached: false,
+  settingsDetached: false,
 };

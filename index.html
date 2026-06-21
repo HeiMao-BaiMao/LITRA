@@ -31,8 +31,15 @@
             <div id="episode-list" class="episode-list"></div>
             <button id="btn-new-episode" type="button">＋ 新規エピソード</button>
           </div>
-          <div class="nav-section">
-            <h3>エピソード要約</h3>
+          <div id="summary-section" class="nav-section">
+            <div class="nav-section-header">
+              <h3>エピソード要約</h3>
+              <div class="header-actions">
+                <button id="btn-popout-summary" type="button" class="btn-popout" title="別ウィンドウで開く">
+                  ↗
+                </button>
+              </div>
+            </div>
             <textarea
               id="episode-summary"
               class="episode-summary"
@@ -40,19 +47,41 @@
               rows="4"
               disabled
             ></textarea>
+            <button id="btn-generate-summary" type="button" class="btn-inline" disabled>
+              AI に書かせる
+            </button>
           </div>
-          <div class="nav-section">
-            <h3>エピソード覚え書き</h3>
-            <textarea
-              id="episode-memo"
-              class="episode-memo"
-              placeholder="エピソードを選択してください..."
-              rows="6"
-              disabled
-            ></textarea>
+          <div id="memo-section" class="nav-section collapsible">
+            <div class="nav-section-header">
+              <h3>エピソード覚え書き</h3>
+              <div class="header-actions">
+                <button id="btn-popout-memo" type="button" class="btn-popout" title="別ウィンドウで開く">
+                  ↗
+                </button>
+                <button id="btn-toggle-memo" type="button" class="btn-toggle" aria-expanded="true">
+                  −
+                </button>
+              </div>
+            </div>
+            <div class="collapsible-body">
+              <textarea
+                id="episode-memo"
+                class="episode-memo"
+                placeholder="エピソードを選択してください..."
+                rows="6"
+                disabled
+              ></textarea>
+            </div>
           </div>
-          <div class="nav-section">
-            <h3>設定</h3>
+          <div id="settings-section" class="nav-section">
+            <div class="nav-section-header">
+              <h3>設定</h3>
+              <div class="header-actions">
+                <button id="btn-popout-settings" type="button" class="btn-popout" title="別ウィンドウで開く">
+                  ↗
+                </button>
+              </div>
+            </div>
             <button id="nav-characters" type="button" class="nav-settings-btn">キャラクター</button>
             <button id="nav-world" type="button" class="nav-settings-btn">世界観</button>
           </div>
@@ -69,9 +98,21 @@
 
         <section id="settings-panel" class="settings-panel hidden"></section>
 
-        <aside class="chat-panel">
-          <div id="chat-messages" class="chat-messages"></div>
-          <form id="chat-form" class="chat-form">
+        <aside id="chat-panel" class="chat-panel collapsible">
+          <div class="chat-panel-header">
+            <h3>AI チャット</h3>
+            <div class="header-actions">
+              <button id="btn-popout-chat" type="button" class="btn-popout" title="別ウィンドウで開く">
+                ↗
+              </button>
+              <button id="btn-toggle-chat" type="button" class="btn-toggle" aria-expanded="true">
+                −
+              </button>
+            </div>
+          </div>
+          <div class="collapsible-body">
+            <div id="chat-messages" class="chat-messages"></div>
+            <form id="chat-form" class="chat-form">
             <textarea
               id="chat-input"
               class="chat-input"
@@ -85,6 +126,7 @@
               </button>
             </div>
           </form>
+          </div>
         </aside>
       </main>
 
@@ -123,6 +165,7 @@
                   list="setting-model-list"
                   placeholder="モデルを選択または入力"
                 />
+                <select id="setting-model-select" class="hidden"></select>
                 <datalist id="setting-model-list"></datalist>
                 <button id="btn-fetch-models" type="button">取得</button>
               </div>

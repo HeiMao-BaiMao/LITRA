@@ -1,3 +1,13 @@
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { WebviewWindow, getAllWebviewWindows } from "@tauri-apps/api/webviewWindow";
+import {
+  applyWindowBounds,
+  loadWindowDetached,
+  saveWindowDetached,
+  trackWindowBounds,
+} from "./window/bounds.ts";
 import { loadSettings, saveSettings, type AiSettings } from "./settings.ts";
 import { state, type ProjectView } from "./state.ts";
 import {
@@ -6,6 +16,21 @@ import {
   streamFeedback,
   streamRewrite,
 } from "./ai/service.ts";
+import {
+  createCreateCharacterTool,
+  createCreateWorldEntryTool,
+  createEditEpisodeTool,
+  createListCharactersTool,
+  createListEpisodesTool,
+  createListWorldEntriesTool,
+  createRebuildSearchIndexTool,
+  createRetrieveEpisodeTool,
+  createSaveEpisodeOneLinerTool,
+  createSaveEpisodeSummaryTool,
+  createSearchEpisodesTool,
+  createUpdateCharacterTool,
+  createUpdateWorldEntryTool,
+} from "./ai/tools.ts";
 import { getElements } from "./ui/layout.ts";
 import {
   initEditor,
@@ -14,7 +39,12 @@ import {
   insertAtCursor,
   replaceSelection,
 } from "./ui/editor.ts";
-import { appendMessage, renderMessages, updateLastAssistantChunk } from "./ui/chat.ts";
+import {
+  appendMessage,
+  renderMessages,
+  setChatSyncCallback,
+  updateLastAssistantChunk,
+} from "./ui/chat.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
   bindAdvancedSettingsToggle,
@@ -84,7 +114,7 @@ import { loadChat, saveChat } from "./project/documents.ts";
 import { loadSummaries, saveEpisodeSummary } from "./project/summaries.ts";
 import { loadMemos, saveEpisodeMemo } from "./project/memos.ts";
 import type { Character, Episode, EpisodeMemoMap, EpisodeSummaryMap, WorldEntry } from "./project/schema.ts";
-import type { ModelMessage } from "ai";
+import type { ModelMessage, ToolSet } from "ai";
 
 let currentSettings: AiSettings;
 let providerConfig: ProviderConfig;
@@ -94,6 +124,10 @@ let characters: Character[] = [];
 let worldEntries: WorldEntry[] = [];
 let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
+
+let memoCollapsedBeforeDetach = false;
+let chatCollapsedBeforeDetach = false;
+let isMainClosing = false;
 
 function setGenerating(generating: boolean): void {
   state.isGenerating = generating;
@@ -123,6 +157,8 @@ function setGenerating(generating: boolean): void {
     btnCancel.disabled = true;
     state.abortController = null;
   }
+
+  syncChatToWindow();
 }
 
 function startGeneration(): AbortController {
@@ -164,6 +200,325 @@ function validateSettings(): boolean {
   return true;
 }
 
+function createAiTools(): ToolSet | undefined {
+  if (!currentProject) return undefined;
+
+  const searchDeps = { projectId: currentProject.id };
+  const summaryDeps = {
+    projectId: currentProject.id,
+    onSaveSummary: (episodeId: string, content: string) => {
+      episodeSummaries.summaries[episodeId] = {
+        ...(episodeSummaries.summaries[episodeId] ?? { oneLiner: "" }),
+        content,
+        updatedAt: new Date().toISOString(),
+      };
+      if (episodeId === state.currentEpisodeId) {
+        renderEpisodeSummary(episodeId, content, handleUpdateSummary, handleGenerateSummary);
+      }
+      syncSummaryToWindow();
+    },
+    onSaveOneLiner: (episodeId: string, oneLiner: string) => {
+      const existing = episodeSummaries.summaries[episodeId];
+      episodeSummaries.summaries[episodeId] = {
+        content: existing?.content ?? "",
+        oneLiner,
+        updatedAt: new Date().toISOString(),
+      };
+    },
+  };
+
+  const settingsDeps = {
+    projectId: currentProject.id,
+    onUpdateCharacters: (newCharacters: Character[]) => {
+      characters = newCharacters;
+      renderSettingsView();
+      syncSettingsToWindow();
+    },
+    onUpdateWorldEntries: (newEntries: WorldEntry[]) => {
+      worldEntries = newEntries;
+      renderSettingsView();
+      syncSettingsToWindow();
+    },
+  };
+
+  const tools: ToolSet = {
+    listEpisodes: createListEpisodesTool(searchDeps),
+    retrieveEpisode: createRetrieveEpisodeTool(searchDeps),
+    searchEpisodes: createSearchEpisodesTool(searchDeps),
+    rebuildSearchIndex: createRebuildSearchIndexTool(searchDeps),
+    saveEpisodeSummary: createSaveEpisodeSummaryTool(summaryDeps),
+    saveEpisodeOneLiner: createSaveEpisodeOneLinerTool(summaryDeps),
+    listCharacters: createListCharactersTool(settingsDeps),
+    updateCharacter: createUpdateCharacterTool(settingsDeps),
+    createCharacter: createCreateCharacterTool(settingsDeps),
+    listWorldEntries: createListWorldEntriesTool(settingsDeps),
+    updateWorldEntry: createUpdateWorldEntryTool(settingsDeps),
+    createWorldEntry: createCreateWorldEntryTool(settingsDeps),
+  };
+
+  if (state.currentEpisodeId) {
+    tools.editEpisode = createEditEpisodeTool({
+      projectId: currentProject.id,
+      episodeId: state.currentEpisodeId,
+      onApply: (newText) => {
+        const { editor } = getElements();
+        editor.value = newText;
+        state.editorText = newText;
+      },
+    });
+  }
+
+  return tools;
+}
+
+function applyPanelVisibility(): void {
+  const {
+    summarySection,
+    memoSection,
+    btnToggleMemo,
+    settingsSection,
+    chatPanel,
+    btnToggleChat,
+  } = getElements();
+  summarySection.classList.toggle("detached", state.summaryDetached);
+  memoSection.classList.toggle("detached", state.memoDetached);
+  settingsSection.classList.toggle("detached", state.settingsDetached);
+  chatPanel.classList.toggle("detached", state.chatDetached);
+  memoSection.classList.toggle("collapsed", state.memoCollapsed);
+  btnToggleMemo.textContent = state.memoCollapsed ? "＋" : "−";
+  btnToggleMemo.setAttribute("aria-expanded", String(!state.memoCollapsed));
+  chatPanel.classList.toggle("collapsed", state.chatCollapsed);
+  btnToggleChat.textContent = state.chatCollapsed ? "＋" : "−";
+  btnToggleChat.setAttribute("aria-expanded", String(!state.chatCollapsed));
+}
+
+function toggleMemo(): void {
+  state.memoCollapsed = !state.memoCollapsed;
+  applyPanelVisibility();
+}
+
+function toggleChat(): void {
+  state.chatCollapsed = !state.chatCollapsed;
+  applyPanelVisibility();
+}
+
+function syncMemoToWindow(): void {
+  const episodeId = state.currentEpisodeId;
+  emit("memo-sync", {
+    episodeId,
+    content: episodeId ? episodeMemos.memos[episodeId]?.content ?? "" : "",
+  });
+}
+
+function syncChatToWindow(): void {
+  emit("chat-sync", { messages: state.chatMessages, isGenerating: state.isGenerating });
+}
+
+function syncSummaryToWindow(): void {
+  const episodeId = state.currentEpisodeId;
+  emit("summary-sync", {
+    episodeId,
+    content: episodeId ? episodeSummaries.summaries[episodeId]?.content ?? "" : "",
+  });
+}
+
+function syncSettingsToWindow(): void {
+  emit("settings-sync", {
+    view: state.currentView === "episode" ? "characters" : state.currentView,
+    characters,
+    worldEntries,
+    currentCharacterId: state.currentCharacterId,
+    currentWorldEntryId: state.currentWorldEntryId,
+  });
+}
+
+async function openMemoWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("memo");
+  if (existing) {
+    await existing.setFocus();
+    return;
+  }
+
+  memoCollapsedBeforeDetach = state.memoCollapsed;
+  state.memoDetached = true;
+  applyPanelVisibility();
+  void saveWindowDetached("memo", true);
+
+  const webview = new WebviewWindow("memo", {
+    url: "memo-window.html",
+    title: "覚え書き - Phenex",
+    width: 420,
+    height: 640,
+    minWidth: 280,
+    minHeight: 320,
+  });
+
+  webview.once("tauri://created", () => {
+    setTimeout(() => syncMemoToWindow(), 500);
+    void applyWindowBounds(webview, "memo");
+    trackWindowBounds(webview, "memo");
+  });
+
+  webview.once("tauri://destroyed", () => {
+    if (!isMainClosing) {
+      state.memoDetached = false;
+      state.memoCollapsed = memoCollapsedBeforeDetach;
+      applyPanelVisibility();
+      void saveWindowDetached("memo", false);
+    }
+  });
+}
+
+async function openChatWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("chat");
+  if (existing) {
+    await existing.setFocus();
+    return;
+  }
+
+  chatCollapsedBeforeDetach = state.chatCollapsed;
+  state.chatDetached = true;
+  applyPanelVisibility();
+  void saveWindowDetached("chat", true);
+
+  const webview = new WebviewWindow("chat", {
+    url: "chat-window.html",
+    title: "AI チャット - Phenex",
+    width: 420,
+    height: 640,
+    minWidth: 280,
+    minHeight: 320,
+  });
+
+  webview.once("tauri://created", () => {
+    setTimeout(() => syncChatToWindow(), 500);
+    void applyWindowBounds(webview, "chat");
+    trackWindowBounds(webview, "chat");
+  });
+
+  webview.once("tauri://destroyed", () => {
+    if (!isMainClosing) {
+      state.chatDetached = false;
+      state.chatCollapsed = chatCollapsedBeforeDetach;
+      applyPanelVisibility();
+      void saveWindowDetached("chat", false);
+    }
+  });
+}
+
+async function openSummaryWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("summary");
+  if (existing) {
+    await existing.setFocus();
+    return;
+  }
+
+  state.summaryDetached = true;
+  applyPanelVisibility();
+  void saveWindowDetached("summary", true);
+
+  const webview = new WebviewWindow("summary", {
+    url: "summary-window.html",
+    title: "エピソード要約 - Phenex",
+    width: 420,
+    height: 640,
+    minWidth: 280,
+    minHeight: 320,
+  });
+
+  webview.once("tauri://created", () => {
+    setTimeout(() => syncSummaryToWindow(), 500);
+    void applyWindowBounds(webview, "summary");
+    trackWindowBounds(webview, "summary");
+  });
+
+  webview.once("tauri://destroyed", () => {
+    if (!isMainClosing) {
+      state.summaryDetached = false;
+      applyPanelVisibility();
+      void saveWindowDetached("summary", false);
+    }
+  });
+}
+
+async function openSettingsWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("settings");
+  if (existing) {
+    await existing.setFocus();
+    return;
+  }
+
+  state.settingsDetached = true;
+  applyPanelVisibility();
+  void saveWindowDetached("settings", true);
+
+  if (state.currentView === "episode") {
+    state.currentView = "characters";
+  }
+  setView(state.currentView);
+  renderSettingsView();
+  syncSettingsToWindow();
+
+  const webview = new WebviewWindow("settings", {
+    url: "settings-window.html",
+    title: "設定 - Phenex",
+    width: 640,
+    height: 700,
+    minWidth: 420,
+    minHeight: 420,
+  });
+
+  webview.once("tauri://created", () => {
+    setTimeout(() => syncSettingsToWindow(), 500);
+    void applyWindowBounds(webview, "settings");
+    trackWindowBounds(webview, "settings");
+  });
+
+  webview.once("tauri://destroyed", () => {
+    if (!isMainClosing) {
+      state.settingsDetached = false;
+      applyPanelVisibility();
+      setView(state.currentView);
+      renderSettingsView();
+      void saveWindowDetached("settings", false);
+    }
+  });
+}
+
+async function restoreDetachedWindows(): Promise<void> {
+  const labels = ["memo", "chat", "summary", "settings"] as const;
+  for (const label of labels) {
+    try {
+      const detached = await loadWindowDetached(label);
+      if (!detached) continue;
+
+      if (label === "memo") {
+        await openMemoWindow();
+      } else if (label === "chat") {
+        await openChatWindow();
+      } else if (label === "summary") {
+        await openSummaryWindow();
+      } else if (label === "settings") {
+        await openSettingsWindow();
+      }
+    } catch (error) {
+      console.error(`[phenex] failed to restore ${label} window:`, error);
+    }
+  }
+}
+
+function formatToolResult(toolName: string, input: unknown, output: unknown): string {
+  let text = `【ツール実行: ${toolName}】\n`;
+  text += `入力: ${JSON.stringify(input, null, 2)}\n`;
+  text += `結果:\n${JSON.stringify(output, null, 2)}`;
+  return text;
+}
+
+function handleToolResult(toolName: string, input: unknown, output: unknown): void {
+  const formatted = formatToolResult(toolName, input, output);
+  appendMessage("assistant", formatted);
+}
+
 function updateToolbarTitle(title: string): void {
   getElements().toolbarProjectName.textContent = title || "プロジェクト未選択";
 }
@@ -181,6 +536,9 @@ function setView(view: ProjectView): void {
   const { editorSection, settingsPanel } = getElements();
 
   if (view === "episode") {
+    editorSection.classList.remove("hidden");
+    settingsPanel.classList.add("hidden");
+  } else if (state.settingsDetached) {
     editorSection.classList.remove("hidden");
     settingsPanel.classList.add("hidden");
   } else {
@@ -236,19 +594,25 @@ async function saveCurrentSummary(): Promise<void> {
   if (!currentProject || !state.currentEpisodeId) return;
   const text = getElements().episodeSummary.value;
   await saveEpisodeSummary(currentProject.id, state.currentEpisodeId, text);
+  const existing = episodeSummaries.summaries[state.currentEpisodeId];
   episodeSummaries.summaries[state.currentEpisodeId] = {
     content: text,
+    oneLiner: existing?.oneLiner ?? "",
     updatedAt: new Date().toISOString(),
   };
+  syncSummaryToWindow();
 }
 
 async function handleUpdateSummary(episodeId: string, text: string): Promise<void> {
   if (!currentProject) return;
   await saveEpisodeSummary(currentProject.id, episodeId, text);
+  const existing = episodeSummaries.summaries[episodeId];
   episodeSummaries.summaries[episodeId] = {
     content: text,
+    oneLiner: existing?.oneLiner ?? "",
     updatedAt: new Date().toISOString(),
   };
+  syncSummaryToWindow();
 }
 
 async function saveCurrentMemo(): Promise<void> {
@@ -259,6 +623,7 @@ async function saveCurrentMemo(): Promise<void> {
     content: text,
     updatedAt: new Date().toISOString(),
   };
+  syncMemoToWindow();
 }
 
 async function handleUpdateMemo(episodeId: string, text: string): Promise<void> {
@@ -268,6 +633,7 @@ async function handleUpdateMemo(episodeId: string, text: string): Promise<void> 
     content: text,
     updatedAt: new Date().toISOString(),
   };
+  syncMemoToWindow();
 }
 
 async function selectEpisode(episodeId: string): Promise<void> {
@@ -290,8 +656,15 @@ async function selectEpisode(episodeId: string): Promise<void> {
   state.currentView = "episode";
   setView("episode");
   renderProjectNavigation();
-  renderEpisodeSummary(episode.id, episodeSummaries.summaries[episode.id]?.content, handleUpdateSummary);
+  renderEpisodeSummary(
+    episode.id,
+    episodeSummaries.summaries[episode.id]?.content,
+    handleUpdateSummary,
+    handleGenerateSummary,
+  );
   renderEpisodeMemo(episode.id, episodeMemos.memos[episode.id]?.content, handleUpdateMemo);
+  syncMemoToWindow();
+  syncSummaryToWindow();
 }
 
 async function ensureEpisodeExists(): Promise<void> {
@@ -330,6 +703,50 @@ async function handleDeleteEpisode(episodeId: string): Promise<void> {
   }
 
   renderProjectNavigation();
+}
+
+async function handleGenerateSummary(episodeId: string): Promise<void> {
+  if (!currentProject || !validateSettings()) return;
+
+  const episode = episodes.find((ep) => ep.id === episodeId);
+  if (!episode) return;
+
+  await saveCurrentEpisode();
+
+  const text = await loadEpisode(currentProject.id, episode.fileName);
+  const truncated = text.slice(0, 12000);
+
+  appendMessage(
+    "user",
+    `「${episode.title || "無題"}」の要約と一行要約を作成してください。\n\n【本文】\n${truncated}`,
+  );
+
+  const controller = startGeneration();
+  try {
+    const messages: ModelMessage[] = state.chatMessages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    await streamChat({
+      settings: currentSettings,
+      messages,
+      settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+      tools: createAiTools(),
+      onChunk: (chunk) => {
+        updateLastAssistantChunk(chunk);
+      },
+      onToolResult: handleToolResult,
+      abortSignal: controller.signal,
+    });
+    await saveCurrentChat();
+  } catch (error) {
+    if (error instanceof Error && error.name !== "AbortError") {
+      window.alert(`エラー: ${error.message}`);
+    }
+  } finally {
+    setGenerating(false);
+  }
 }
 
 async function loadProjectData(project: Project): Promise<void> {
@@ -377,13 +794,22 @@ async function loadProjectData(project: Project): Promise<void> {
     state.currentEpisodeId,
     state.currentEpisodeId ? episodeSummaries.summaries[state.currentEpisodeId]?.content : undefined,
     handleUpdateSummary,
+    handleGenerateSummary,
   );
   renderEpisodeMemo(
     state.currentEpisodeId,
     state.currentEpisodeId ? episodeMemos.memos[state.currentEpisodeId]?.content : undefined,
     handleUpdateMemo,
   );
+  syncMemoToWindow();
+  syncSummaryToWindow();
+  syncChatToWindow();
+  syncSettingsToWindow();
   hideProjectModal();
+
+  invoke("rebuild_search_index", { projectId: project.id }).catch((error) => {
+    console.error("[phenex] failed to rebuild search index:", error);
+  });
 }
 
 async function saveCurrentChat(): Promise<void> {
@@ -540,7 +966,7 @@ async function handleDeleteProject(projectId: string): Promise<void> {
       state.editorText = "";
       state.currentEpisodeId = null;
       renderMessages([]);
-      renderEpisodeSummary(null, undefined, handleUpdateSummary);
+      renderEpisodeSummary(null, undefined, handleUpdateSummary, handleGenerateSummary);
       renderEpisodeMemo(null, undefined, handleUpdateMemo);
       updateToolbarTitle("");
       setEditorEnabled(false);
@@ -571,7 +997,9 @@ const projectNavActions: ProjectNavActions = {
     state.currentView = view;
     setView(view);
     renderSettingsView();
+    syncSettingsToWindow();
   },
+  onGenerateSummary: (id) => void handleGenerateSummary(id),
 };
 
 const settingsActions: SettingsEditorActions = {
@@ -591,12 +1019,14 @@ async function handleCreateCharacter(name: string): Promise<void> {
   characters = (await loadCharacters(currentProject.id)).characters;
   state.currentCharacterId = character.id;
   renderSettingsView();
+  syncSettingsToWindow();
 }
 
 async function handleUpdateCharacter(character: Character): Promise<void> {
   if (!currentProject) return;
   await updateCharacter(currentProject.id, character);
   characters = (await loadCharacters(currentProject.id)).characters;
+  syncSettingsToWindow();
 }
 
 async function handleDeleteCharacter(id: string): Promise<void> {
@@ -607,11 +1037,13 @@ async function handleDeleteCharacter(id: string): Promise<void> {
     state.currentCharacterId = characters.length > 0 ? characters[0].id : null;
   }
   renderSettingsView();
+  syncSettingsToWindow();
 }
 
 async function handleSelectCharacter(id: string): Promise<void> {
   state.currentCharacterId = id;
   renderSettingsView();
+  syncSettingsToWindow();
 }
 
 async function handleCreateWorldEntry(name: string, category: string): Promise<void> {
@@ -620,12 +1052,14 @@ async function handleCreateWorldEntry(name: string, category: string): Promise<v
   worldEntries = (await loadWorldEntries(currentProject.id)).entries;
   state.currentWorldEntryId = entry.id;
   renderSettingsView();
+  syncSettingsToWindow();
 }
 
 async function handleUpdateWorldEntry(entry: WorldEntry): Promise<void> {
   if (!currentProject) return;
   await updateWorldEntry(currentProject.id, entry);
   worldEntries = (await loadWorldEntries(currentProject.id)).entries;
+  syncSettingsToWindow();
 }
 
 async function handleDeleteWorldEntry(id: string): Promise<void> {
@@ -636,15 +1070,19 @@ async function handleDeleteWorldEntry(id: string): Promise<void> {
     state.currentWorldEntryId = worldEntries.length > 0 ? worldEntries[0].id : null;
   }
   renderSettingsView();
+  syncSettingsToWindow();
 }
 
 async function handleSelectWorldEntry(id: string): Promise<void> {
   state.currentWorldEntryId = id;
   renderSettingsView();
+  syncSettingsToWindow();
 }
 
 async function handleContinue(): Promise<void> {
   if (!validateEpisode() || !validateSettings()) return;
+
+  await saveCurrentEpisode();
 
   const { start } = getSelection();
   const text = getElements().editor.value;
@@ -656,9 +1094,11 @@ async function handleContinue(): Promise<void> {
       settings: currentSettings,
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+      tools: createAiTools(),
       onChunk: (chunk) => {
         insertAtCursor(chunk);
       },
+      onToolResult: handleToolResult,
       abortSignal: controller.signal,
     });
   } catch (error) {
@@ -736,16 +1176,7 @@ async function handleFeedback(): Promise<void> {
   }
 }
 
-async function handleChatSubmit(): Promise<void> {
-  if (!validateProject() || !validateSettings()) return;
-
-  const { chatInput } = getElements();
-  const message = chatInput.value.trim();
-  if (!message) return;
-
-  chatInput.value = "";
-  appendMessage("user", message);
-
+async function handleChatMessage(): Promise<void> {
   const controller = startGeneration();
   try {
     const messages: ModelMessage[] = state.chatMessages.map((msg) => ({
@@ -757,9 +1188,11 @@ async function handleChatSubmit(): Promise<void> {
       settings: currentSettings,
       messages,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+      tools: createAiTools(),
       onChunk: (chunk) => {
         updateLastAssistantChunk(chunk);
       },
+      onToolResult: handleToolResult,
       abortSignal: controller.signal,
     });
     await saveCurrentChat();
@@ -770,6 +1203,22 @@ async function handleChatSubmit(): Promise<void> {
   } finally {
     setGenerating(false);
   }
+}
+
+async function handleChatSubmit(): Promise<void> {
+  if (!validateProject() || !validateSettings()) return;
+
+  if (state.currentEpisodeId) {
+    await saveCurrentEpisode();
+  }
+
+  const { chatInput } = getElements();
+  const message = chatInput.value.trim();
+  if (!message) return;
+
+  chatInput.value = "";
+  appendMessage("user", message);
+  await handleChatMessage();
 }
 
 function openSettings(): void {
@@ -850,6 +1299,13 @@ function bindUiEvents(): void {
     void handleChatSubmit();
   });
 
+  getElements().chatInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      getElements().chatForm.requestSubmit();
+    }
+  });
+
   getElements().btnCancel.addEventListener("click", stopGeneration);
 
   bindSettingsActions({
@@ -870,6 +1326,18 @@ function bindUiEvents(): void {
   bindProjectModalActions(projectModalActions);
   bindProjectModalClose(closeProjectModal);
   bindProjectNavActions(projectNavActions);
+
+  getElements().btnToggleMemo.addEventListener("click", toggleMemo);
+  getElements().btnToggleChat.addEventListener("click", toggleChat);
+  getElements().btnPopoutMemo.addEventListener("click", () => void openMemoWindow());
+  getElements().btnPopoutChat.addEventListener("click", () => void openChatWindow());
+  getElements().btnPopoutSummary.addEventListener("click", () => void openSummaryWindow());
+  getElements().btnPopoutSettings.addEventListener("click", () => void openSettingsWindow());
+  applyPanelVisibility();
+
+  setChatSyncCallback((messages, isGenerating) => {
+    emit("chat-sync", { messages, isGenerating });
+  });
 }
 
 async function init(): Promise<void> {
@@ -902,12 +1370,136 @@ async function init(): Promise<void> {
     };
   }
 
+  listen<{ episodeId: string; content: string }>("memo-update", (event) => {
+    const { episodeId, content } = event.payload;
+    if (!currentProject) return;
+    void saveEpisodeMemo(currentProject.id, episodeId, content);
+    episodeMemos.memos[episodeId] = {
+      content,
+      updatedAt: new Date().toISOString(),
+    };
+    if (episodeId === state.currentEpisodeId) {
+      getElements().episodeMemo.value = content;
+    }
+  });
+
+  listen("memo-ready", () => {
+    syncMemoToWindow();
+  });
+
+  listen<{ content: string }>("chat-send", (event) => {
+    appendMessage("user", event.payload.content);
+    void handleChatMessage();
+  });
+
+  listen("chat-stop", () => {
+    stopGeneration();
+  });
+
+  listen("chat-ready", () => {
+    syncChatToWindow();
+  });
+
+  listen<{ episodeId: string; content: string }>("summary-update", (event) => {
+    const { episodeId, content } = event.payload;
+    if (!currentProject) return;
+    void saveEpisodeSummary(currentProject.id, episodeId, content);
+    const existing = episodeSummaries.summaries[episodeId];
+    episodeSummaries.summaries[episodeId] = {
+      content,
+      oneLiner: existing?.oneLiner ?? "",
+      updatedAt: new Date().toISOString(),
+    };
+    if (episodeId === state.currentEpisodeId) {
+      getElements().episodeSummary.value = content;
+    }
+  });
+
+  listen("summary-ready", () => {
+    syncSummaryToWindow();
+  });
+
+  listen<{ episodeId: string }>("summary-generate", (event) => {
+    if (!currentProject) return;
+    void handleGenerateSummary(event.payload.episodeId);
+  });
+
+  listen("settings-ready", () => {
+    syncSettingsToWindow();
+  });
+
+  listen<{ view: "characters" | "world" }>("settings-select-view", (event) => {
+    state.currentView = event.payload.view;
+    setView(state.currentView);
+    renderSettingsView();
+    syncSettingsToWindow();
+  });
+
+  listen<{ name: string }>("settings-create-character", (event) => {
+    void handleCreateCharacter(event.payload.name);
+  });
+
+  listen<{ character: Character }>("settings-update-character", (event) => {
+    void handleUpdateCharacter(event.payload.character);
+  });
+
+  listen<{ id: string }>("settings-delete-character", (event) => {
+    void handleDeleteCharacter(event.payload.id);
+  });
+
+  listen<{ id: string }>("settings-select-character", (event) => {
+    void handleSelectCharacter(event.payload.id);
+  });
+
+  listen<{ name: string; category: string }>("settings-create-world", (event) => {
+    void handleCreateWorldEntry(event.payload.name, event.payload.category);
+  });
+
+  listen<{ entry: WorldEntry }>("settings-update-world", (event) => {
+    void handleUpdateWorldEntry(event.payload.entry);
+  });
+
+  listen<{ id: string }>("settings-delete-world", (event) => {
+    void handleDeleteWorldEntry(event.payload.id);
+  });
+
+  listen<{ id: string }>("settings-select-world", (event) => {
+    void handleSelectWorldEntry(event.payload.id);
+  });
+
+  const mainWindow = getCurrentWindow();
+  void applyWindowBounds(mainWindow, "main");
+  trackWindowBounds(mainWindow, "main");
+
+  mainWindow.onCloseRequested(async (event) => {
+    if (isMainClosing) return;
+    event.preventDefault();
+    isMainClosing = true;
+
+    try {
+      const windows = await getAllWebviewWindows();
+      for (const win of windows) {
+        if (win.label !== mainWindow.label) {
+          await win.destroy();
+        }
+      }
+    } catch (error) {
+      console.error("[phenex] failed to close child windows:", error);
+    }
+
+    await mainWindow.destroy();
+  }).catch((error) => {
+    console.error("[phenex] failed to listen main window close:", error);
+  });
+
   try {
     await loadInitialProject();
     console.log("[phenex] initial project loaded");
   } catch (error) {
     console.error("[phenex] failed to load initial project:", error);
   }
+
+  await restoreDetachedWindows();
 }
 
 function startApp(): void {

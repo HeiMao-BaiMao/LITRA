@@ -307,9 +307,10 @@ export function renderSettingsEditor(
   currentCharacterId: string | null,
   currentWorldEntryId: string | null,
   actions: SettingsEditorActions,
+  container?: HTMLElement,
 ): void {
   currentActions = actions;
-  const panel = getElements().settingsPanel;
+  const panel = container ?? getElements().settingsPanel;
   panel.innerHTML = "";
 
   const wrapper = document.createElement("div");

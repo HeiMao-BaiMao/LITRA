@@ -7,8 +7,28 @@ export interface ModelListResult {
   error?: string;
 }
 
+/**
+ * DeepSeek API は OpenAI 互換の `/v1/models` エンドポイントを提供していない。
+ * 取得に失敗した場合は、公式ドキュメントで公開されている既知のモデル一覧を
+ * フォールバックとして返す。
+ */
+export const DEEPSEEK_FIXED_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"].sort();
+
+function getOpenAiFallbackModels(
+  providerId: string,
+  baseUrl: string,
+): string[] | undefined {
+  const isDeepSeek =
+    providerId === "deepseek" || baseUrl.includes("api.deepseek.com");
+  if (isDeepSeek) {
+    return DEEPSEEK_FIXED_MODELS;
+  }
+  return undefined;
+}
+
 async function fetchOpenAiCompatibleModels(
   settings: AiSettings,
+  providerId: string,
 ): Promise<ModelListResult> {
   try {
     const { default: OpenAI } = await import("openai");
@@ -20,13 +40,36 @@ async function fetchOpenAiCompatibleModels(
     });
 
     const response = await client.models.list();
-    const models = response.data
+    const fetchedModels = response.data
       .map((model) => model.id)
-      .filter((id): id is string => typeof id === "string")
-      .sort();
+      .filter((id): id is string => typeof id === "string");
+
+    // DeepSeek の /v1/models は返すモデルが不完全なことがあるため、
+    // 取得結果と既知のフォールバック一覧を統合する。
+    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl);
+    const models =
+      fallback && fallback.length > 0
+        ? Array.from(new Set([...fetchedModels, ...fallback])).sort()
+        : [...fetchedModels].sort();
 
     return { models };
   } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? (error as { status?: number }).status
+        : undefined;
+
+    // 認証エラー時はフォールバックせず、そのままエラーを返す。
+    if (status === 401 || status === 403) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { models: [], error: message };
+    }
+
+    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl);
+    if (fallback && fallback.length > 0) {
+      return { models: fallback };
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     return { models: [], error: message };
   }
@@ -119,7 +162,7 @@ export async function fetchAvailableModels(
 
   switch (entry.sdkType) {
     case "openai":
-      return fetchOpenAiCompatibleModels(settings);
+      return fetchOpenAiCompatibleModels(settings, entry.id);
     case "anthropic":
       return fetchAnthropicModels(settings);
     case "google":
