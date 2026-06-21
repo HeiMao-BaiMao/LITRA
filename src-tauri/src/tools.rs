@@ -28,6 +28,48 @@ pub struct EditRequest {
     pub replacement_text: String,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchEditItem {
+    pub start_line: usize,
+    pub end_line: usize,
+    pub expected_text: String,
+    pub replacement_text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchEditRequest {
+    pub project_id: String,
+    pub episode_id: String,
+    pub edits: Vec<BatchEditItem>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchEditItemResult {
+    pub index: usize,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub success: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_text: Option<String>,
+    pub replacement_line_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchEditResult {
+    pub success: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_text: Option<String>,
+    pub total_lines: usize,
+    pub applied_edits: usize,
+    pub edit_results: Vec<BatchEditItemResult>,
+}
+
 fn documents_dir() -> Result<PathBuf, String> {
     dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
 }
@@ -195,6 +237,155 @@ pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
         new_text: Some(new_text),
         actual_text: None,
         total_lines: Some(lines.len()),
+    })
+}
+
+#[tauri::command]
+pub fn edit_episode_text_batch(req: BatchEditRequest) -> Result<BatchEditResult, String> {
+    let episodes_path = episode_list_path(&req.project_id)?;
+    let episodes = read_json(&episodes_path)?;
+    let file_name = find_episode_file_name(&episodes, &req.episode_id)?;
+    let file_path = episodes_dir(&req.project_id)?.join(&file_name);
+
+    let current_text = normalize_newlines(
+        &fs::read_to_string(&file_path)
+            .map_err(|e| format!("Failed to read episode {}: {}", file_name, e))?,
+    );
+    let lines: Vec<&str> = current_text.split('\n').collect();
+    let total_lines = lines.len();
+
+    if req.edits.is_empty() {
+        return Ok(BatchEditResult {
+            success: false,
+            message: "編集対象が指定されていません。".to_string(),
+            new_text: None,
+            total_lines,
+            applied_edits: 0,
+            edit_results: Vec::new(),
+        });
+    }
+
+    let mut edit_results = Vec::new();
+    let mut normalized_edits = Vec::new();
+
+    for (index, edit) in req.edits.iter().enumerate() {
+        let replacement_text = normalize_newlines(&edit.replacement_text);
+        let replacement_line_count = replacement_text.split('\n').count();
+        let start = edit.start_line.saturating_sub(1);
+        let end = edit.end_line;
+
+        if edit.start_line == 0
+            || edit.end_line < edit.start_line
+            || start >= total_lines
+            || end > total_lines
+        {
+            edit_results.push(BatchEditItemResult {
+                index,
+                start_line: edit.start_line,
+                end_line: edit.end_line,
+                success: false,
+                message: "指定された行範囲が無効です。".to_string(),
+                actual_text: None,
+                replacement_line_count,
+            });
+            continue;
+        }
+
+        let actual_text = lines[start..end].join("\n");
+        let expected_text = normalize_newlines(&edit.expected_text);
+        if actual_text != expected_text {
+            edit_results.push(BatchEditItemResult {
+                index,
+                start_line: edit.start_line,
+                end_line: edit.end_line,
+                success: false,
+                message: "指定した行範囲の内容が一致しませんでした。".to_string(),
+                actual_text: Some(actual_text),
+                replacement_line_count,
+            });
+            continue;
+        }
+
+        normalized_edits.push((
+            index,
+            edit.clone(),
+            replacement_text,
+            replacement_line_count,
+        ));
+    }
+
+    let mut sorted_for_overlap = normalized_edits.clone();
+    sorted_for_overlap.sort_by_key(|(_, edit, _, _)| edit.start_line);
+    for pair in sorted_for_overlap.windows(2) {
+        let (_, previous, _, _) = &pair[0];
+        let (index, current, _, replacement_line_count) = &pair[1];
+        if current.start_line <= previous.end_line {
+            edit_results.push(BatchEditItemResult {
+                index: *index,
+                start_line: current.start_line,
+                end_line: current.end_line,
+                success: false,
+                message: format!(
+                    "編集範囲が重複しています: {}-{} と {}-{}",
+                    previous.start_line, previous.end_line, current.start_line, current.end_line
+                ),
+                actual_text: None,
+                replacement_line_count: *replacement_line_count,
+            });
+        }
+    }
+
+    if !edit_results.is_empty() {
+        edit_results.sort_by_key(|result| result.index);
+        return Ok(BatchEditResult {
+            success: false,
+            message: "一括編集は適用されませんでした。失敗した編集範囲を確認してください。"
+                .to_string(),
+            new_text: None,
+            total_lines,
+            applied_edits: 0,
+            edit_results,
+        });
+    }
+
+    let mut new_lines: Vec<String> = lines.iter().map(|line| (*line).to_string()).collect();
+    normalized_edits.sort_by_key(|(_, edit, _, _)| std::cmp::Reverse(edit.start_line));
+
+    for (index, edit, replacement_text, replacement_line_count) in normalized_edits {
+        let start = edit.start_line - 1;
+        let end = edit.end_line;
+        let replacement_lines = replacement_text
+            .split('\n')
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        new_lines.splice(start..end, replacement_lines);
+        edit_results.push(BatchEditItemResult {
+            index,
+            start_line: edit.start_line,
+            end_line: edit.end_line,
+            success: true,
+            message: format!(
+                "{}行目から{}行目を編集しました。",
+                edit.start_line, edit.end_line
+            ),
+            actual_text: None,
+            replacement_line_count,
+        });
+    }
+
+    edit_results.sort_by_key(|result| result.index);
+    let applied_edits = edit_results.len();
+    let new_text = new_lines.join("\n");
+    write_text(&file_path, &new_text)
+        .map_err(|e| format!("Failed to write episode {}: {}", file_name, e))?;
+
+    Ok(BatchEditResult {
+        success: true,
+        message: format!("{}件の編集を一括適用しました。", applied_edits),
+        new_text: Some(new_text),
+        total_lines,
+        applied_edits,
+        edit_results,
     })
 }
 
@@ -703,6 +894,122 @@ mod tests {
         assert!(!result.success, "reversed range should fail");
         let written = fs::read_to_string(episodes_dir_path.join("ep-1.txt")).unwrap();
         assert_eq!(written, "一行目\n二行目");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn edit_episode_batch_applies_multiple_non_overlapping_ranges() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            episodes_dir_path.join("ep-1.txt"),
+            "一行目\n二行目\n三行目\n四行目\n五行目",
+        )
+        .unwrap();
+
+        let result = edit_episode_text_batch(BatchEditRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            edits: vec![
+                BatchEditItem {
+                    start_line: 2,
+                    end_line: 2,
+                    expected_text: "二行目".to_string(),
+                    replacement_text: "二行目A\n二行目B".to_string(),
+                },
+                BatchEditItem {
+                    start_line: 5,
+                    end_line: 5,
+                    expected_text: "五行目".to_string(),
+                    replacement_text: "五行目改".to_string(),
+                },
+            ],
+        })
+        .unwrap();
+
+        assert!(
+            result.success,
+            "batch edit should succeed: {:?}",
+            result.message
+        );
+        assert_eq!(result.applied_edits, 2);
+        let written = fs::read_to_string(episodes_dir_path.join("ep-1.txt")).unwrap();
+        assert_eq!(
+            written,
+            "一行目\n二行目A\n二行目B\n三行目\n四行目\n五行目改"
+        );
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn edit_episode_batch_rejects_without_partial_write() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
+        fs::write(episodes_dir_path.join("ep-1.txt"), "一行目\n二行目\n三行目").unwrap();
+
+        let result = edit_episode_text_batch(BatchEditRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            edits: vec![
+                BatchEditItem {
+                    start_line: 1,
+                    end_line: 1,
+                    expected_text: "一行目".to_string(),
+                    replacement_text: "一行目改".to_string(),
+                },
+                BatchEditItem {
+                    start_line: 3,
+                    end_line: 3,
+                    expected_text: "違う三行目".to_string(),
+                    replacement_text: "三行目改".to_string(),
+                },
+            ],
+        })
+        .unwrap();
+
+        assert!(!result.success, "batch edit should reject mismatched text");
+        assert_eq!(result.applied_edits, 0);
+        assert_eq!(result.edit_results.len(), 1);
+        assert_eq!(
+            result.edit_results[0].actual_text.as_deref(),
+            Some("三行目")
+        );
+        let written = fs::read_to_string(episodes_dir_path.join("ep-1.txt")).unwrap();
+        assert_eq!(written, "一行目\n二行目\n三行目");
 
         cleanup(&project_id);
     }

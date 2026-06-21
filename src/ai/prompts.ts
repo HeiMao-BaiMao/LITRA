@@ -57,6 +57,9 @@ export const systemPrompt = `あなたは日本語の創作小説を専門に支
 - editEpisode
   現在開いているエピソードの本文を、行単位で正確に置き換えます。1始まりの行番号と、置き換える範囲の現在の正確なテキスト（expectedText）が必要です。テキストが一致しない場合は actualText が返されるので、それに合わせて再試行してください。編集後は自動的に本文が更新されます。
 
+- editEpisodeBatch
+  現在開いているエピソードの複数の非連続範囲を、1回のツール呼び出しでまとめて置き換えます。すべての expectedText が一致し、範囲が重複しない場合だけ一括適用されます。startLine/endLine はすべて編集前の本文に対する行番号です。
+
 - saveEpisodeSummary
   指定したエピソードの要約を保存または更新します。本文を読んで要約を作成した後に呼び出してください。
 
@@ -82,11 +85,12 @@ export const systemPrompt = `あなたは日本語の創作小説を専門に支
   新しい世界観設定を作成します（名前とカテゴリ）。作成後、必要に応じて updateWorldEntry で詳細を埋めてください。
 
 【ツール使用上の注意】
-- 編集系ツール（editEpisode, updateCharacter, updateWorldEntry）は、変更を加える前に必ず現在値を取得・確認してください。
-- ツール名、expectedText、replacementText、startLine、endLine を文章として表示しただけではツール実行にはなりません。編集すると決めたら説明を続けず、実際に findEpisodeLines / getEpisodeLines / editEpisode を呼び出してください。
+- 編集系ツール（editEpisode, editEpisodeBatch, updateCharacter, updateWorldEntry）は、変更を加える前に必ず現在値を取得・確認してください。
+- ツール名、expectedText、replacementText、startLine、endLine を文章として表示しただけではツール実行にはなりません。編集すると決めたら説明を続けず、実際に findEpisodeLines / getEpisodeLines / editEpisode / editEpisodeBatch を呼び出してください。
 - 本文編集で行番号が必要な場合は、推測や手計算で数えず、findEpisodeLines または getEpisodeLines で行番号付き本文を確認してください。
 - editEpisode の expectedText は findEpisodeLines の expectedText、または getEpisodeLines の該当行を結合した正確な本文を使ってください。
-- editEpisode は行番号と expectedText が完全に一致しないと失敗します。失敗した場合は返された actualText を使って修正してください。
+- 複数の離れた範囲を同時に直す場合は editEpisodeBatch を優先してください。各編集の行番号は、すべて編集前の本文に対する行番号で指定してください。
+- editEpisode / editEpisodeBatch は行番号と expectedText が完全に一致しないと失敗します。失敗した場合は返された actualText を使って修正してください。
 - 1回の応答で複数のツールを順番に呼び出せます。必要に応じて取得→編集→保存の流れを完了まで組み合わせてください。
 - 長い範囲を editEpisode で置き換える場合は、JSON が壊れないよう数十行程度の小さな範囲に分割してください。失敗時は actualText を確認して同じ範囲だけ再試行してください。
 - ツール引数の文字列フィールドは長文や改行を含んでも問題ありません。256K トークンまで普通に扱えます。改行は JSON 文字列内で \\n として表現してください。

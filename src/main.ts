@@ -23,6 +23,7 @@ import { buildSummaryPrompt, limitPromptText } from "./ai/prompts.ts";
 import {
   createCreateCharacterTool,
   createCreateWorldEntryTool,
+  createEditEpisodeBatchTool,
   createEditEpisodeTool,
   createFindEpisodeLinesTool,
   createGetEpisodeLinesTool,
@@ -147,7 +148,7 @@ const CHAT_LENGTH_CONTINUATION_PROMPT =
   "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを書いてください。前置き、見出し、注釈は不要です。";
 const CHAT_TOOL_CALL_RETRY_LIMIT = 3;
 const CHAT_TOOL_CALL_RETRY_PROMPT =
-  "直前の応答は、必要なツール呼び出しに到達しないまま説明文で終わっています。説明、手順、expectedText/replacementText の表示を続けず、直ちに必要なツールを呼び出してください。本文編集では findEpisodeLines または getEpisodeLines で確認し、続けて editEpisode を呼び出してください。ユーザーへの文章回答はツール実行後だけにしてください。";
+  "直前の応答は、必要なツール呼び出しに到達しないまま説明文で終わっています。説明、手順、expectedText/replacementText の表示を続けず、直ちに必要なツールを呼び出してください。本文編集では findEpisodeLines または getEpisodeLines で確認し、単一範囲なら editEpisode、複数の離れた範囲なら editEpisodeBatch を呼び出してください。ユーザーへの文章回答はツール実行後だけにしてください。";
 
 interface PromptContextBudgets {
   settingsField: number;
@@ -363,6 +364,15 @@ function createAiTools(): ToolSet | undefined {
         state.editorText = newText;
       },
     });
+    tools.editEpisodeBatch = createEditEpisodeBatchTool({
+      projectId: currentProject.id,
+      episodeId: state.currentEpisodeId,
+      onApply: (newText) => {
+        const { editor } = getElements();
+        editor.value = newText;
+        state.editorText = newText;
+      },
+    });
   }
 
   return tools;
@@ -432,7 +442,7 @@ function getLastAssistantPlainText(): string {
 }
 
 function textLooksLikeToolRequired(text: string): boolean {
-  return /editEpisode|findEpisodeLines|getEpisodeLines|expectedText|replacementText|startLine|endLine|行番号|本文を確認|現在の本文|現状の本文|変更\d|変更[0-9a-zA-Zぁ-んァ-ヶ一-龠]*|置き換え|置換|差し替え|挿入|削除|反映|編集を実行|ツール.?コール|ツール.?呼び出し|保存して|要約を保存|一行要約/.test(text);
+  return /editEpisode|editEpisodeBatch|findEpisodeLines|getEpisodeLines|expectedText|replacementText|startLine|endLine|行番号|本文を確認|現在の本文|現状の本文|変更\d|変更[0-9a-zA-Zぁ-んァ-ヶ一-龠]*|複数箇所|一括編集|置き換え|置換|差し替え|挿入|削除|反映|編集を実行|ツール.?コール|ツール.?呼び出し|保存して|要約を保存|一行要約/.test(text);
 }
 
 function shouldRetryMissingToolCall(messages: ModelMessage[], run: StreamRunResult): boolean {

@@ -194,6 +194,16 @@ interface EpisodeLineSearchResponse {
   matches: EpisodeLineSearchMatch[];
 }
 
+interface BatchEditItemResponse {
+  index: number;
+  startLine: number;
+  endLine: number;
+  success: boolean;
+  message: string;
+  actualText?: string;
+  replacementLineCount: number;
+}
+
 const editInputSchema = z
   .object({
     startLine: z.number().int().min(1).describe("置き換え開始行（1始まり）"),
@@ -240,6 +250,53 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
         applied: result.success,
         editedLineRange: { startLine, endLine },
         replacementLineCount: replacementText.split("\n").length,
+        searchIndexUpdated,
+      };
+    }),
+  });
+}
+
+const batchEditInputSchema = z.object({
+  edits: z
+    .array(editInputSchema)
+    .min(1)
+    .max(50)
+    .describe("一括適用する編集。各 startLine/endLine は、編集前の現在本文に対する1始まりの行番号です。範囲は重複できません。"),
+});
+
+export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
+  return tool({
+    description:
+      "現在開いているエピソード本文の複数の非連続範囲を、1回のツール呼び出しでまとめて置き換えます。すべての expectedText が一致し、範囲が重複しない場合だけ一括適用されます。startLine/endLine はすべて編集前の本文に対する行番号です。",
+    inputSchema: batchEditInputSchema,
+    execute: wrapToolExecute("editEpisodeBatch", async ({ edits }) => {
+      const result = await invoke<{
+        success: boolean;
+        message: string;
+        newText?: string;
+        totalLines: number;
+        appliedEdits: number;
+        editResults: BatchEditItemResponse[];
+      }>("edit_episode_text_batch", {
+        req: {
+          projectId: deps.projectId,
+          episodeId: deps.episodeId,
+          edits,
+        },
+      });
+      if (result.success && result.newText != null) {
+        deps.onApply(result.newText);
+      }
+      const searchIndexUpdated = result.success ? await rebuildSearchIndexQuietly(deps.projectId) : false;
+      return {
+        success: result.success,
+        message: result.message,
+        totalLines: result.totalLines,
+        appliedEdits: result.appliedEdits,
+        editResults: result.editResults.map((item) => ({
+          ...item,
+          actualText: item.actualText != null ? limitToolText(item.actualText) : undefined,
+        })),
         searchIndexUpdated,
       };
     }),
