@@ -109,6 +109,39 @@ export async function updateEpisodeTitle(
   await saveEpisodeList(projectId, list);
 }
 
+export async function moveEpisode(
+  projectId: string,
+  episodeId: string,
+  direction: "up" | "down",
+): Promise<void> {
+  const list = await loadEpisodeList(projectId);
+  const index = list.episodes.findIndex((ep) => ep.id === episodeId);
+  if (index === -1) return;
+
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= list.episodes.length) return;
+
+  const [moved] = list.episodes.splice(index, 1);
+  list.episodes.splice(targetIndex, 0, moved);
+
+  // order / fileName を振り直し、原稿ファイルもリネーム
+  for (let i = 0; i < list.episodes.length; i++) {
+    const ep = list.episodes[i];
+    const newFileName = padEpisodeNumber(i);
+    if (ep.fileName !== newFileName) {
+      const text = await loadEpisode(projectId, ep.fileName);
+      await saveEpisode(projectId, newFileName, text);
+      await remove(projectPath(projectId, EPISODES_DIR, ep.fileName), {
+        baseDir: BaseDirectory.Document,
+      });
+      ep.fileName = newFileName;
+    }
+    ep.order = i;
+  }
+
+  await saveEpisodeList(projectId, list);
+}
+
 export async function migrateFromManuscript(projectId: string): Promise<void> {
   const manuscriptPath = projectPath(projectId, MANUSCRIPT_FILE);
   const hasManuscript = await exists(manuscriptPath, { baseDir: BaseDirectory.Document });

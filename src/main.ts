@@ -113,7 +113,9 @@ import {
   loadEpisode,
   loadEpisodeList,
   migrateFromManuscript,
+  moveEpisode,
   saveEpisode,
+  updateEpisodeTitle,
 } from "./project/episodes.ts";
 import {
   createCharacter,
@@ -1005,6 +1007,8 @@ function renderProjectNavigation(): void {
   renderEpisodeList(episodes, state.currentEpisodeId, {
     onSelectEpisode: (id) => void selectEpisode(id),
     onDeleteEpisode: (id) => void handleDeleteEpisode(id),
+    onUpdateEpisodeTitle: (id, title) => void handleUpdateEpisodeTitle(id, title),
+    onMoveEpisode: (id, direction) => void handleMoveEpisode(id, direction),
   });
   setActiveNav(state.currentView);
 }
@@ -1152,6 +1156,26 @@ async function handleDeleteEpisode(episodeId: string): Promise<void> {
       state.editorText = "";
       await handleNewEpisode();
     }
+  }
+
+  renderProjectNavigation();
+}
+
+async function handleUpdateEpisodeTitle(episodeId: string, title: string): Promise<void> {
+  if (!currentProject) return;
+  await updateEpisodeTitle(currentProject.id, episodeId, title);
+  episodes = (await loadEpisodeList(currentProject.id)).episodes;
+  renderProjectNavigation();
+}
+
+async function handleMoveEpisode(episodeId: string, direction: "up" | "down"): Promise<void> {
+  if (!currentProject) return;
+  await moveEpisode(currentProject.id, episodeId, direction);
+  episodes = (await loadEpisodeList(currentProject.id)).episodes;
+
+  const current = episodes.find((ep) => ep.id === state.currentEpisodeId);
+  if (current) {
+    await selectEpisode(current.id);
   }
 
   renderProjectNavigation();
@@ -1462,6 +1486,8 @@ const projectNavActions: ProjectNavActions = {
   onSelectEpisode: (id) => void selectEpisode(id),
   onNewEpisode: () => void handleNewEpisode(),
   onDeleteEpisode: (id) => void handleDeleteEpisode(id),
+  onUpdateEpisodeTitle: (id, title) => void handleUpdateEpisodeTitle(id, title),
+  onMoveEpisode: (id, direction) => void handleMoveEpisode(id, direction),
   onSelectView: (view) => {
     state.currentView = view;
     setView(view);

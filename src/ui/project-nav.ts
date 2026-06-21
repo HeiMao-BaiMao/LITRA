@@ -6,6 +6,8 @@ export interface ProjectNavActions {
   onSelectEpisode: (episodeId: string) => void;
   onNewEpisode: () => void;
   onDeleteEpisode: (episodeId: string) => void;
+  onUpdateEpisodeTitle: (episodeId: string, title: string) => void;
+  onMoveEpisode: (episodeId: string, direction: "up" | "down") => void;
   onSelectView: (view: ProjectView) => void;
   onUpdateSummary?: (episodeId: string, text: string) => void;
   onUpdateMemo?: (episodeId: string, text: string) => void;
@@ -18,10 +20,49 @@ let currentGenerateSummaryCallback: (() => void) | null = null;
 let currentMemoCallback: ((text: string) => void) | null = null;
 let memoUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
+function createInlineTitleEditor(
+  initialTitle: string,
+  onCommit: (title: string) => void,
+  onCancel: () => void,
+): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "nav-episode-title-edit";
+  input.value = initialTitle;
+  input.placeholder = "エピソードタイトル";
+
+  const commit = (): void => {
+    const trimmed = input.value.trim();
+    if (trimmed.length > 0) {
+      onCommit(trimmed);
+    } else {
+      onCancel();
+    }
+  };
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+    }
+  });
+
+  input.addEventListener("blur", () => {
+    commit();
+  });
+
+  return input;
+}
+
 function createEpisodeItem(
   episode: Episode,
+  index: number,
+  total: number,
   isActive: boolean,
-  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode">,
+  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode">,
 ): HTMLElement {
   const item = document.createElement("div");
   item.className = "nav-episode-item";
@@ -29,12 +70,78 @@ function createEpisodeItem(
     item.classList.add("active");
   }
 
+  const moveControls = document.createElement("div");
+  moveControls.className = "nav-episode-move-controls";
+
+  const upBtn = document.createElement("button");
+  upBtn.type = "button";
+  upBtn.className = "nav-episode-move";
+  upBtn.textContent = "▲";
+  upBtn.title = "上へ移動";
+  upBtn.disabled = index === 0;
+  upBtn.addEventListener("click", () => {
+    actions.onMoveEpisode(episode.id, "up");
+  });
+
+  const downBtn = document.createElement("button");
+  downBtn.type = "button";
+  downBtn.className = "nav-episode-move";
+  downBtn.textContent = "▼";
+  downBtn.title = "下へ移動";
+  downBtn.disabled = index === total - 1;
+  downBtn.addEventListener("click", () => {
+    actions.onMoveEpisode(episode.id, "down");
+  });
+
+  moveControls.appendChild(upBtn);
+  moveControls.appendChild(downBtn);
+
+  const titleContainer = document.createElement("div");
+  titleContainer.className = "nav-episode-title-container";
+
   const title = document.createElement("button");
   title.type = "button";
   title.className = "nav-episode-title";
   title.textContent = episode.title || "（無題）";
+  title.title = "クリックで選択、ダブルクリックでタイトル編集";
   title.addEventListener("click", () => {
     actions.onSelectEpisode(episode.id);
+  });
+  title.addEventListener("dblclick", () => {
+    const input = createInlineTitleEditor(
+      episode.title,
+      (newTitle) => {
+        actions.onUpdateEpisodeTitle(episode.id, newTitle);
+      },
+      () => {
+        renderEpisodeTitleButton(title, episode.title);
+      },
+    );
+    titleContainer.replaceChild(input, title);
+    input.focus();
+    input.select();
+  });
+
+  titleContainer.appendChild(title);
+
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "nav-episode-edit";
+  editBtn.textContent = "✎";
+  editBtn.title = "タイトルを編集";
+  editBtn.addEventListener("click", () => {
+    const input = createInlineTitleEditor(
+      episode.title,
+      (newTitle) => {
+        actions.onUpdateEpisodeTitle(episode.id, newTitle);
+      },
+      () => {
+        renderEpisodeTitleButton(title, episode.title);
+      },
+    );
+    titleContainer.replaceChild(input, title);
+    input.focus();
+    input.select();
   });
 
   const deleteBtn = document.createElement("button");
@@ -48,22 +155,31 @@ function createEpisodeItem(
     }
   });
 
-  item.appendChild(title);
+  item.appendChild(moveControls);
+  item.appendChild(titleContainer);
+  item.appendChild(editBtn);
   item.appendChild(deleteBtn);
   return item;
+}
+
+function renderEpisodeTitleButton(button: HTMLButtonElement, title: string): void {
+  button.textContent = title || "（無題）";
 }
 
 export function renderEpisodeList(
   episodes: Episode[],
   currentEpisodeId: string | null,
-  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode">,
+  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode">,
 ): void {
   const list = getElements().episodeList;
   list.innerHTML = "";
 
-  for (const episode of episodes) {
+  for (let i = 0; i < episodes.length; i++) {
+    const episode = episodes[i];
     const item = createEpisodeItem(
       episode,
+      i,
+      episodes.length,
       episode.id === currentEpisodeId,
       actions,
     );
