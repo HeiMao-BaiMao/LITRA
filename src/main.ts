@@ -1197,8 +1197,11 @@ async function handleChatMessage(): Promise<void> {
     });
     await saveCurrentChat();
   } catch (error) {
+    console.error("[phenex] chat error:", error);
     if (error instanceof Error && error.name !== "AbortError") {
       window.alert(`エラー: ${error.message}`);
+    } else if (!(error instanceof Error) || error.name !== "AbortError") {
+      window.alert(`エラー: ${String(error)}`);
     }
   } finally {
     setGenerating(false);
@@ -1388,6 +1391,7 @@ async function init(): Promise<void> {
   });
 
   listen<{ content: string }>("chat-send", (event) => {
+    if (!validateProject() || !validateSettings()) return;
     appendMessage("user", event.payload.content);
     void handleChatMessage();
   });
