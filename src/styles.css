@@ -54,10 +54,27 @@ body,
   flex-shrink: 0;
 }
 
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
 .toolbar-title {
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.toolbar-project-name {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
 }
 
 .toolbar-actions {
@@ -208,6 +225,229 @@ button#btn-cancel:hover:not(:disabled) {
   display: none !important;
 }
 
+.project-nav {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.75rem;
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+}
+
+.nav-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.episode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.nav-episode-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.nav-episode-item.active {
+  background-color: rgba(92, 124, 250, 0.2);
+}
+
+.nav-episode-title {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-episode-title:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.nav-episode-delete {
+  flex-shrink: 0;
+  width: 28px;
+  padding: 0.4rem 0;
+  font-size: 0.85rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+}
+
+.nav-episode-delete:hover {
+  background-color: var(--danger);
+  color: var(--text-primary);
+}
+
+#btn-new-episode {
+  width: 100%;
+  padding: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.nav-settings-btn {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 0.25rem;
+  background: transparent;
+  border: none;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.nav-settings-btn:hover,
+.nav-settings-btn.active {
+  background-color: var(--accent);
+}
+
+.settings-panel {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+}
+
+.settings-editor {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.settings-editor-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-right: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  overflow-y: auto;
+}
+
+.settings-add-button {
+  width: 100%;
+  padding: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.settings-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.settings-list-item.active {
+  background-color: rgba(92, 124, 250, 0.2);
+}
+
+.settings-list-name {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-list-name:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.settings-list-delete {
+  flex-shrink: 0;
+  width: 28px;
+  padding: 0.4rem 0;
+  font-size: 0.85rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+}
+
+.settings-list-delete:hover {
+  background-color: var(--danger);
+  color: var(--text-primary);
+}
+
+.settings-editor-detail {
+  flex: 1;
+  min-width: 0;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.settings-detail-form {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.settings-field input,
+.settings-field textarea {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+  outline: none;
+  font-family: inherit;
+}
+
+.settings-field textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.settings-field input:focus,
+.settings-field textarea:focus {
+  border-color: var(--accent);
+}
+
+.settings-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
 .modal {
   position: fixed;
   inset: 0;
@@ -298,6 +538,265 @@ button#btn-cancel:hover:not(:disabled) {
   margin-top: 0.5rem;
 }
 
+.project-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.project-form input {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+}
+
+.project-form input:focus {
+  border-color: var(--accent);
+}
+
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.project-list-empty {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.project-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--bg-primary);
+}
+
+.project-list-item.active {
+  border-color: var(--accent);
+  background-color: rgba(92, 124, 250, 0.12);
+}
+
+.project-list-info {
+  min-width: 0;
+}
+
+.project-list-title {
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-list-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.2rem;
+}
+
+.project-list-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.project-list-actions button {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+button.danger {
+  background-color: var(--danger);
+}
+
+button.danger:hover:not(:disabled) {
+  background-color: var(--danger-hover);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--bg-secondary);
+}
+
+.settings-section-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.custom-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.custom-field-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.custom-field-label {
+  width: 120px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+}
+
+.custom-field-value {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+  font-family: inherit;
+}
+
+.custom-field-label:focus,
+.custom-field-value:focus {
+  border-color: var(--accent);
+}
+
+.custom-field-delete {
+  width: 32px;
+  flex-shrink: 0;
+  padding: 0.4rem 0;
+  font-size: 0.9rem;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+}
+
+.custom-field-delete:hover {
+  background-color: var(--danger);
+  color: var(--text-primary);
+}
+
+.custom-field-add {
+  width: 100%;
+  padding: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.advanced-settings-toggle {
+  width: 100%;
+  padding: 0.4rem;
+  font-size: 0.85rem;
+  background-color: transparent;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+}
+
+.advanced-settings-toggle:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.advanced-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--bg-primary);
+}
+
+.advanced-settings h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.episode-summary {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+  font-family: inherit;
+  min-height: 80px;
+}
+
+.episode-summary:focus {
+  border-color: var(--accent);
+}
+
+.episode-summary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.episode-memo {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+  font-family: inherit;
+  min-height: 120px;
+}
+
+.episode-memo:focus {
+  border-color: var(--accent);
+}
+
+.episode-memo:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 @media (max-width: 768px) {
   .chat-panel {
     position: absolute;
@@ -312,5 +811,9 @@ button#btn-cancel:hover:not(:disabled) {
 
   .chat-panel.open {
     transform: translateX(0);
+  }
+
+  .toolbar-project-name {
+    max-width: 120px;
   }
 }

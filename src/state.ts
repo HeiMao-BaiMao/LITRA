@@ -3,6 +3,8 @@ export interface ChatMessage {
   content: string;
 }
 
+export type ProjectView = "episode" | "characters" | "world";
+
 export interface AppState {
   editorText: string;
   selectionStart: number;
@@ -10,6 +12,11 @@ export interface AppState {
   chatMessages: ChatMessage[];
   isGenerating: boolean;
   abortController: AbortController | null;
+  currentProject: { id: string; title: string } | null;
+  currentView: ProjectView;
+  currentEpisodeId: string | null;
+  currentCharacterId: string | null;
+  currentWorldEntryId: string | null;
 }
 
 export const state: AppState = {
@@ -19,4 +26,9 @@ export const state: AppState = {
   chatMessages: [],
   isGenerating: false,
   abortController: null,
+  currentProject: null,
+  currentView: "episode",
+  currentEpisodeId: null,
+  currentCharacterId: null,
+  currentWorldEntryId: null,
 };

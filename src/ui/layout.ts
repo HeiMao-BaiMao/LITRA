@@ -9,6 +9,17 @@ export interface AppElements {
   btnRewrite: HTMLButtonElement;
   btnFeedback: HTMLButtonElement;
   btnSettings: HTMLButtonElement;
+  toolbarProjectName: HTMLElement;
+  btnProjects: HTMLButtonElement;
+  editorSection: HTMLElement;
+  projectNav: HTMLElement;
+  episodeList: HTMLElement;
+  btnNewEpisode: HTMLButtonElement;
+  navCharacters: HTMLButtonElement;
+  navWorld: HTMLButtonElement;
+  episodeSummary: HTMLTextAreaElement;
+  episodeMemo: HTMLTextAreaElement;
+  settingsPanel: HTMLElement;
   settingsModal: HTMLElement;
   settingsForm: HTMLFormElement;
   settingProvider: HTMLSelectElement;
@@ -18,8 +29,24 @@ export interface AppElements {
   btnFetchModels: HTMLButtonElement;
   settingTemperature: HTMLInputElement;
   settingMaxTokens: HTMLInputElement;
+  advancedSettingsToggle: HTMLButtonElement;
+  advancedSettings: HTMLElement;
+  settingTopP: HTMLInputElement;
+  settingTopK: HTMLInputElement;
+  settingFrequencyPenalty: HTMLInputElement;
+  settingPresencePenalty: HTMLInputElement;
+  settingOpenaiReasoningEffort: HTMLSelectElement;
+  settingDeepseekThinkingMode: HTMLSelectElement;
+  settingDeepseekReasoningEffort: HTMLSelectElement;
+  settingAnthropicThinkingEnabled: HTMLInputElement;
+  settingAnthropicThinkingBudget: HTMLInputElement;
   btnSaveSettings: HTMLButtonElement;
   btnCancelSettings: HTMLButtonElement;
+  projectModal: HTMLElement;
+  projectList: HTMLElement;
+  projectTitleInput: HTMLInputElement;
+  btnCreateProject: HTMLButtonElement;
+  btnCloseProjectModal: HTMLButtonElement;
 }
 
 let elements: AppElements | null = null;
@@ -39,6 +66,17 @@ export function getElements(): AppElements {
   const btnRewrite = document.querySelector<HTMLButtonElement>("#btn-rewrite");
   const btnFeedback = document.querySelector<HTMLButtonElement>("#btn-feedback");
   const btnSettings = document.querySelector<HTMLButtonElement>("#btn-settings");
+  const toolbarProjectName = document.querySelector<HTMLElement>("#toolbar-project-name");
+  const btnProjects = document.querySelector<HTMLButtonElement>("#btn-projects");
+  const editorSection = document.querySelector<HTMLElement>("#editor-section");
+  const projectNav = document.querySelector<HTMLElement>("#project-nav");
+  const episodeList = document.querySelector<HTMLElement>("#episode-list");
+  const btnNewEpisode = document.querySelector<HTMLButtonElement>("#btn-new-episode");
+  const navCharacters = document.querySelector<HTMLButtonElement>("#nav-characters");
+  const navWorld = document.querySelector<HTMLButtonElement>("#nav-world");
+  const episodeSummary = document.querySelector<HTMLTextAreaElement>("#episode-summary");
+  const episodeMemo = document.querySelector<HTMLTextAreaElement>("#episode-memo");
+  const settingsPanel = document.querySelector<HTMLElement>("#settings-panel");
   const settingsModal = document.querySelector<HTMLElement>("#settings-modal");
   const settingsForm = document.querySelector<HTMLFormElement>("#settings-form");
   const settingProvider = document.querySelector<HTMLSelectElement>("#setting-provider");
@@ -48,8 +86,24 @@ export function getElements(): AppElements {
   const btnFetchModels = document.querySelector<HTMLButtonElement>("#btn-fetch-models");
   const settingTemperature = document.querySelector<HTMLInputElement>("#setting-temperature");
   const settingMaxTokens = document.querySelector<HTMLInputElement>("#setting-max-tokens");
+  const advancedSettingsToggle = document.querySelector<HTMLButtonElement>("#advanced-settings-toggle");
+  const advancedSettings = document.querySelector<HTMLElement>("#advanced-settings");
+  const settingTopP = document.querySelector<HTMLInputElement>("#setting-top-p");
+  const settingTopK = document.querySelector<HTMLInputElement>("#setting-top-k");
+  const settingFrequencyPenalty = document.querySelector<HTMLInputElement>("#setting-frequency-penalty");
+  const settingPresencePenalty = document.querySelector<HTMLInputElement>("#setting-presence-penalty");
+  const settingOpenaiReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-openai-reasoning-effort");
+  const settingDeepseekThinkingMode = document.querySelector<HTMLSelectElement>("#setting-deepseek-thinking-mode");
+  const settingDeepseekReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-deepseek-reasoning-effort");
+  const settingAnthropicThinkingEnabled = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-enabled");
+  const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
   const btnSaveSettings = document.querySelector<HTMLButtonElement>("#btn-save-settings");
   const btnCancelSettings = document.querySelector<HTMLButtonElement>("#btn-cancel-settings");
+  const projectModal = document.querySelector<HTMLElement>("#project-modal");
+  const projectList = document.querySelector<HTMLElement>("#project-list");
+  const projectTitleInput = document.querySelector<HTMLInputElement>("#project-title-input");
+  const btnCreateProject = document.querySelector<HTMLButtonElement>("#btn-create-project");
+  const btnCloseProjectModal = document.querySelector<HTMLButtonElement>("#btn-close-project-modal");
 
   if (
     !editor ||
@@ -71,8 +125,35 @@ export function getElements(): AppElements {
     !btnFetchModels ||
     !settingTemperature ||
     !settingMaxTokens ||
+    !advancedSettingsToggle ||
+    !advancedSettings ||
+    !settingTopP ||
+    !settingTopK ||
+    !settingFrequencyPenalty ||
+    !settingPresencePenalty ||
+    !settingOpenaiReasoningEffort ||
+    !settingDeepseekThinkingMode ||
+    !settingDeepseekReasoningEffort ||
+    !settingAnthropicThinkingEnabled ||
+    !settingAnthropicThinkingBudget ||
     !btnSaveSettings ||
-    !btnCancelSettings
+    !btnCancelSettings ||
+    !toolbarProjectName ||
+    !btnProjects ||
+    !editorSection ||
+    !projectNav ||
+    !episodeList ||
+    !btnNewEpisode ||
+    !navCharacters ||
+    !navWorld ||
+    !episodeSummary ||
+    !episodeMemo ||
+    !settingsPanel ||
+    !projectModal ||
+    !projectList ||
+    !projectTitleInput ||
+    !btnCreateProject ||
+    !btnCloseProjectModal
   ) {
     throw new Error("Required DOM elements are missing");
   }
@@ -88,6 +169,17 @@ export function getElements(): AppElements {
     btnRewrite,
     btnFeedback,
     btnSettings,
+    toolbarProjectName,
+    btnProjects,
+    editorSection,
+    projectNav,
+    episodeList,
+    btnNewEpisode,
+    navCharacters,
+    navWorld,
+    episodeSummary,
+    episodeMemo,
+    settingsPanel,
     settingsModal,
     settingsForm,
     settingProvider,
@@ -97,8 +189,24 @@ export function getElements(): AppElements {
     btnFetchModels,
     settingTemperature,
     settingMaxTokens,
+    advancedSettingsToggle,
+    advancedSettings,
+    settingTopP,
+    settingTopK,
+    settingFrequencyPenalty,
+    settingPresencePenalty,
+    settingOpenaiReasoningEffort,
+    settingDeepseekThinkingMode,
+    settingDeepseekReasoningEffort,
+    settingAnthropicThinkingEnabled,
+    settingAnthropicThinkingBudget,
     btnSaveSettings,
     btnCancelSettings,
+    projectModal,
+    projectList,
+    projectTitleInput,
+    btnCreateProject,
+    btnCloseProjectModal,
   };
 
   return elements;

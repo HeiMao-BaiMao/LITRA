@@ -11,8 +11,12 @@
   <body>
     <div id="app" class="app">
       <header class="toolbar">
-        <div class="toolbar-title">Phenex</div>
+        <div class="toolbar-left">
+          <div class="toolbar-title">Phenex</div>
+          <span id="toolbar-project-name" class="toolbar-project-name">プロジェクト未選択</span>
+        </div>
         <div class="toolbar-actions">
+          <button id="btn-projects" type="button">プロジェクト</button>
           <button id="btn-continue" type="button">続きを書く</button>
           <button id="btn-rewrite" type="button">選択部分を書き直す</button>
           <button id="btn-feedback" type="button">選択部分へのフィードバック</button>
@@ -21,7 +25,40 @@
       </header>
 
       <main class="main">
-        <section class="editor-section">
+        <nav id="project-nav" class="project-nav">
+          <div class="nav-section">
+            <h3>エピソード</h3>
+            <div id="episode-list" class="episode-list"></div>
+            <button id="btn-new-episode" type="button">＋ 新規エピソード</button>
+          </div>
+          <div class="nav-section">
+            <h3>エピソード要約</h3>
+            <textarea
+              id="episode-summary"
+              class="episode-summary"
+              placeholder="エピソードを選択してください..."
+              rows="4"
+              disabled
+            ></textarea>
+          </div>
+          <div class="nav-section">
+            <h3>エピソード覚え書き</h3>
+            <textarea
+              id="episode-memo"
+              class="episode-memo"
+              placeholder="エピソードを選択してください..."
+              rows="6"
+              disabled
+            ></textarea>
+          </div>
+          <div class="nav-section">
+            <h3>設定</h3>
+            <button id="nav-characters" type="button" class="nav-settings-btn">キャラクター</button>
+            <button id="nav-world" type="button" class="nav-settings-btn">世界観</button>
+          </div>
+        </nav>
+
+        <section id="editor-section" class="editor-section">
           <textarea
             id="editor"
             class="editor"
@@ -29,6 +66,8 @@
             spellcheck="false"
           ></textarea>
         </section>
+
+        <section id="settings-panel" class="settings-panel hidden"></section>
 
         <aside class="chat-panel">
           <div id="chat-messages" class="chat-messages"></div>
@@ -60,6 +99,7 @@
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
                 <option value="deepseek">DeepSeek</option>
+                <option value="google">Google</option>
               </select>
             </label>
             <label>
@@ -95,11 +135,110 @@
               <span>最大トークン数 (max tokens)</span>
               <input id="setting-max-tokens" type="number" min="1" max="8192" />
             </label>
+
+            <button
+              id="advanced-settings-toggle"
+              type="button"
+              class="advanced-settings-toggle"
+              aria-expanded="false"
+            >
+              詳細設定を表示
+            </button>
+
+            <div id="advanced-settings" class="advanced-settings hidden">
+              <h3>詳細設定</h3>
+
+              <label>
+                <span>topP（ nucleus sampling ）</span>
+                <input id="setting-top-p" type="number" step="0.01" min="0" max="1" placeholder="未指定" />
+              </label>
+              <label>
+                <span>topK</span>
+                <input id="setting-top-k" type="number" step="1" min="1" placeholder="未指定" />
+              </label>
+              <label>
+                <span>frequency penalty</span>
+                <input id="setting-frequency-penalty" type="number" step="0.1" min="-2" max="2" placeholder="未指定" />
+              </label>
+              <label>
+                <span>presence penalty</span>
+                <input id="setting-presence-penalty" type="number" step="0.1" min="-2" max="2" placeholder="未指定" />
+              </label>
+
+              <div class="provider-field-openai hidden">
+                <label>
+                  <span>OpenAI reasoning effort</span>
+                  <select id="setting-openai-reasoning-effort">
+                    <option value="">未指定</option>
+                    <option value="none">none</option>
+                    <option value="minimal">minimal</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="provider-field-deepseek hidden">
+                <label>
+                  <span>DeepSeek thinking mode</span>
+                  <select id="setting-deepseek-thinking-mode">
+                    <option value="">未指定</option>
+                    <option value="adaptive">adaptive</option>
+                    <option value="enabled">enabled</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </label>
+                <label>
+                  <span>DeepSeek reasoning effort</span>
+                  <select id="setting-deepseek-reasoning-effort">
+                    <option value="">未指定</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                    <option value="max">max</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="provider-field-anthropic hidden">
+                <label class="checkbox-label">
+                  <input id="setting-anthropic-thinking-enabled" type="checkbox" />
+                  <span>Anthropic thinking を有効化</span>
+                </label>
+                <label>
+                  <span>Anthropic thinking budget tokens</span>
+                  <input id="setting-anthropic-thinking-budget" type="number" step="1" min="0" placeholder="未指定" />
+                </label>
+              </div>
+            </div>
+
             <div class="modal-actions">
               <button id="btn-save-settings" type="submit">保存</button>
               <button id="btn-cancel-settings" type="button">キャンセル</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <div id="project-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-dialog">
+          <h2>プロジェクト管理</h2>
+          <div class="project-form">
+            <input
+              id="project-title-input"
+              type="text"
+              placeholder="新しいプロジェクト名"
+            />
+            <button id="btn-create-project" type="button">新規作成</button>
+          </div>
+          <div id="project-list" class="project-list"></div>
+          <div class="modal-actions">
+            <button id="btn-close-project-modal" type="button">閉じる</button>
+          </div>
         </div>
       </div>
     </div>

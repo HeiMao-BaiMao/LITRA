@@ -6,6 +6,22 @@
   "permissions": [
     "core:default",
     "fs:default",
+    "fs:allow-write-text-file",
+    "fs:allow-read-text-file",
+    "fs:allow-read-dir",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPCONFIG" },
+        { "path": "$APPCONFIG/**" },
+        { "path": "$APPDATA" },
+        { "path": "$APPDATA/**" },
+        { "path": "$DOCUMENT/phenex" },
+        { "path": "$DOCUMENT/phenex/**" }
+      ]
+    },
     "http:default",
     "opener:default",
     "store:default"

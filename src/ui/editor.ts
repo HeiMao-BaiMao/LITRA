@@ -1,6 +1,14 @@
 import { getElements } from "./layout.ts";
 import { state } from "../state.ts";
 
+let inputCallback: ((text: string) => void) | null = null;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTOSAVE_DELAY_MS = 500;
+
+export function setEditorInputCallback(callback: (text: string) => void): void {
+  inputCallback = callback;
+}
+
 export function getEditorText(): string {
   return getElements().editor.value;
 }
@@ -51,9 +59,22 @@ export function updateSelectionState(): void {
   state.selectionEnd = editor.selectionEnd;
 }
 
+function handleInput(): void {
+  updateSelectionState();
+
+  if (!inputCallback) return;
+
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+  }
+  debounceTimer = setTimeout(() => {
+    inputCallback?.(getElements().editor.value);
+  }, AUTOSAVE_DELAY_MS);
+}
+
 export function initEditor(): void {
   const editor = getElements().editor;
-  editor.addEventListener("input", updateSelectionState);
+  editor.addEventListener("input", handleInput);
   editor.addEventListener("select", updateSelectionState);
   editor.addEventListener("click", updateSelectionState);
   editor.addEventListener("keyup", updateSelectionState);

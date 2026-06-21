@@ -5,7 +5,7 @@ import {
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
 
-export type SdkType = "openai" | "anthropic";
+export type SdkType = "openai" | "anthropic" | "google";
 
 export interface ProviderEntry {
   id: string;
@@ -29,7 +29,7 @@ const DEFAULT_CONFIG: ProviderConfig = {
       name: "OpenAI",
       sdkType: "openai",
       defaultBaseUrl: "https://api.openai.com/v1",
-      defaultModel: "gpt-4o",
+      defaultModel: "gpt-5.5",
     },
     {
       id: "anthropic",
@@ -43,7 +43,14 @@ const DEFAULT_CONFIG: ProviderConfig = {
       name: "DeepSeek",
       sdkType: "openai",
       defaultBaseUrl: "https://api.deepseek.com",
-      defaultModel: "deepseek-chat",
+      defaultModel: "deepseek-v4-flash",
+    },
+    {
+      id: "google",
+      name: "Google",
+      sdkType: "google",
+      defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+      defaultModel: "gemini-3.5-flash",
     },
   ],
 };
@@ -51,6 +58,19 @@ const DEFAULT_CONFIG: ProviderConfig = {
 async function initializeDefaultConfig(): Promise<void> {
   const text = JSON.stringify(DEFAULT_CONFIG, null, 2);
   await writeTextFile(CONFIG_FILE, text, { baseDir: BASE_DIR });
+}
+
+function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
+  const existingIds = new Set(config.providers.map((p) => p.id));
+  const merged = [...config.providers];
+
+  for (const defaultProvider of DEFAULT_CONFIG.providers) {
+    if (!existingIds.has(defaultProvider.id)) {
+      merged.push(defaultProvider);
+    }
+  }
+
+  return { providers: merged };
 }
 
 export async function loadProviderConfig(): Promise<ProviderConfig> {
@@ -66,7 +86,12 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
     throw new Error("providers.json の形式が不正です。");
   }
 
-  return parsed;
+  const merged = mergeDefaultProviders(parsed);
+  if (merged.providers.length !== parsed.providers.length) {
+    await writeTextFile(CONFIG_FILE, JSON.stringify(merged, null, 2), { baseDir: BASE_DIR });
+  }
+
+  return merged;
 }
 
 export function getProviderEntry(
@@ -86,7 +111,7 @@ function isProviderConfig(value: unknown): value is ProviderConfig {
     return (
       typeof p.id === "string" &&
       typeof p.name === "string" &&
-      (p.sdkType === "openai" || p.sdkType === "anthropic") &&
+      (p.sdkType === "openai" || p.sdkType === "anthropic" || p.sdkType === "google") &&
       typeof p.defaultBaseUrl === "string" &&
       typeof p.defaultModel === "string"
     );

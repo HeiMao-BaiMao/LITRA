@@ -57,6 +57,52 @@ async function fetchAnthropicModels(
   }
 }
 
+interface GoogleModelEntry {
+  name?: string;
+  displayName?: string;
+  supportedGenerationMethods?: string[];
+}
+
+interface GoogleModelsResponse {
+  models?: GoogleModelEntry[];
+}
+
+async function fetchGoogleModels(
+  settings: AiSettings,
+): Promise<ModelListResult> {
+  try {
+    const baseUrl = settings.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+    const response = await fetch(`${baseUrl}/models`, {
+      method: "GET",
+      headers: {
+        "x-goog-api-key": settings.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return { models: [], error: `モデル一覧の取得に失敗しました: ${response.status} ${text}` };
+    }
+
+    const data = (await response.json()) as GoogleModelsResponse;
+    const models = (data.models ?? [])
+      .filter(
+        (model) =>
+          model.name &&
+          (!model.supportedGenerationMethods ||
+            model.supportedGenerationMethods.includes("generateContent")),
+      )
+      .map((model) => model.name!.replace(/^models\//, ""))
+      .filter((id): id is string => typeof id === "string")
+      .sort();
+
+    return { models };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { models: [], error: message };
+  }
+}
+
 export async function fetchAvailableModels(
   settings: AiSettings,
 ): Promise<ModelListResult> {
@@ -76,5 +122,7 @@ export async function fetchAvailableModels(
       return fetchOpenAiCompatibleModels(settings);
     case "anthropic":
       return fetchAnthropicModels(settings);
+    case "google":
+      return fetchGoogleModels(settings);
   }
 }

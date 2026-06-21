@@ -37,6 +37,22 @@ export function clearChat(): void {
   state.chatMessages.length = 0;
 }
 
+export function renderMessages(messages: ChatMessage[]): void {
+  const container = getElements().chatMessages;
+  container.innerHTML = "";
+  state.chatMessages.length = 0;
+
+  for (const message of messages) {
+    const messageEl = document.createElement("div");
+    messageEl.className = `chat-message ${message.role}`;
+    messageEl.textContent = message.content;
+    container.appendChild(messageEl);
+    state.chatMessages.push(message);
+  }
+
+  scrollToBottom();
+}
+
 export function scrollToBottom(): void {
   const container = getElements().chatMessages;
   container.scrollTop = container.scrollHeight;
