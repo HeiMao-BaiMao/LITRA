@@ -2,6 +2,17 @@ import { tool } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import type { CustomField } from "../project/schema.ts";
+import {
+  loadRelationships,
+  saveRelationships,
+} from "../project/relationships.ts";
+import type {
+  Character,
+  WorldEntry,
+  Episode,
+  CharacterRelationshipMap,
+  CharacterRelationship,
+} from "../project/schema.ts";
 
 interface ValidationResult<T> {
   success: true;
@@ -503,8 +514,6 @@ export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
   });
 }
 
-import type { Character, WorldEntry } from "../project/schema.ts";
-
 const CHARACTER_UPDATE_FIELDS = [
   "name",
   "alias",
@@ -714,6 +723,179 @@ export function createCreateWorldEntryTool(deps: SettingsToolDependencies) {
         message: `世界観「${nameValidation.data}」を作成しました。`,
         entry: result.entries[result.entries.length - 1],
       };
+    }),
+  });
+}
+
+export interface RelationshipToolDependencies {
+  projectId: string;
+  characters: Character[];
+  episodes: Episode[];
+  relationshipsMap: CharacterRelationshipMap;
+  onUpdateRelationships: (map: CharacterRelationshipMap) => void;
+}
+
+function formatRelationshipsForAi(deps: RelationshipToolDependencies): string {
+  const charName = (id: string): string =>
+    deps.characters.find((c) => c.id === id)?.name || "（不明）";
+  const episodeTitle = (id: string): string => {
+    if (!id) return "全体（全話共通）";
+    return deps.episodes.find((e) => e.id === id)?.title || "（不明）";
+  };
+
+  return deps.relationshipsMap.groups
+    .map((group) => {
+      const lines = group.relationships
+        .map((rel) => {
+          const arrow =
+            rel.direction === "a-to-b"
+              ? "→"
+              : rel.direction === "b-to-a"
+                ? "←"
+                : "↔";
+          return `  - ${rel.id}: ${charName(rel.characterAId)} ${arrow} ${charName(rel.characterBId)} / ${rel.description || "（説明なし）"}`;
+        })
+        .join("\n");
+      return `■ ${episodeTitle(group.episodeId)}\n${lines}`;
+    })
+    .join("\n\n");
+}
+
+export function createListRelationshipsTool(deps: RelationshipToolDependencies) {
+  return tool({
+    description:
+      "登録されているキャラクター間の人間関係一覧を取得します。更新・削除する前に対象の relationshipId と現在の値を確認してください。",
+    inputSchema: z.object({}),
+    execute: wrapToolExecute("listRelationships", async () => {
+      const map = await loadRelationships(deps.projectId);
+      deps.onUpdateRelationships(map);
+      return {
+        relationships: formatRelationshipsForAi({ ...deps, relationshipsMap: map }),
+      };
+    }),
+  });
+}
+
+const createRelationshipInputSchema = z.object({
+  episodeId: z
+    .string()
+    .describe('関係を登録するエピソードのID。全体（全話共通）に登録する場合は空文字列 ""'),
+  characterAId: z.string().describe("関係の一方のキャラクターID"),
+  characterBId: z.string().describe("関係のもう一方のキャラクターID"),
+  direction: z
+    .enum(["a-to-b", "b-to-a", "mutual"])
+    .describe("関係の向き。a-to-b=A→B, b-to-a=A←B, mutual=A↔B"),
+  description: z.string().describe("関係の説明（例：敵同士で憎み合っている）"),
+});
+
+export function createCreateRelationshipTool(deps: RelationshipToolDependencies) {
+  return tool({
+    description: "キャラクター間の新しい人間関係を作成します。",
+    inputSchema: createRelationshipInputSchema,
+    execute: wrapToolExecute("createRelationship", async (input) => {
+      if (!input.characterAId || !input.characterBId) {
+        return { error: "characterAId と characterBId は必須です。listCharacters でIDを確認してください。" };
+      }
+      if (input.characterAId === input.characterBId) {
+        return { error: "同じキャラクター同士の関係は登録できません。" };
+      }
+
+      const map = await loadRelationships(deps.projectId);
+      const group = map.groups.find((g) => g.episodeId === input.episodeId) ?? {
+        episodeId: input.episodeId,
+        relationships: [],
+      };
+      if (!map.groups.includes(group)) {
+        map.groups.push(group);
+      }
+
+      const created: CharacterRelationship = {
+        id: crypto.randomUUID(),
+        characterAId: input.characterAId,
+        characterBId: input.characterBId,
+        direction: input.direction,
+        description: input.description,
+      };
+      group.relationships.push(created);
+
+      await saveRelationships(deps.projectId, map);
+      deps.onUpdateRelationships(map);
+      return {
+        success: true,
+        message: "人間関係を作成しました。",
+        relationship: created,
+      };
+    }),
+  });
+}
+
+const updateRelationshipInputSchema = z.object({
+  relationshipId: z.string().describe("更新する関係のID"),
+  updates: z.object({
+    characterAId: z.string().optional().describe("新しいキャラクターAのID"),
+    characterBId: z.string().optional().describe("新しいキャラクターBのID"),
+    direction: z.enum(["a-to-b", "b-to-a", "mutual"]).optional().describe("新しい向き"),
+    description: z.string().optional().describe("新しい関係の説明"),
+  }).describe("更新するフィールド。指定したフィールドのみ変更されます。"),
+});
+
+export function createUpdateRelationshipTool(deps: RelationshipToolDependencies) {
+  return tool({
+    description: "指定した人間関係の向きや説明を更新します。listRelationships でIDを確認してください。",
+    inputSchema: updateRelationshipInputSchema,
+    execute: wrapToolExecute("updateRelationship", async ({ relationshipId, updates }) => {
+      const map = await loadRelationships(deps.projectId);
+      let target: CharacterRelationship | undefined;
+      for (const group of map.groups) {
+        target = group.relationships.find((r) => r.id === relationshipId);
+        if (target) break;
+      }
+      if (!target) {
+        return { error: `指定した関係IDが見つかりません: ${relationshipId}` };
+      }
+
+      if (updates.characterAId !== undefined) target.characterAId = updates.characterAId;
+      if (updates.characterBId !== undefined) target.characterBId = updates.characterBId;
+      if (updates.direction !== undefined) target.direction = updates.direction;
+      if (updates.description !== undefined) target.description = updates.description;
+
+      if (target.characterAId && target.characterBId && target.characterAId === target.characterBId) {
+        return { error: "同じキャラクター同士の関係にはできません。" };
+      }
+
+      await saveRelationships(deps.projectId, map);
+      deps.onUpdateRelationships(map);
+      return {
+        success: true,
+        message: "人間関係を更新しました。",
+        relationship: target,
+      };
+    }),
+  });
+}
+
+const deleteRelationshipInputSchema = z.object({
+  relationshipId: z.string().describe("削除する関係のID"),
+});
+
+export function createDeleteRelationshipTool(deps: RelationshipToolDependencies) {
+  return tool({
+    description: "指定した人間関係を削除します。",
+    inputSchema: deleteRelationshipInputSchema,
+    execute: wrapToolExecute("deleteRelationship", async ({ relationshipId }) => {
+      const map = await loadRelationships(deps.projectId);
+      for (const group of map.groups) {
+        const index = group.relationships.findIndex((r) => r.id === relationshipId);
+        if (index !== -1) {
+          group.relationships.splice(index, 1);
+          break;
+        }
+      }
+      map.groups = map.groups.filter((g) => g.relationships.length > 0);
+
+      await saveRelationships(deps.projectId, map);
+      deps.onUpdateRelationships(map);
+      return { success: true, message: "人間関係を削除しました。" };
     }),
   });
 }

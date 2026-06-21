@@ -27,8 +27,11 @@ import {
   createEditEpisodeTool,
   createFindEpisodeLinesTool,
   createGetEpisodeLinesTool,
+  createCreateRelationshipTool,
+  createDeleteRelationshipTool,
   createListCharactersTool,
   createListEpisodesTool,
+  createListRelationshipsTool,
   createListWorldEntriesTool,
   createRebuildSearchIndexTool,
   createRetrieveEpisodeTool,
@@ -36,6 +39,7 @@ import {
   createSaveEpisodeSummaryTool,
   createSearchEpisodesTool,
   createUpdateCharacterTool,
+  createUpdateRelationshipTool,
   createUpdateWorldEntryTool,
 } from "./ai/tools.ts";
 import { getElements } from "./ui/layout.ts";
@@ -348,6 +352,18 @@ function createAiTools(): ToolSet | undefined {
     },
   };
 
+  const relationshipDeps = {
+    projectId: currentProject.id,
+    characters,
+    episodes,
+    relationshipsMap,
+    onUpdateRelationships: (map: CharacterRelationshipMap) => {
+      relationshipsMap = map;
+      renderSettingsView();
+      syncSettingsToWindow();
+    },
+  };
+
   const tools: ToolSet = {
     findEpisodeLines: createFindEpisodeLinesTool(searchDeps),
     getEpisodeLines: createGetEpisodeLinesTool(searchDeps),
@@ -363,6 +379,10 @@ function createAiTools(): ToolSet | undefined {
     listWorldEntries: createListWorldEntriesTool(settingsDeps),
     updateWorldEntry: createUpdateWorldEntryTool(settingsDeps),
     createWorldEntry: createCreateWorldEntryTool(settingsDeps),
+    listRelationships: createListRelationshipsTool(relationshipDeps),
+    createRelationship: createCreateRelationshipTool(relationshipDeps),
+    updateRelationship: createUpdateRelationshipTool(relationshipDeps),
+    deleteRelationship: createDeleteRelationshipTool(relationshipDeps),
   };
 
   if (state.currentEpisodeId) {
@@ -1387,9 +1407,27 @@ function buildSettingsContext(currentEpisodeId?: string): string {
     .join("\n\n");
   const worldLines = limitPromptText(worldLinesRaw, budgets.settingsSection, "head");
 
+  const relationshipLinesRaw = (relationshipsMap.groups ?? [])
+    .map((group) => {
+      const episode = episodes.find((ep) => ep.id === group.episodeId);
+      const groupTitle = group.episodeId ? `■ ${episode?.title || "（無題）"}` : "■ 全体（全話共通）";
+      const lines = group.relationships
+        .map((rel) => {
+          const charA = characters.find((c) => c.id === rel.characterAId)?.name || "（不明）";
+          const charB = characters.find((c) => c.id === rel.characterBId)?.name || "（不明）";
+          const arrow = rel.direction === "a-to-b" ? "→" : rel.direction === "b-to-a" ? "←" : "↔";
+          return `  - ${charA} ${arrow} ${charB}: ${rel.description || "（説明なし）"}`;
+        })
+        .join("\n");
+      return `${groupTitle}\n${lines}`;
+    })
+    .join("\n\n");
+  const relationshipLines = limitPromptText(relationshipLinesRaw, budgets.settingsSection, "head");
+
   const contextParts: string[] = [
     `【世界観設定】\n${worldLines || "（未登録）"}`,
     `【キャラクター設定】\n${charLines || "（未登録）"}`,
+    `【人間関係】\n${relationshipLines || "（未登録）"}`,
   ];
 
   if (currentEpisodeId) {
