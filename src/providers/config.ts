@@ -29,14 +29,14 @@ const DEFAULT_CONFIG: ProviderConfig = {
       name: "OpenAI",
       sdkType: "openai",
       defaultBaseUrl: "https://api.openai.com/v1",
-      defaultModel: "gpt-4o-mini",
+      defaultModel: "gpt-4o",
     },
     {
       id: "anthropic",
       name: "Anthropic",
       sdkType: "anthropic",
-      defaultBaseUrl: "https://api.anthropic.com/v1",
-      defaultModel: "claude-3-5-sonnet-20241022",
+      defaultBaseUrl: "https://api.anthropic.com",
+      defaultModel: "claude-opus-4-6",
     },
     {
       id: "deepseek",
