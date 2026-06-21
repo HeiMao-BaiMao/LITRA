@@ -1,8 +1,9 @@
 import { getElements } from "./layout.ts";
-import type { AiSettings } from "../settings.ts";
+import type { AiSettings, Provider } from "../settings.ts";
 
 export function renderSettings(settings: AiSettings): void {
   const {
+    settingProvider,
     settingApiKey,
     settingBaseUrl,
     settingModel,
@@ -10,6 +11,7 @@ export function renderSettings(settings: AiSettings): void {
     settingMaxTokens,
   } = getElements();
 
+  settingProvider.value = settings.provider;
   settingApiKey.value = settings.apiKey;
   settingBaseUrl.value = settings.baseUrl;
   settingModel.value = settings.model;
@@ -19,6 +21,7 @@ export function renderSettings(settings: AiSettings): void {
 
 export function readSettingsFromModal(): AiSettings {
   const {
+    settingProvider,
     settingApiKey,
     settingBaseUrl,
     settingModel,
@@ -27,6 +30,7 @@ export function readSettingsFromModal(): AiSettings {
   } = getElements();
 
   return {
+    provider: settingProvider.value as Provider,
     apiKey: settingApiKey.value.trim(),
     baseUrl: settingBaseUrl.value.trim(),
     model: settingModel.value.trim(),

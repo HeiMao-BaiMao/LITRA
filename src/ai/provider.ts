@@ -1,11 +1,22 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import { fetch } from "@tauri-apps/plugin-http";
 import type { AiSettings } from "../settings.ts";
 
-export function createProvider(settings: AiSettings) {
-  return createOpenAI({
+export function createModel(settings: AiSettings) {
+  const common = {
     apiKey: settings.apiKey,
     baseURL: settings.baseUrl,
     fetch,
-  });
+  };
+
+  switch (settings.provider) {
+    case "openai":
+      return createOpenAI(common)(settings.model);
+    case "anthropic":
+      return createAnthropic(common)(settings.model);
+    case "deepseek":
+      return createDeepSeek(common)(settings.model);
+  }
 }

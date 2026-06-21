@@ -5,6 +5,8 @@
     "": {
       "name": "phenex",
       "dependencies": {
+        "@ai-sdk/anthropic": "^3.0.85",
+        "@ai-sdk/deepseek": "^2.0.39",
         "@ai-sdk/openai": "^3.0.73",
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-http": "^2",
@@ -20,6 +22,10 @@
     },
   },
   "packages": {
+    "@ai-sdk/anthropic": ["@ai-sdk/anthropic@3.0.85", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-fNeDB644l5wbRNQU0FnI+F7UTtOenMnPtACfMPUJaS2zJfuBlseEa1TMg+otHkETZgaJB+6Na51NQEv0+m7czw=="],
+
+    "@ai-sdk/deepseek": ["@ai-sdk/deepseek@2.0.39", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-3wUq1cvqSWkRadCSqcDXBLpOwUAe+JqfWQZS0fK0sWiqDeTIEzsse+r7xcN2x5XpJjefT0d7FQTa3u2lZ/yxbg=="],
+
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.133", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-Ebs+7iS9zUgJu5B0RlxM2JmDWzq79Cpd6YdiqcCzB5qFdpfQJPUDiXutqlQP89F2XGjOdDeidulBTXUdXWzOxw=="],
 
     "@ai-sdk/openai": ["@ai-sdk/openai@3.0.73", "", { "dependencies": { "@ai-sdk/provider": "3.0.10", "@ai-sdk/provider-utils": "4.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-+3x9oxHv9Xp33Iv2L8D+e5hqmZi64jofBKig/9611JKyfV59NdkaDDajtwc0CxOEfARgCVq1BW7dP+526gKOKw=="],

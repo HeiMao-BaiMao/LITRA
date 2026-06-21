@@ -1,5 +1,5 @@
 import { streamText, type ModelMessage } from "ai";
-import { createProvider } from "./provider.ts";
+import { createModel } from "./provider.ts";
 import {
   buildContinuationPrompt,
   buildFeedbackPrompt,
@@ -44,9 +44,8 @@ export async function streamChat({
   abortSignal,
 }: StreamChatOptions): Promise<void> {
   try {
-    const provider = createProvider(settings);
     const result = streamText({
-      model: provider(settings.model),
+      model: createModel(settings),
       system: systemPrompt,
       messages,
       temperature: settings.temperature,
@@ -70,9 +69,8 @@ export async function streamContinuation({
   abortSignal,
 }: StreamContinuationOptions): Promise<void> {
   try {
-    const provider = createProvider(settings);
     const result = streamText({
-      model: provider(settings.model),
+      model: createModel(settings),
       system: systemPrompt,
       prompt: buildContinuationPrompt(context),
       temperature: settings.temperature,
@@ -97,9 +95,8 @@ export async function streamRewrite({
   abortSignal,
 }: StreamRewriteOptions): Promise<void> {
   try {
-    const provider = createProvider(settings);
     const result = streamText({
-      model: provider(settings.model),
+      model: createModel(settings),
       system: systemPrompt,
       prompt: buildRewritePrompt(selection, context),
       temperature: settings.temperature,
@@ -123,9 +120,8 @@ export async function streamFeedback({
   abortSignal,
 }: StreamFeedbackOptions): Promise<void> {
   try {
-    const provider = createProvider(settings);
     const result = streamText({
-      model: provider(settings.model),
+      model: createModel(settings),
       system: systemPrompt,
       prompt: buildFeedbackPrompt(selection),
       temperature: settings.temperature,

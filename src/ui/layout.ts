@@ -11,6 +11,7 @@ export interface AppElements {
   btnSettings: HTMLButtonElement;
   settingsModal: HTMLElement;
   settingsForm: HTMLFormElement;
+  settingProvider: HTMLSelectElement;
   settingApiKey: HTMLInputElement;
   settingBaseUrl: HTMLInputElement;
   settingModel: HTMLInputElement;
@@ -39,6 +40,7 @@ export function getElements(): AppElements {
   const btnSettings = document.querySelector<HTMLButtonElement>("#btn-settings");
   const settingsModal = document.querySelector<HTMLElement>("#settings-modal");
   const settingsForm = document.querySelector<HTMLFormElement>("#settings-form");
+  const settingProvider = document.querySelector<HTMLSelectElement>("#setting-provider");
   const settingApiKey = document.querySelector<HTMLInputElement>("#setting-api-key");
   const settingBaseUrl = document.querySelector<HTMLInputElement>("#setting-base-url");
   const settingModel = document.querySelector<HTMLInputElement>("#setting-model");
@@ -60,6 +62,7 @@ export function getElements(): AppElements {
     !btnSettings ||
     !settingsModal ||
     !settingsForm ||
+    !settingProvider ||
     !settingApiKey ||
     !settingBaseUrl ||
     !settingModel ||
@@ -84,6 +87,7 @@ export function getElements(): AppElements {
     btnSettings,
     settingsModal,
     settingsForm,
+    settingProvider,
     settingApiKey,
     settingBaseUrl,
     settingModel,

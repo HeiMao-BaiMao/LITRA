@@ -264,7 +264,17 @@ button#btn-cancel:hover:not(:disabled) {
   outline: none;
 }
 
-.settings-form input:focus {
+.settings-form select {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+}
+
+.settings-form select:focus {
   border-color: var(--accent);
 }
 

@@ -10,6 +10,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.85",
+    "@ai-sdk/deepseek": "^2.0.39",
     "@ai-sdk/openai": "^3.0.73",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-http": "^2",

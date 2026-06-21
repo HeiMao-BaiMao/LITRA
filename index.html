@@ -55,6 +55,14 @@
           <h2>AI 設定</h2>
           <form id="settings-form" class="settings-form">
             <label>
+              <span>プロバイダー</span>
+              <select id="setting-provider">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="deepseek">DeepSeek</option>
+              </select>
+            </label>
+            <label>
               <span>API キー</span>
               <input
                 id="setting-api-key"
