@@ -3,7 +3,7 @@ export interface ChatMessage {
   content: string;
 }
 
-export type ProjectView = "episode" | "characters" | "world";
+export type ProjectView = "episode" | "characters" | "world" | "relationships";
 
 export interface AppState {
   editorText: string;

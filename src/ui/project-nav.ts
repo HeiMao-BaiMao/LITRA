@@ -237,13 +237,14 @@ export function renderEpisodeMemo(
 }
 
 export function setActiveNav(view: ProjectView): void {
-  const { navCharacters, navWorld } = getElements();
+  const { navCharacters, navWorld, navRelationships } = getElements();
   navCharacters.classList.toggle("active", view === "characters");
   navWorld.classList.toggle("active", view === "world");
+  navRelationships.classList.toggle("active", view === "relationships");
 }
 
 export function bindProjectNavActions(actions: ProjectNavActions): void {
-  const { btnNewEpisode, navCharacters, navWorld, episodeSummary, episodeMemo, btnGenerateSummary } = getElements();
+  const { btnNewEpisode, navCharacters, navWorld, navRelationships, episodeSummary, episodeMemo, btnGenerateSummary } = getElements();
 
   btnNewEpisode.addEventListener("click", () => {
     actions.onNewEpisode();
@@ -255,6 +256,10 @@ export function bindProjectNavActions(actions: ProjectNavActions): void {
 
   navWorld.addEventListener("click", () => {
     actions.onSelectView("world");
+  });
+
+  navRelationships.addEventListener("click", () => {
+    actions.onSelectView("relationships");
   });
 
   btnGenerateSummary.addEventListener("click", () => {

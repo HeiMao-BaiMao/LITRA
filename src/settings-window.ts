@@ -1,11 +1,13 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { renderSettingsEditor, type SettingsEditorActions } from "./ui/settings-editor.ts";
-import type { Character, WorldEntry } from "./project/schema.ts";
+import type { Character, WorldEntry, Episode, CharacterRelationshipMap } from "./project/schema.ts";
 
 interface SettingsSyncPayload {
-  view: "characters" | "world";
+  view: "characters" | "world" | "relationships";
   characters: Character[];
   worldEntries: WorldEntry[];
+  episodes: Episode[];
+  relationshipsMap: CharacterRelationshipMap;
   currentCharacterId: string | null;
   currentWorldEntryId: string | null;
 }
@@ -14,7 +16,8 @@ function init(): void {
   const container = document.querySelector<HTMLElement>("#settings-container");
   const tabCharacters = document.querySelector<HTMLButtonElement>("#tab-characters");
   const tabWorld = document.querySelector<HTMLButtonElement>("#tab-world");
-  if (!container || !tabCharacters || !tabWorld) return;
+  const tabRelationships = document.querySelector<HTMLButtonElement>("#tab-relationships");
+  if (!container || !tabCharacters || !tabWorld || !tabRelationships) return;
 
   const actions: SettingsEditorActions = {
     onCreateCharacter: (name) => emit("settings-create-character", { name }),
@@ -25,16 +28,20 @@ function init(): void {
     onUpdateWorldEntry: (entry) => emit("settings-update-world", { entry }),
     onDeleteWorldEntry: (id) => emit("settings-delete-world", { id }),
     onSelectWorldEntry: (id) => emit("settings-select-world", { id }),
+    onUpdateRelationships: (map) => emit("settings-update-relationships", { map }),
   };
 
   listen<SettingsSyncPayload>("settings-sync", (event) => {
-    const { view, characters, worldEntries, currentCharacterId, currentWorldEntryId } = event.payload;
+    const { view, characters, worldEntries, episodes, relationshipsMap, currentCharacterId, currentWorldEntryId } = event.payload;
     tabCharacters.classList.toggle("active", view === "characters");
     tabWorld.classList.toggle("active", view === "world");
+    tabRelationships.classList.toggle("active", view === "relationships");
     renderSettingsEditor(
       view,
       characters,
       worldEntries,
+      episodes,
+      relationshipsMap,
       currentCharacterId,
       currentWorldEntryId,
       actions,
@@ -44,6 +51,7 @@ function init(): void {
 
   tabCharacters.addEventListener("click", () => emit("settings-select-view", { view: "characters" }));
   tabWorld.addEventListener("click", () => emit("settings-select-view", { view: "world" }));
+  tabRelationships.addEventListener("click", () => emit("settings-select-view", { view: "relationships" }));
 
   emit("settings-ready", {});
 }

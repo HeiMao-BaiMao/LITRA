@@ -107,6 +107,7 @@ import {
   saveProject,
   type Project,
 } from "./project/repository.ts";
+import type { CharacterRelationshipMap } from "./project/schema.ts";
 import {
   createEpisode,
   deleteEpisode,
@@ -117,6 +118,12 @@ import {
   saveEpisode,
   updateEpisodeTitle,
 } from "./project/episodes.ts";
+import {
+  loadRelationships,
+  saveRelationships,
+  removeCharacterRelationships,
+  removeEpisodeRelationships,
+} from "./project/relationships.ts";
 import {
   createCharacter,
   createWorldEntry,
@@ -139,6 +146,7 @@ let currentProject: Project | null = null;
 let episodes: Episode[] = [];
 let characters: Character[] = [];
 let worldEntries: WorldEntry[] = [];
+let relationshipsMap: CharacterRelationshipMap = { groups: [] };
 let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
 
@@ -793,6 +801,8 @@ function syncSettingsToWindow(): void {
     view: state.currentView === "episode" ? "characters" : state.currentView,
     characters,
     worldEntries,
+    episodes,
+    relationshipsMap,
     currentCharacterId: state.currentCharacterId,
     currentWorldEntryId: state.currentWorldEntryId,
   });
@@ -1019,6 +1029,8 @@ function renderSettingsView(): void {
     state.currentView,
     characters,
     worldEntries,
+    episodes,
+    relationshipsMap,
     state.currentCharacterId,
     state.currentWorldEntryId,
     settingsActions,
@@ -1146,6 +1158,8 @@ async function handleDeleteEpisode(episodeId: string): Promise<void> {
   if (!currentProject) return;
   await deleteEpisode(currentProject.id, episodeId);
   episodes = (await loadEpisodeList(currentProject.id)).episodes;
+  removeEpisodeRelationships(relationshipsMap, episodeId);
+  await saveRelationships(currentProject.id, relationshipsMap);
 
   if (state.currentEpisodeId === episodeId) {
     state.currentEpisodeId = episodes.length > 0 ? episodes[0].id : null;
@@ -1239,10 +1253,11 @@ async function loadProjectData(project: Project): Promise<void> {
 
   await migrateFromManuscript(project.id);
 
-  const [episodeList, characterList, worldList, messages, summaries, memos] = await Promise.all([
+  const [episodeList, characterList, worldList, relationshipData, messages, summaries, memos] = await Promise.all([
     loadEpisodeList(project.id),
     loadCharacters(project.id),
     loadWorldEntries(project.id),
+    loadRelationships(project.id),
     loadChat(project.id),
     loadSummaries(project.id),
     loadMemos(project.id),
@@ -1251,6 +1266,7 @@ async function loadProjectData(project: Project): Promise<void> {
   episodes = episodeList.episodes;
   characters = characterList.characters;
   worldEntries = worldList.entries;
+  relationshipsMap = relationshipData;
   episodeSummaries = summaries;
   episodeMemos = memos;
 
@@ -1506,6 +1522,7 @@ const settingsActions: SettingsEditorActions = {
   onUpdateWorldEntry: (entry) => void handleUpdateWorldEntry(entry),
   onDeleteWorldEntry: (id) => void handleDeleteWorldEntry(id),
   onSelectWorldEntry: (id) => void handleSelectWorldEntry(id),
+  onUpdateRelationships: (map) => void handleUpdateRelationships(map),
 };
 
 async function handleCreateCharacter(name: string): Promise<void> {
@@ -1528,6 +1545,8 @@ async function handleDeleteCharacter(id: string): Promise<void> {
   if (!currentProject) return;
   await deleteCharacter(currentProject.id, id);
   characters = (await loadCharacters(currentProject.id)).characters;
+  removeCharacterRelationships(relationshipsMap, id);
+  await saveRelationships(currentProject.id, relationshipsMap);
   if (state.currentCharacterId === id) {
     state.currentCharacterId = characters.length > 0 ? characters[0].id : null;
   }
@@ -1539,6 +1558,12 @@ async function handleSelectCharacter(id: string): Promise<void> {
   state.currentCharacterId = id;
   renderSettingsView();
   syncSettingsToWindow();
+}
+
+async function handleUpdateRelationships(map: CharacterRelationshipMap): Promise<void> {
+  if (!currentProject) return;
+  relationshipsMap = map;
+  await saveRelationships(currentProject.id, relationshipsMap);
 }
 
 async function handleCreateWorldEntry(name: string, category: string): Promise<void> {
@@ -1971,7 +1996,7 @@ async function init(): Promise<void> {
     syncSettingsToWindow();
   });
 
-  listen<{ view: "characters" | "world" }>("settings-select-view", (event) => {
+  listen<{ view: "characters" | "world" | "relationships" }>("settings-select-view", (event) => {
     state.currentView = event.payload.view;
     setView(state.currentView);
     renderSettingsView();
@@ -2008,6 +2033,10 @@ async function init(): Promise<void> {
 
   listen<{ id: string }>("settings-select-world", (event) => {
     void handleSelectWorldEntry(event.payload.id);
+  });
+
+  listen<{ map: CharacterRelationshipMap }>("settings-update-relationships", (event) => {
+    void handleUpdateRelationships(event.payload.map);
   });
 
   const mainWindow = getCurrentWindow();

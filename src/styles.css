@@ -1313,6 +1313,124 @@ button.danger:hover:not(:disabled) {
   border: none;
 }
 
+.relationships-detail {
+  width: 100%;
+}
+
+.relationship-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.relationship-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.relationship-editor-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.relationship-episode-select {
+  min-width: 12rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.relationship-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.relationship-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--bg-secondary);
+  flex-wrap: wrap;
+}
+
+.relationship-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 700;
+  width: 1.2rem;
+  text-align: center;
+}
+
+.relationship-character-select,
+.relationship-direction-select {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.relationship-character-select {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.relationship-direction-select {
+  flex-shrink: 0;
+}
+
+.relationship-description {
+  flex: 2;
+  min-width: 10rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.relationship-delete {
+  width: 28px;
+  padding: 0.3rem 0;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.relationship-delete:hover {
+  background-color: var(--danger);
+  color: var(--text-primary);
+}
+
+.relationship-add-button {
+  align-self: flex-start;
+  padding: 0.4rem 0.8rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.relationship-add-button:hover {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
 @media (max-width: 48rem) {
   .chat-panel {
     position: absolute;

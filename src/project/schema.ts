@@ -28,6 +28,23 @@ export interface EpisodeMemoMap {
   memos: Record<string, EpisodeMemo>;
 }
 
+export interface CharacterRelationship {
+  id: string;
+  characterAId: string;
+  characterBId: string;
+  direction: "a-to-b" | "b-to-a" | "mutual";
+  description: string;
+}
+
+export interface EpisodeRelationshipGroup {
+  episodeId: string;
+  relationships: CharacterRelationship[];
+}
+
+export interface CharacterRelationshipMap {
+  groups: EpisodeRelationshipGroup[];
+}
+
 export interface CustomField {
   label: string;
   value: string;
@@ -205,5 +222,26 @@ export function isEpisodeMemoMap(value: unknown): value is EpisodeMemoMap {
     if (typeof key !== "string") return false;
     const m = memo as Partial<EpisodeMemo>;
     return typeof m.content === "string" && typeof m.updatedAt === "string";
+  });
+}
+
+export function isCharacterRelationshipMap(value: unknown): value is CharacterRelationshipMap {
+  if (typeof value !== "object" || value === null) return false;
+  const map = value as Partial<CharacterRelationshipMap>;
+  if (!Array.isArray(map.groups)) return false;
+  return map.groups.every((group) => {
+    const g = group as Partial<EpisodeRelationshipGroup>;
+    if (typeof g.episodeId !== "string") return false;
+    if (!Array.isArray(g.relationships)) return false;
+    return g.relationships.every((rel) => {
+      const r = rel as Partial<CharacterRelationship>;
+      return (
+        typeof r.id === "string" &&
+        typeof r.characterAId === "string" &&
+        typeof r.characterBId === "string" &&
+        ["a-to-b", "b-to-a", "mutual"].includes(r.direction as string) &&
+        typeof r.description === "string"
+      );
+    });
   });
 }

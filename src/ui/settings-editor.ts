@@ -1,6 +1,12 @@
 import { getElements } from "./layout.ts";
 import { applyStoredRatio, createVerticalResizer } from "./resizable.ts";
-import type { Character, CustomField, WorldEntry } from "../project/schema.ts";
+import type {
+  Character,
+  CustomField,
+  WorldEntry,
+  Episode,
+  CharacterRelationshipMap,
+} from "../project/schema.ts";
 
 export interface SettingsEditorActions {
   onCreateCharacter: (name: string) => void;
@@ -11,6 +17,7 @@ export interface SettingsEditorActions {
   onUpdateWorldEntry: (entry: WorldEntry) => void;
   onDeleteWorldEntry: (id: string) => void;
   onSelectWorldEntry: (id: string) => void;
+  onUpdateRelationships?: (map: CharacterRelationshipMap) => void;
 }
 
 let currentCharacter: Character | null = null;
@@ -251,6 +258,210 @@ function renderWorldEntryForm(entry: WorldEntry): HTMLElement {
   return form;
 }
 
+function createCharacterSelect(
+  characters: Character[],
+  value: string,
+  onChange: (id: string) => void,
+): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.className = "relationship-character-select";
+
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "選択...";
+  select.appendChild(empty);
+
+  for (const character of characters) {
+    const option = document.createElement("option");
+    option.value = character.id;
+    option.textContent = character.name || "（無題）";
+    select.appendChild(option);
+  }
+
+  select.value = value;
+  select.addEventListener("change", () => onChange(select.value));
+  return select;
+}
+
+function createDirectionSelect(
+  value: "a-to-b" | "b-to-a" | "mutual",
+  onChange: (direction: "a-to-b" | "b-to-a" | "mutual") => void,
+): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.className = "relationship-direction-select";
+
+  const options: { value: "a-to-b" | "b-to-a" | "mutual"; label: string }[] = [
+    { value: "a-to-b", label: "A → B" },
+    { value: "b-to-a", label: "A ← B" },
+    { value: "mutual", label: "A ↔ B" },
+  ];
+
+  for (const option of options) {
+    const el = document.createElement("option");
+    el.value = option.value;
+    el.textContent = option.label;
+    select.appendChild(el);
+  }
+
+  select.value = value;
+  select.addEventListener("change", () => onChange(select.value as "a-to-b" | "b-to-a" | "mutual"));
+  return select;
+}
+
+function renderRelationshipRow(
+  relationship: import("../project/schema.ts").CharacterRelationship,
+  characters: Character[],
+  onChange: () => void,
+  onDelete: () => void,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "relationship-row";
+
+  const labelA = document.createElement("span");
+  labelA.className = "relationship-label";
+  labelA.textContent = "A";
+
+  const labelB = document.createElement("span");
+  labelB.className = "relationship-label";
+  labelB.textContent = "B";
+
+  const selectA = createCharacterSelect(characters, relationship.characterAId, (id) => {
+    relationship.characterAId = id;
+    onChange();
+  });
+
+  const selectB = createCharacterSelect(characters, relationship.characterBId, (id) => {
+    relationship.characterBId = id;
+    onChange();
+  });
+
+  const directionSelect = createDirectionSelect(relationship.direction, (direction) => {
+    relationship.direction = direction;
+    onChange();
+  });
+
+  const description = document.createElement("input");
+  description.type = "text";
+  description.className = "relationship-description";
+  description.placeholder = "関係の説明（例：敵同士で憎み合っている）";
+  description.value = relationship.description;
+  description.addEventListener("input", () => {
+    relationship.description = description.value;
+    onChange();
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "relationship-delete";
+  deleteBtn.textContent = "×";
+  deleteBtn.title = "削除";
+  deleteBtn.addEventListener("click", onDelete);
+
+  row.appendChild(labelA);
+  row.appendChild(selectA);
+  row.appendChild(directionSelect);
+  row.appendChild(labelB);
+  row.appendChild(selectB);
+  row.appendChild(description);
+  row.appendChild(deleteBtn);
+  return row;
+}
+
+function renderRelationshipEditor(
+  episodes: Episode[],
+  characters: Character[],
+  map: CharacterRelationshipMap,
+  onUpdate: () => void,
+): HTMLElement {
+  const container = document.createElement("div");
+  container.className = "relationship-editor";
+
+  const header = document.createElement("div");
+  header.className = "relationship-editor-header";
+
+  const title = document.createElement("h3");
+  title.textContent = "人間関係";
+  header.appendChild(title);
+
+  const episodeSelect = document.createElement("select");
+  episodeSelect.className = "relationship-episode-select";
+
+  const globalOption = document.createElement("option");
+  globalOption.value = "";
+  globalOption.textContent = "全体（全話共通）";
+  episodeSelect.appendChild(globalOption);
+
+  const sortedEpisodes = [...episodes].sort((a, b) => a.order - b.order);
+  for (const episode of sortedEpisodes) {
+    const option = document.createElement("option");
+    option.value = episode.id;
+    option.textContent = episode.title || "（無題）";
+    episodeSelect.appendChild(option);
+  }
+
+  header.appendChild(episodeSelect);
+  container.appendChild(header);
+
+  const rowsContainer = document.createElement("div");
+  rowsContainer.className = "relationship-rows";
+  container.appendChild(rowsContainer);
+
+  const renderRows = (): void => {
+    rowsContainer.innerHTML = "";
+    const group = map.groups.find((g) => g.episodeId === episodeSelect.value);
+    if (!group) return;
+
+    for (let i = 0; i < group.relationships.length; i++) {
+      const relationship = group.relationships[i];
+      rowsContainer.appendChild(
+        renderRelationshipRow(
+          relationship,
+          characters,
+          () => {
+            onUpdate();
+          },
+          () => {
+            group.relationships.splice(i, 1);
+            if (group.relationships.length === 0) {
+              map.groups = map.groups.filter((g) => g.episodeId !== group.episodeId);
+            }
+            renderRows();
+            onUpdate();
+          },
+        ),
+      );
+    }
+  };
+
+  episodeSelect.addEventListener("change", renderRows);
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "relationship-add-button";
+  addBtn.textContent = "＋ 関係を追加";
+  addBtn.addEventListener("click", () => {
+    const group = map.groups.find((g) => g.episodeId === episodeSelect.value);
+    const targetGroup = group ?? { episodeId: episodeSelect.value, relationships: [] };
+    if (!group) {
+      map.groups.push(targetGroup);
+    }
+    targetGroup.relationships.push({
+      id: crypto.randomUUID(),
+      characterAId: "",
+      characterBId: "",
+      direction: "mutual",
+      description: "",
+    });
+    renderRows();
+    onUpdate();
+  });
+
+  container.appendChild(addBtn);
+
+  renderRows();
+  return container;
+}
+
 function renderList<T extends { id: string; name: string }>(
   items: T[],
   currentId: string | null,
@@ -302,9 +513,11 @@ function createAddButton(label: string, onClick: () => void): HTMLButtonElement 
 }
 
 export async function renderSettingsEditor(
-  view: "characters" | "world",
+  view: "characters" | "world" | "relationships",
   characters: Character[],
   worldEntries: WorldEntry[],
+  episodes: Episode[],
+  relationshipsMap: CharacterRelationshipMap,
   currentCharacterId: string | null,
   currentWorldEntryId: string | null,
   actions: SettingsEditorActions,
@@ -352,7 +565,7 @@ export async function renderSettingsEditor(
     } else {
       detail.innerHTML = '<div class="settings-empty">キャラクターを選択または作成してください</div>';
     }
-  } else {
+  } else if (view === "world") {
     sidebar.appendChild(
       createAddButton("＋ 新しい世界観", () => {
         const name = window.prompt("世界観の名前を入力してください");
@@ -377,16 +590,30 @@ export async function renderSettingsEditor(
     } else {
       detail.innerHTML = '<div class="settings-empty">世界観を選択または作成してください</div>';
     }
+  } else {
+    sidebar.classList.add("hidden");
+    detail.classList.add("relationships-detail");
+    detail.appendChild(
+      renderRelationshipEditor(episodes, characters, relationshipsMap, () => {
+        debounceUpdate(() => {
+          if (actions.onUpdateRelationships) {
+            actions.onUpdateRelationships(relationshipsMap);
+          }
+        });
+      }),
+    );
   }
 
   wrapper.appendChild(sidebar);
   wrapper.appendChild(detail);
   panel.appendChild(wrapper);
 
-  createVerticalResizer({
-    container: wrapper,
-    propertyName: "--settings-sidebar-width",
-    position: "inside",
-    saveKey: "settingsSidebar",
-  });
+  if (view !== "relationships") {
+    createVerticalResizer({
+      container: wrapper,
+      propertyName: "--settings-sidebar-width",
+      position: "inside",
+      saveKey: "settingsSidebar",
+    });
+  }
 }
