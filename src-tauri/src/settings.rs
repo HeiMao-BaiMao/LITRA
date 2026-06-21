@@ -38,6 +38,10 @@ fn read_or_empty(path: &PathBuf, empty: Value) -> Value {
 }
 
 fn write_json(path: &PathBuf, value: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create dir {}: {}", parent.display(), e))?;
+    }
     fs::write(path, serde_json::to_string_pretty(value).unwrap())
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
@@ -125,6 +129,104 @@ pub fn update_character(req: UpdateCharacterRequest) -> Result<Value, String> {
     merge_updates(target, req.updates);
     write_json(&path, &data)?;
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_project_id() -> String {
+        format!("test-{}", uuid::Uuid::new_v4())
+    }
+
+    fn cleanup(project_id: &str) {
+        if let Ok(path) = project_dir(project_id) {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+
+    #[test]
+    fn character_crud_works() {
+        let project_id = test_project_id();
+
+        // create
+        let created = create_character(CreateCharacterRequest {
+            project_id: project_id.clone(),
+            name: "猫田".to_string(),
+        })
+        .expect("create_character failed");
+        let characters = created["characters"].as_array().expect("characters array");
+        assert_eq!(characters.len(), 1);
+        let id = characters[0]["id"].as_str().unwrap().to_string();
+
+        // update birthday
+        let updated = update_character(UpdateCharacterRequest {
+            project_id: project_id.clone(),
+            character_id: id.clone(),
+            updates: {
+                let mut map = Map::new();
+                map.insert("birthday".to_string(), Value::String("2月23日".to_string()));
+                map.insert("notes".to_string(), Value::String("雨が好き".to_string()));
+                map
+            },
+        })
+        .expect("update_character failed");
+        let characters = updated["characters"].as_array().unwrap();
+        let target = characters.iter().find(|c| c["id"].as_str() == Some(&id)).unwrap();
+        assert_eq!(target["birthday"].as_str().unwrap(), "2月23日");
+        assert_eq!(target["notes"].as_str().unwrap(), "雨が好き");
+
+        // persisted correctly
+        let list = list_characters(project_id.clone()).expect("list_characters failed");
+        let target = list["characters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"].as_str() == Some(&id))
+            .unwrap()
+            .clone();
+        assert_eq!(target["birthday"].as_str().unwrap(), "2月23日");
+        assert_eq!(target["notes"].as_str().unwrap(), "雨が好き");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn world_entry_crud_works() {
+        let project_id = test_project_id();
+
+        let created = create_world_entry(CreateWorldEntryRequest {
+            project_id: project_id.clone(),
+            name: "中央駅".to_string(),
+            category: "場所".to_string(),
+        })
+        .expect("create_world_entry failed");
+        let entries = created["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        let id = entries[0]["id"].as_str().unwrap().to_string();
+
+        let updated = update_world_entry(UpdateWorldEntryRequest {
+            project_id: project_id.clone(),
+            entry_id: id.clone(),
+            updates: {
+                let mut map = Map::new();
+                map.insert("geography".to_string(), Value::String("北側の高地".to_string()));
+                map.insert("notes".to_string(), Value::String("深夜も営業".to_string()));
+                map
+            },
+        })
+        .expect("update_world_entry failed");
+        let target = updated["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["id"].as_str() == Some(&id))
+            .unwrap();
+        assert_eq!(target["geography"].as_str().unwrap(), "北側の高地");
+        assert_eq!(target["notes"].as_str().unwrap(), "深夜も営業");
+
+        cleanup(&project_id);
+    }
 }
 
 #[tauri::command]

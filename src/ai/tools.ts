@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 
+
 function wrapToolExecute<TInput, TOutput>(
   name: string,
   execute: (input: TInput) => Promise<TOutput>,
