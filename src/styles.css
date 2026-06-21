@@ -344,6 +344,23 @@ button#btn-cancel:hover:not(:disabled) {
   overflow-wrap: anywhere;
 }
 
+.tool-call-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.55rem 0.7rem 0;
+}
+
+.tool-call-chip {
+  max-width: 100%;
+  padding: 0.16rem 0.45rem;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
 .tool-call-section {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -352,11 +369,11 @@ button#btn-cancel:hover:not(:disabled) {
   margin-top: 0.55rem;
 }
 
-.tool-call-section summary {
-  cursor: pointer;
+.tool-call-section-title {
   padding: 0.45rem 0.7rem;
   color: var(--text-secondary);
   font-weight: 600;
+  font-size: 0.8rem;
 }
 
 .tool-call-kv-list {
