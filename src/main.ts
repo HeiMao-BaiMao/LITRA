@@ -1284,9 +1284,16 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       abortSignal: controller.signal,
     });
     finalizeToolRun(run);
-    if (run.stoppedAfterToolActivity) {
-      appendToolInterruptedFallback();
+
+    const plainText = getLastAssistantPlainText();
+    const saved = episodeSummaries.summaries[episode.id];
+    if (!plainText && saved?.content) {
+      appendMessage(
+        "assistant",
+        `【要約】\n${saved.content}${saved.oneLiner ? `\n\n【一行要約】\n${saved.oneLiner}` : ""}`,
+      );
     }
+
     renderProjectNavigation();
     await saveCurrentChat();
   } catch (error) {
