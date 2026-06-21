@@ -144,19 +144,15 @@ export function buildSummaryPrompt(
   episodeId: string,
   title: string,
   sourceText: string,
-  sourceIsExcerpt: boolean,
 ): string {
-  const excerptInstruction = sourceIsExcerpt
-    ? "本文には【中略】が含まれています。保存前に retrieveEpisode で fullText を取得し、全文を確認してください。"
-    : "本文全体を確認したうえで作成してください。";
-
   return `エピソード「${title || "無題"}」（episodeId: ${episodeId}）の要約と一行要約を作成してください。
-${excerptInstruction}
-
-要約は出来事の因果関係、登場人物の感情変化、次話に効く伏線や未解決事項が分かる長さにしてください。
-一行要約は一覧で見たときに内容を思い出せる短い文にしてください。
-作成後は saveEpisodeSummary と saveEpisodeOneLiner を使って保存してください。
 
 【本文】
-${sourceText}`;
+${sourceText}
+
+以上の本文を基に、要約と一行要約を作成してください。
+要約は出来事の因果関係、登場人物の感情変化、次話に効く伏線や未解決事項が分かる長さにしてください。
+一行要約は一覧で見たときに内容を思い出せる短い文にしてください。
+
+重要：作成した要約と一行要約は、必ず saveEpisodeSummary と saveEpisodeOneLiner ツールを呼び出して保存してください。ツールを呼び出さずにテキストを出力しても保存されません。`;
 }

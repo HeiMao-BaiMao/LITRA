@@ -200,6 +200,7 @@ export interface StreamChatOptions {
   abortSignal?: AbortSignal;
   settingsContext?: string;
   tools?: ToolSet;
+  toolChoice?: "auto" | "none" | "required";
   onToolEvent?: (event: StreamToolEvent) => void;
 }
 
@@ -278,6 +279,7 @@ export async function streamChat({
   abortSignal,
   settingsContext,
   tools,
+  toolChoice,
   onToolEvent,
 }: StreamChatOptions): Promise<StreamRunResult> {
   try {
@@ -290,6 +292,7 @@ export async function streamChat({
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
+      toolChoice,
       stopWhen: tools ? isLoopFinished() : undefined,
       ...buildAdvancedOptions(s),
     });

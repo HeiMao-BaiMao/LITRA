@@ -1230,13 +1230,41 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
     episode.id,
     episode.title || "無題",
     sourceText,
-    text.length > budgets.summarySource,
   );
 
   appendMessage(
     "user",
     `「${episode.title || "無題"}」の要約と一行要約を作成してください。`,
   );
+
+  const summaryToolDeps = {
+    projectId: currentProject.id,
+    onSaveSummary: (savedEpisodeId: string, content: string) => {
+      episodeSummaries.summaries[savedEpisodeId] = {
+        ...(episodeSummaries.summaries[savedEpisodeId] ?? { oneLiner: "" }),
+        content,
+        updatedAt: new Date().toISOString(),
+      };
+      if (savedEpisodeId === state.currentEpisodeId) {
+        renderEpisodeSummary(savedEpisodeId, content, handleUpdateSummary, handleGenerateSummary);
+      }
+      syncSummaryToWindow();
+    },
+    onSaveOneLiner: (savedEpisodeId: string, oneLiner: string) => {
+      const existing = episodeSummaries.summaries[savedEpisodeId];
+      episodeSummaries.summaries[savedEpisodeId] = {
+        content: existing?.content ?? "",
+        oneLiner,
+        updatedAt: new Date().toISOString(),
+      };
+      syncSummaryToWindow();
+    },
+  };
+
+  const summaryTools: ToolSet = {
+    saveEpisodeSummary: createSaveEpisodeSummaryTool(summaryToolDeps),
+    saveEpisodeOneLiner: createSaveEpisodeOneLinerTool(summaryToolDeps),
+  };
 
   const controller = startGeneration();
   try {
@@ -1246,7 +1274,8 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       settings: currentSettings,
       messages,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
-      tools: createAiTools(),
+      tools: summaryTools,
+      toolChoice: "required",
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
       },
