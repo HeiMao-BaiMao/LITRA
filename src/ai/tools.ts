@@ -53,12 +53,14 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
         actualText?: string;
         totalLines?: number;
       }>("edit_episode_text", {
-        projectId: deps.projectId,
-        episodeId: deps.episodeId,
-        startLine,
-        endLine,
-        expectedText,
-        replacementText,
+        req: {
+          projectId: deps.projectId,
+          episodeId: deps.episodeId,
+          startLine,
+          endLine,
+          expectedText,
+          replacementText,
+        },
       });
       if (result.success && result.newText != null) {
         deps.onApply(result.newText);
@@ -104,9 +106,11 @@ export function createRetrieveEpisodeTool(deps: SearchDependencies) {
         contentType: string;
         content: string;
       }>("retrieve_episode_content", {
-        projectId: deps.projectId,
-        episodeId,
-        contentType: type,
+        req: {
+          projectId: deps.projectId,
+          episodeId,
+          contentType: type,
+        },
       });
     }),
   });
@@ -130,9 +134,11 @@ export function createSearchEpisodesTool(deps: SearchDependencies) {
         docType: string;
         snippet: string;
       }[]>("search_episodes", {
-        projectId: deps.projectId,
-        query,
-        limit,
+        req: {
+          projectId: deps.projectId,
+          query,
+          limit,
+        },
       });
     }),
   });
@@ -165,9 +171,11 @@ export function createSaveEpisodeSummaryTool(deps: SummaryToolDependencies) {
     inputSchema: saveSummaryInputSchema,
     execute: wrapToolExecute("saveEpisodeSummary", async ({ episodeId, content }) => {
       await invoke("save_episode_summary", {
-        projectId: deps.projectId,
-        episodeId,
-        content,
+        req: {
+          projectId: deps.projectId,
+          episodeId,
+          content,
+        },
       });
       deps.onSaveSummary?.(episodeId, content);
       return { success: true, message: "要約を保存しました。" };
@@ -187,9 +195,11 @@ export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
     inputSchema: saveOneLinerInputSchema,
     execute: wrapToolExecute("saveEpisodeOneLiner", async ({ episodeId, oneLiner }) => {
       await invoke("save_episode_one_liner", {
-        projectId: deps.projectId,
-        episodeId,
-        oneLiner,
+        req: {
+          projectId: deps.projectId,
+          episodeId,
+          oneLiner,
+        },
       });
       deps.onSaveOneLiner?.(episodeId, oneLiner);
       return { success: true, message: "一行要約を保存しました。" };
@@ -234,9 +244,11 @@ export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
     inputSchema: updateCharacterInputSchema,
     execute: wrapToolExecute("updateCharacter", async ({ characterId, updates }) => {
       const result = await invoke<{ characters: Character[] }>("update_character", {
-        projectId: deps.projectId,
-        characterId,
-        updates,
+        req: {
+          projectId: deps.projectId,
+          characterId,
+          updates,
+        },
       });
       deps.onUpdateCharacters(result.characters);
       return { success: true, message: "キャラクター設定を更新しました。" };
@@ -254,8 +266,10 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
     inputSchema: createCharacterInputSchema,
     execute: wrapToolExecute("createCharacter", async ({ name }) => {
       const result = await invoke<{ characters: Character[] }>("create_character", {
-        projectId: deps.projectId,
-        name,
+        req: {
+          projectId: deps.projectId,
+          name,
+        },
       });
       deps.onUpdateCharacters(result.characters);
       return { success: true, message: `キャラクター「${name}」を作成しました。` };
@@ -292,9 +306,11 @@ export function createUpdateWorldEntryTool(deps: SettingsToolDependencies) {
     inputSchema: updateWorldEntryInputSchema,
     execute: wrapToolExecute("updateWorldEntry", async ({ entryId, updates }) => {
       const result = await invoke<{ entries: WorldEntry[] }>("update_world_entry", {
-        projectId: deps.projectId,
-        entryId,
-        updates,
+        req: {
+          projectId: deps.projectId,
+          entryId,
+          updates,
+        },
       });
       deps.onUpdateWorldEntries(result.entries);
       return { success: true, message: "世界観設定を更新しました。" };
@@ -313,9 +329,11 @@ export function createCreateWorldEntryTool(deps: SettingsToolDependencies) {
     inputSchema: createWorldEntryInputSchema,
     execute: wrapToolExecute("createWorldEntry", async ({ name, category }) => {
       const result = await invoke<{ entries: WorldEntry[] }>("create_world_entry", {
-        projectId: deps.projectId,
-        name,
-        category,
+        req: {
+          projectId: deps.projectId,
+          name,
+          category,
+        },
       });
       deps.onUpdateWorldEntries(result.entries);
       return { success: true, message: `世界観「${name}」を作成しました。` };
