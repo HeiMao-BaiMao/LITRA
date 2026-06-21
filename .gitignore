@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Serena configuration is intentionally tracked
+!.serena/
+
+# Rust lockfile is not tracked in this project
+src-tauri/Cargo.lock
