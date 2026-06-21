@@ -490,6 +490,12 @@ const saveOneLinerInputSchema = z.object({
   oneLiner: z.string().describe("エピソードの一行要約。短くまとめたもの。"),
 });
 
+const saveSummaryAndOneLinerInputSchema = z.object({
+  episodeId: z.string().describe("要約を保存するエピソードのID"),
+  content: z.string().describe("エピソードの要約文。本文の内容をまとめたもの。長文や改行を含んでも構いません。"),
+  oneLiner: z.string().describe("エピソードの一行要約。短くまとめたもの。"),
+});
+
 export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
   return tool({
     description:
@@ -510,6 +516,47 @@ export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
       });
       deps.onSaveOneLiner?.(episodeId, validation.data);
       return { success: true, message: "一行要約を保存しました。" };
+    }),
+  });
+}
+
+export function createSaveEpisodeSummaryAndOneLinerTool(deps: SummaryToolDependencies) {
+  return tool({
+    description:
+      "指定したエピソードの要約と一行要約を同時に保存または更新します。要約を作成したら、必ずこの1つのツールだけを呼び出して保存を完了してください。",
+    inputSchema: saveSummaryAndOneLinerInputSchema,
+    execute: wrapToolExecute("saveEpisodeSummaryAndOneLiner", async ({ episodeId, content, oneLiner }) => {
+      const contentValidation = validateStringField("content", content);
+      if (!contentValidation.success) {
+        return { error: `content が不正です: ${contentValidation.error}` };
+      }
+      const oneLinerValidation = validateStringField("oneLiner", oneLiner);
+      if (!oneLinerValidation.success) {
+        return { error: `oneLiner が不正です: ${oneLinerValidation.error}` };
+      }
+
+      await invoke("save_episode_summary", {
+        req: {
+          projectId: deps.projectId,
+          episodeId,
+          content: contentValidation.data,
+        },
+      });
+      await invoke("save_episode_one_liner", {
+        req: {
+          projectId: deps.projectId,
+          episodeId,
+          oneLiner: oneLinerValidation.data,
+        },
+      });
+      const searchIndexUpdated = await rebuildSearchIndexQuietly(deps.projectId);
+      deps.onSaveSummary?.(episodeId, contentValidation.data);
+      deps.onSaveOneLiner?.(episodeId, oneLinerValidation.data);
+      return {
+        success: true,
+        message: "要約と一行要約を保存しました。",
+        searchIndexUpdated,
+      };
     }),
   });
 }

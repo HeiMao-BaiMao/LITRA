@@ -154,31 +154,11 @@ ${sourceText}
 要約は出来事の因果関係、登場人物の感情変化、次話に効く伏線や未解決事項が分かる長さにしてください。
 一行要約は一覧で見たときに内容を思い出せる短い文にしてください。
 
-以下の形式で出力してください。
+以下の形式でチャットに要約を出力したうえで、必ず saveEpisodeSummaryAndOneLiner ツールを1回だけ呼び出して保存を完了してください。
 
 【要約】
 （要約文）
 
 【一行要約】
 （一行要約文）`;
-}
-
-export function parseSummaryOutput(output: string): {
-  summary: string | undefined;
-  oneLiner: string | undefined;
-} {
-  const normalized = output.replace(/\r\n/g, "\n");
-  const summaryMatch = normalized.match(/【要約】\n?([\s\S]*?)(?=\n?【一行要約】|$)/);
-  const oneLinerMatch = normalized.match(/【一行要約】\n?([\s\S]*?)$/);
-
-  const trim = (value: string | undefined): string | undefined => {
-    if (!value) return undefined;
-    const trimmed = value.replace(/^[\n\s]+|[\n\s]+$/g, "");
-    return trimmed || undefined;
-  };
-
-  return {
-    summary: summaryMatch ? trim(summaryMatch[1]) : undefined,
-    oneLiner: oneLinerMatch ? trim(oneLinerMatch[1]) : undefined,
-  };
 }

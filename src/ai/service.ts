@@ -1,4 +1,4 @@
-import { isLoopFinished, streamText, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
+import { isLoopFinished, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
 import { buildProviderOptions } from "./provider-options.ts";
 import {
@@ -201,6 +201,7 @@ export interface StreamChatOptions {
   settingsContext?: string;
   tools?: ToolSet;
   toolChoice?: "auto" | "none" | "required";
+  stopWhen?: StopCondition<ToolSet>;
   onToolEvent?: (event: StreamToolEvent) => void;
 }
 
@@ -280,6 +281,7 @@ export async function streamChat({
   settingsContext,
   tools,
   toolChoice,
+  stopWhen,
   onToolEvent,
 }: StreamChatOptions): Promise<StreamRunResult> {
   try {
@@ -293,7 +295,7 @@ export async function streamChat({
       abortSignal,
       tools,
       toolChoice,
-      stopWhen: tools ? isLoopFinished() : undefined,
+      stopWhen: stopWhen ?? (tools ? isLoopFinished() : undefined),
       ...buildAdvancedOptions(s),
     });
 

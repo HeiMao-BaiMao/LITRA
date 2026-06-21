@@ -19,7 +19,7 @@ import {
   type StreamRunResult,
   type StreamToolEvent,
 } from "./ai/service.ts";
-import { buildSummaryPrompt, limitPromptText, parseSummaryOutput } from "./ai/prompts.ts";
+import { buildSummaryPrompt, limitPromptText } from "./ai/prompts.ts";
 import {
   createCreateCharacterTool,
   createCreateWorldEntryTool,
@@ -36,6 +36,7 @@ import {
   createRebuildSearchIndexTool,
   createRetrieveEpisodeTool,
   createSaveEpisodeOneLinerTool,
+  createSaveEpisodeSummaryAndOneLinerTool,
   createSaveEpisodeSummaryTool,
   createSearchEpisodesTool,
   createUpdateCharacterTool,
@@ -139,10 +140,10 @@ import {
   updateWorldEntry,
 } from "./project/settings.ts";
 import { loadChat, saveChat } from "./project/documents.ts";
-import { loadSummaries, saveEpisodeSummary, saveEpisodeOneLiner } from "./project/summaries.ts";
+import { loadSummaries, saveEpisodeSummary } from "./project/summaries.ts";
 import { loadMemos, saveEpisodeMemo } from "./project/memos.ts";
 import type { Character, Episode, EpisodeMemoMap, EpisodeSummaryMap, WorldEntry } from "./project/schema.ts";
-import type { ModelMessage, ToolSet } from "ai";
+import { hasToolCall, type ModelMessage, type ToolSet } from "ai";
 
 let currentSettings: AiSettings;
 let providerConfig: ProviderConfig;
@@ -1237,61 +1238,56 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
     `「${episode.title || "無題"}」の要約と一行要約を作成してください。`,
   );
 
-  const controller = startGeneration();
-  try {
-    const messages: ModelMessage[] = [{ role: "user", content: prompt }];
-
-    await streamChat({
-      settings: currentSettings,
-      messages,
-      settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
-      onChunk: (chunk) => {
-        appendAssistantChunk(chunk);
-      },
-      abortSignal: controller.signal,
-    });
-
-    const lastMessage = state.chatMessages[state.chatMessages.length - 1];
-    const assistantText = lastMessage?.role === "assistant" && !isToolResultLog(lastMessage.content)
-      ? lastMessage.content
-      : "";
-    const { summary, oneLiner } = parseSummaryOutput(assistantText);
-
-    if (summary) {
-      await saveEpisodeSummary(currentProject.id, episode.id, summary);
-      episodeSummaries.summaries[episode.id] = {
-        ...(episodeSummaries.summaries[episode.id] ?? { oneLiner: "" }),
-        content: summary,
+  const summaryToolDeps = {
+    projectId: currentProject.id,
+    onSaveSummary: (savedEpisodeId: string, content: string) => {
+      episodeSummaries.summaries[savedEpisodeId] = {
+        ...(episodeSummaries.summaries[savedEpisodeId] ?? { oneLiner: "" }),
+        content,
         updatedAt: new Date().toISOString(),
       };
-      if (episode.id === state.currentEpisodeId) {
-        renderEpisodeSummary(episode.id, summary, handleUpdateSummary, handleGenerateSummary);
+      if (savedEpisodeId === state.currentEpisodeId) {
+        renderEpisodeSummary(savedEpisodeId, content, handleUpdateSummary, handleGenerateSummary);
       }
-    }
-
-    if (oneLiner) {
-      await saveEpisodeOneLiner(currentProject.id, episode.id, oneLiner);
-      const existing = episodeSummaries.summaries[episode.id];
-      episodeSummaries.summaries[episode.id] = {
+      syncSummaryToWindow();
+    },
+    onSaveOneLiner: (savedEpisodeId: string, oneLiner: string) => {
+      const existing = episodeSummaries.summaries[savedEpisodeId];
+      episodeSummaries.summaries[savedEpisodeId] = {
         content: existing?.content ?? "",
         oneLiner,
         updatedAt: new Date().toISOString(),
       };
-    }
-
-    if (summary || oneLiner) {
       syncSummaryToWindow();
-      renderProjectNavigation();
-      invoke("rebuild_search_index", { projectId: currentProject.id }).catch((error) => {
-        console.warn("[phenex] failed to rebuild search index after summary update:", error);
-      });
-    } else {
-      appendMessage(
-        "assistant",
-        "（要約のパースに失敗しました。応答に『【要約】』または『【一行要約】』が含まれていません。）",
-      );
-    }
+    },
+  };
 
+  const summaryTools: ToolSet = {
+    saveEpisodeSummaryAndOneLiner: createSaveEpisodeSummaryAndOneLinerTool(summaryToolDeps),
+  };
+
+  const controller = startGeneration();
+  try {
+    const messages: ModelMessage[] = [{ role: "user", content: prompt }];
+
+    const run = await streamChat({
+      settings: currentSettings,
+      messages,
+      settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+      tools: summaryTools,
+      toolChoice: "required",
+      stopWhen: hasToolCall("saveEpisodeSummaryAndOneLiner"),
+      onChunk: (chunk) => {
+        appendAssistantChunk(chunk);
+      },
+      onToolEvent: handleToolEvent,
+      abortSignal: controller.signal,
+    });
+    finalizeToolRun(run);
+    if (run.stoppedAfterToolActivity) {
+      appendToolInterruptedFallback();
+    }
+    renderProjectNavigation();
     await saveCurrentChat();
   } catch (error) {
     if (error instanceof Error && error.name !== "AbortError") {
