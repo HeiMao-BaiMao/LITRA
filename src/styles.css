@@ -262,6 +262,133 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
+.chat-message.tool-call-message {
+  width: min(100%, 560px);
+  max-width: 96%;
+  padding: 0;
+  background: transparent;
+}
+
+.tool-call-card {
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--text-secondary);
+  border-radius: 8px;
+  background-color: #202638;
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.tool-call-card.success {
+  border-left-color: #44c27a;
+}
+
+.tool-call-card.failure {
+  border-left-color: #ef6b73;
+}
+
+.tool-call-card.running {
+  border-left-color: var(--accent);
+}
+
+.tool-call-card.interrupted {
+  border-left-color: #d5a84c;
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tool-call-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+}
+
+.tool-call-icon {
+  flex: 0 0 auto;
+  padding: 0.08rem 0.28rem;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.tool-call-name {
+  overflow-wrap: anywhere;
+}
+
+.tool-call-status {
+  flex: 0 0 auto;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.tool-call-id {
+  padding: 0.35rem 0.7rem 0;
+  color: var(--text-secondary);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.tool-call-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.55rem 0.7rem 0;
+}
+
+.tool-call-chip {
+  max-width: 100%;
+  padding: 0.16rem 0.45rem;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.tool-call-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tool-call-section:first-of-type {
+  margin-top: 0.55rem;
+}
+
+.tool-call-section summary {
+  cursor: pointer;
+  padding: 0.45rem 0.7rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.tool-call-section pre {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0;
+  background-color: rgba(0, 0, 0, 0.2);
+  max-height: 280px;
+  overflow: auto;
+}
+
+.tool-call-section pre code {
+  white-space: pre;
+}
+
 .chat-form {
   padding: 0.75rem;
   border-top: 1px solid var(--border-color);
