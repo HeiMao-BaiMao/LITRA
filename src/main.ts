@@ -16,6 +16,8 @@ import {
   streamContinuation,
   streamFeedback,
   streamRewrite,
+  type StreamRunResult,
+  type StreamToolEvent,
 } from "./ai/service.ts";
 import { buildSummaryPrompt, limitPromptText } from "./ai/prompts.ts";
 import {
@@ -50,6 +52,7 @@ import {
   removeLastEmptyAssistantMessage,
   renderMessages,
   setChatSyncCallback,
+  updateMessageContent,
   updateLastAssistantChunk,
 } from "./ui/chat.ts";
 import { renderChatMessageHtml } from "./markdown.ts";
@@ -196,6 +199,19 @@ let memoCollapsedBeforeDetach = false;
 let chatCollapsedBeforeDetach = false;
 let isMainClosing = false;
 
+type ToolLogStatus = "input" | "running" | "success" | "failure" | "interrupted";
+
+interface ToolLogState {
+  messageIndex: number;
+  toolCallId: string;
+  toolName: string;
+  status: ToolLogStatus;
+  input?: unknown;
+  output?: unknown;
+}
+
+const toolLogStates = new Map<string, ToolLogState>();
+
 function setGenerating(generating: boolean): void {
   state.isGenerating = generating;
   const {
@@ -229,6 +245,7 @@ function setGenerating(generating: boolean): void {
 }
 
 function startGeneration(): AbortController {
+  toolLogStates.clear();
   const controller = new AbortController();
   state.abortController = controller;
   setGenerating(true);
@@ -237,6 +254,7 @@ function startGeneration(): AbortController {
 
 function stopGeneration(): void {
   state.abortController?.abort();
+  markPendingToolLogsInterrupted("ユーザーが停止しました。");
   setGenerating(false);
 }
 
@@ -373,8 +391,142 @@ function stringifyForDisplay(value: unknown, maxChars: number): string {
   return limitPromptText(text, maxChars, "head");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFailureToolOutput(output: unknown): boolean {
+  if (!isRecord(output)) return false;
+  if ("error" in output && output.error != null) return true;
+  return output.success === false;
+}
+
 function isToolResultLog(content: string): boolean {
-  return content.startsWith("【ツール実行:");
+  return content.startsWith("【ツール");
+}
+
+function toolStatusLabel(status: ToolLogStatus): string {
+  switch (status) {
+    case "input":
+      return "入力生成中";
+    case "running":
+      return "実行中";
+    case "success":
+      return "成功";
+    case "failure":
+      return "失敗";
+    case "interrupted":
+      return "中断";
+  }
+}
+
+function formatToolLog(state: ToolLogState): string {
+  const label = toolStatusLabel(state.status);
+  let text = `【ツール${label}: ${state.toolName}】\n`;
+  text += `状態: ${label}\n`;
+  text += `ID: ${state.toolCallId}\n`;
+
+  if (state.input !== undefined) {
+    text += `入力: ${stringifyForDisplay(state.input, TOOL_DISPLAY_INPUT_MAX_CHARS)}\n`;
+  } else {
+    text += "入力: （モデルがツール引数を生成中です）\n";
+  }
+
+  if (state.output !== undefined) {
+    text += `結果:\n${stringifyForDisplay(state.output, TOOL_DISPLAY_OUTPUT_MAX_CHARS)}`;
+  } else if (state.status === "input") {
+    text += "結果: （未実行）";
+  } else if (state.status === "running") {
+    text += "結果: （実行中）";
+  } else if (state.status === "interrupted") {
+    text += "結果: （完了前に中断されました）";
+  }
+
+  return text;
+}
+
+function upsertToolLog(next: Omit<ToolLogState, "messageIndex">): void {
+  const existing = toolLogStates.get(next.toolCallId);
+  if (existing) {
+    const updated: ToolLogState = { ...existing, ...next };
+    toolLogStates.set(next.toolCallId, updated);
+    if (!updateMessageContent(existing.messageIndex, formatToolLog(updated))) {
+      toolLogStates.delete(next.toolCallId);
+      upsertToolLog(next);
+    }
+    return;
+  }
+
+  removeLastEmptyAssistantMessage();
+  const messageIndex = state.chatMessages.length;
+  const created: ToolLogState = { ...next, messageIndex };
+  appendMessage("assistant", formatToolLog(created));
+  toolLogStates.set(next.toolCallId, created);
+}
+
+function handleToolEvent(event: StreamToolEvent): void {
+  switch (event.type) {
+    case "input-start":
+      upsertToolLog({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        status: "input",
+      });
+      break;
+    case "call":
+      upsertToolLog({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        status: "running",
+        input: event.input,
+      });
+      break;
+    case "result":
+      upsertToolLog({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        status: isFailureToolOutput(event.output) ? "failure" : "success",
+        input: event.input,
+        output: event.output,
+      });
+      break;
+    case "error":
+      upsertToolLog({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        status: "failure",
+        input: event.input,
+        output: { error: event.error },
+      });
+      break;
+  }
+}
+
+function markPendingToolLogsInterrupted(message: string): void {
+  for (const [toolCallId, state] of toolLogStates) {
+    if (state.status === "success" || state.status === "failure" || state.status === "interrupted") continue;
+    upsertToolLog({
+      ...state,
+      toolCallId,
+      status: "interrupted",
+      output: { interrupted: true, message },
+    });
+  }
+}
+
+function finalizeToolRun(run: StreamRunResult): void {
+  if (run.pendingToolCallIds.length === 0) return;
+
+  for (const toolCallId of run.pendingToolCallIds) {
+    const state = toolLogStates.get(toolCallId);
+    if (!state || state.status === "success" || state.status === "failure") continue;
+    upsertToolLog({
+      ...state,
+      toolCallId,
+      status: "interrupted",
+      output: { interrupted: true, message: "ツール結果が返る前にストリームが終了しました。" },
+    });
+  }
 }
 
 function appendAssistantChunk(chunk: string): void {
@@ -410,7 +562,7 @@ async function streamChatOnce(
     onChunk: (chunk) => {
       appendAssistantChunk(chunk);
     },
-    onToolResult: allowTools ? handleToolResult : undefined,
+    onToolEvent: allowTools ? handleToolEvent : undefined,
     abortSignal: controller.signal,
   });
 }
@@ -421,6 +573,7 @@ async function streamChatWithAutoContinuation(
 ) {
   let messages = initialMessages;
   let run = await streamChatOnce(messages, controller, true);
+  finalizeToolRun(run);
 
   while (run.finishReason === "length" && run.textCharCount > 0 && !controller.signal.aborted) {
     console.warn("[phenex] chat output hit maxOutputTokens; auto-continuing");
@@ -429,6 +582,7 @@ async function streamChatWithAutoContinuation(
       { role: "user", content: CHAT_LENGTH_CONTINUATION_PROMPT },
     ];
     run = await streamChatOnce(messages, controller, false);
+    finalizeToolRun(run);
   }
 
   return run;
@@ -709,19 +863,6 @@ async function restoreDetachedWindows(): Promise<void> {
   }
 }
 
-function formatToolResult(toolName: string, input: unknown, output: unknown): string {
-  let text = `【ツール実行: ${toolName}】\n`;
-  text += `入力: ${stringifyForDisplay(input, TOOL_DISPLAY_INPUT_MAX_CHARS)}\n`;
-  text += `結果:\n${stringifyForDisplay(output, TOOL_DISPLAY_OUTPUT_MAX_CHARS)}`;
-  return text;
-}
-
-function handleToolResult(toolName: string, input: unknown, output: unknown): void {
-  removeLastEmptyAssistantMessage();
-  const formatted = formatToolResult(toolName, input, output);
-  appendMessage("assistant", formatted);
-}
-
 function updateToolbarTitle(title: string): void {
   getElements().toolbarProjectName.textContent = title || "プロジェクト未選択";
 }
@@ -943,10 +1084,11 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
       },
-      onToolResult: handleToolResult,
+      onToolEvent: handleToolEvent,
       abortSignal: controller.signal,
     });
-    if (run.stoppedAfterToolResult) {
+    finalizeToolRun(run);
+    if (run.stoppedAfterToolActivity) {
       appendToolInterruptedFallback();
     }
     await saveCurrentChat();
@@ -1309,7 +1451,7 @@ async function handleContinue(): Promise<void> {
 
   const controller = startGeneration();
   try {
-    await streamContinuation({
+    const run = await streamContinuation({
       settings: currentSettings,
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
@@ -1317,9 +1459,10 @@ async function handleContinue(): Promise<void> {
       onChunk: (chunk) => {
         insertAtCursor(chunk);
       },
-      onToolResult: handleToolResult,
+      onToolEvent: handleToolEvent,
       abortSignal: controller.signal,
     });
+    finalizeToolRun(run);
   } catch (error) {
     if (error instanceof Error && error.name !== "AbortError") {
       window.alert(`エラー: ${error.message}`);
@@ -1409,7 +1552,7 @@ async function handleChatMessage(): Promise<void> {
     console.log("[phenex] streaming chat with messages:", messages.length);
 
     const run = await streamChatWithAutoContinuation(messages, controller);
-    if (run.stoppedAfterToolResult) {
+    if (run.stoppedAfterToolActivity) {
       appendToolInterruptedFallback();
     }
 

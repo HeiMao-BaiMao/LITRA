@@ -46,25 +46,57 @@ function normalizeOptionalRange(
 export interface StreamRunResult {
   textChunkCount: number;
   textCharCount: number;
+  toolCallCount: number;
   toolResultCount: number;
   toolErrorCount: number;
   finishReason?: string;
   stoppedAfterToolResult: boolean;
+  stoppedAfterToolActivity: boolean;
+  pendingToolCallIds: string[];
 }
+
+export type StreamToolEvent =
+  | {
+      type: "input-start";
+      toolCallId: string;
+      toolName: string;
+    }
+  | {
+      type: "call";
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+    }
+  | {
+      type: "result";
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      output: unknown;
+    }
+  | {
+      type: "error";
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      error: unknown;
+    };
 
 async function consumeStream(
   result: {
     fullStream: AsyncIterable<TextStreamPart<ToolSet>>;
   },
   onChunk: (chunk: string) => void,
-  onToolResult?: (toolName: string, input: unknown, output: unknown) => void,
+  onToolEvent?: (event: StreamToolEvent) => void,
 ): Promise<StreamRunResult> {
   let chunkCount = 0;
   let charCount = 0;
+  let toolCallCount = 0;
   let toolResultCount = 0;
   let toolErrorCount = 0;
   let finishReason: string | undefined;
-  let lastSignificantPart: "text" | "tool-result" | "tool-error" | undefined;
+  let lastSignificantPart: "text" | "tool-input" | "tool-call" | "tool-result" | "tool-error" | undefined;
+  const pendingToolCallIds = new Set<string>();
 
   for await (const part of result.fullStream) {
     switch (part.type) {
@@ -80,19 +112,57 @@ async function consumeStream(
         onChunk(chunk);
         break;
       }
+      case "tool-input-start": {
+        lastSignificantPart = "tool-input";
+        pendingToolCallIds.add(part.id);
+        console.log(`[phenex:ai] tool input start: ${part.toolName}`);
+        onToolEvent?.({
+          type: "input-start",
+          toolCallId: part.id,
+          toolName: part.toolName,
+        });
+        break;
+      }
+      case "tool-call": {
+        toolCallCount++;
+        lastSignificantPart = "tool-call";
+        pendingToolCallIds.add(part.toolCallId);
+        console.log(`[phenex:ai] tool call: ${part.toolName}`, part.input);
+        onToolEvent?.({
+          type: "call",
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+        });
+        break;
+      }
       case "tool-result": {
         if (part.preliminary) break;
         toolResultCount++;
         lastSignificantPart = "tool-result";
+        pendingToolCallIds.delete(part.toolCallId);
         console.log(`[phenex:ai] tool result: ${part.toolName}`, part.input);
-        onToolResult?.(part.toolName, part.input, part.output);
+        onToolEvent?.({
+          type: "result",
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+          output: part.output,
+        });
         break;
       }
       case "tool-error": {
         toolErrorCount++;
         lastSignificantPart = "tool-error";
+        pendingToolCallIds.delete(part.toolCallId);
         console.error(`[phenex:ai] tool error: ${part.toolName}`, part.error);
-        onToolResult?.(part.toolName, part.input, { error: part.error });
+        onToolEvent?.({
+          type: "error",
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.input,
+          error: part.error,
+        });
         break;
       }
       case "finish": {
@@ -109,10 +179,17 @@ async function consumeStream(
   return {
     textChunkCount: chunkCount,
     textCharCount: charCount,
+    toolCallCount,
     toolResultCount,
     toolErrorCount,
     finishReason,
     stoppedAfterToolResult: lastSignificantPart === "tool-result" || lastSignificantPart === "tool-error",
+    stoppedAfterToolActivity:
+      lastSignificantPart === "tool-input" ||
+      lastSignificantPart === "tool-call" ||
+      lastSignificantPart === "tool-result" ||
+      lastSignificantPart === "tool-error",
+    pendingToolCallIds: [...pendingToolCallIds],
   };
 }
 
@@ -123,7 +200,7 @@ export interface StreamChatOptions {
   abortSignal?: AbortSignal;
   settingsContext?: string;
   tools?: ToolSet;
-  onToolResult?: (toolName: string, input: unknown, output: unknown) => void;
+  onToolEvent?: (event: StreamToolEvent) => void;
 }
 
 export interface StreamContinuationOptions {
@@ -133,7 +210,7 @@ export interface StreamContinuationOptions {
   abortSignal?: AbortSignal;
   settingsContext?: string;
   tools?: ToolSet;
-  onToolResult?: (toolName: string, input: unknown, output: unknown) => void;
+  onToolEvent?: (event: StreamToolEvent) => void;
 }
 
 export interface StreamRewriteOptions {
@@ -201,7 +278,7 @@ export async function streamChat({
   abortSignal,
   settingsContext,
   tools,
-  onToolResult,
+  onToolEvent,
 }: StreamChatOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
@@ -217,7 +294,7 @@ export async function streamChat({
       ...buildAdvancedOptions(s),
     });
 
-    return await consumeStream(result, onChunk, onToolResult);
+    return await consumeStream(result, onChunk, onToolEvent);
   } catch (error) {
     console.error("streamChat error:", error);
     throw error;
@@ -231,7 +308,7 @@ export async function streamContinuation({
   abortSignal,
   settingsContext,
   tools,
-  onToolResult,
+  onToolEvent,
 }: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
@@ -247,7 +324,7 @@ export async function streamContinuation({
       ...buildAdvancedOptions(s),
     });
 
-    return await consumeStream(result, onChunk, onToolResult);
+    return await consumeStream(result, onChunk, onToolEvent);
   } catch (error) {
     console.error("streamContinuation error:", error);
     throw error;
