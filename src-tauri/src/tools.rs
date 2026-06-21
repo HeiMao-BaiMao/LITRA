@@ -54,6 +54,26 @@ fn read_json(path: &PathBuf) -> Result<serde_json::Value, String> {
         .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
+fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
+    }
+    Ok(())
+}
+
+fn write_text(path: &PathBuf, content: &str) -> Result<(), String> {
+    ensure_parent_dir(path)?;
+    fs::write(path, content)
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
+fn write_json(path: &PathBuf, value: &serde_json::Value) -> Result<(), String> {
+    ensure_parent_dir(path)?;
+    fs::write(path, serde_json::to_string_pretty(value).unwrap())
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
 fn find_episode_file_name(episodes: &serde_json::Value, episode_id: &str) -> Result<String, String> {
     episodes["episodes"]
         .as_array()
@@ -108,7 +128,7 @@ pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
     new_lines.extend(lines[end..].iter().map(|s| s.to_string()));
     let new_text = new_lines.join("\n");
 
-    fs::write(&file_path, &new_text)
+    write_text(&file_path, &new_text)
         .map_err(|e| format!("Failed to write episode {}: {}", file_name, e))?;
 
     Ok(EditResult {
@@ -266,7 +286,7 @@ pub fn save_episode_summary(req: SaveSummaryRequest) -> Result<(), String> {
         "updatedAt": chrono::Utc::now().to_rfc3339(),
     });
 
-    fs::write(&path, serde_json::to_string_pretty(&summaries).unwrap())
+    write_json(&path, &summaries)
         .map_err(|e| format!("Failed to write summaries.json: {}", e))?;
 
     Ok(())
@@ -300,8 +320,100 @@ pub fn save_episode_one_liner(req: SaveOneLinerRequest) -> Result<(), String> {
         "updatedAt": chrono::Utc::now().to_rfc3339(),
     });
 
-    fs::write(&path, serde_json::to_string_pretty(&summaries).unwrap())
+    write_json(&path, &summaries)
         .map_err(|e| format!("Failed to write summaries.json: {}", e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn test_project_id() -> String {
+        format!("test-tools-{}", uuid::Uuid::new_v4())
+    }
+
+    fn cleanup(project_id: &str) {
+        if let Ok(path) = project_dir(project_id) {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+
+    #[test]
+    fn edit_episode_writes_back_correctly() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        // episodes.json を手動で作成
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(base.join("episodes.json"), serde_json::to_string_pretty(&episodes).unwrap()).unwrap();
+
+        // 編集対象ファイルを用意
+        fs::write(episodes_dir_path.join("ep-1.txt"), "旧テキスト\n次の行").unwrap();
+
+        let result = edit_episode_text(EditRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            start_line: 1,
+            end_line: 1,
+            expected_text: "旧テキスト".to_string(),
+            replacement_text: "新テキスト".to_string(),
+        });
+
+        let result = result.unwrap();
+        assert!(result.success, "edit should succeed: {:?}", result.message);
+        let written = fs::read_to_string(episodes_dir_path.join("ep-1.txt")).unwrap();
+        assert!(written.starts_with("新テキスト"));
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn save_summary_creates_project_dir() {
+        let project_id = test_project_id();
+
+        save_episode_summary(SaveSummaryRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            content: "要約本文".to_string(),
+        })
+        .expect("save_episode_summary should create project dir");
+
+        let path = summary_file_path(&project_id).unwrap();
+        assert!(path.exists());
+        let summaries = read_json(&path).unwrap();
+        assert_eq!(summaries["summaries"]["ep-1"]["content"].as_str().unwrap(), "要約本文");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn save_one_liner_creates_project_dir() {
+        let project_id = test_project_id();
+
+        save_episode_one_liner(SaveOneLinerRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            one_liner: "一行要約".to_string(),
+        })
+        .expect("save_episode_one_liner should create project dir");
+
+        let path = summary_file_path(&project_id).unwrap();
+        assert!(path.exists());
+        let summaries = read_json(&path).unwrap();
+        assert_eq!(summaries["summaries"]["ep-1"]["oneLiner"].as_str().unwrap(), "一行要約");
+
+        cleanup(&project_id);
+    }
 }
