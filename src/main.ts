@@ -90,6 +90,7 @@ import {
   renderSettingsEditor,
   type SettingsEditorActions,
 } from "./ui/settings-editor.ts";
+import { applyStoredRatio, createVerticalResizer } from "./ui/resizable.ts";
 import { fetchAvailableModels } from "./ai/model-list.ts";
 import {
   getProviderEntry,
@@ -1851,6 +1852,13 @@ async function init(): Promise<void> {
   console.log("[phenex] UI events bound");
 
   try {
+    await initResizablePanels();
+    console.log("[phenex] resizable panels initialized");
+  } catch (error) {
+    console.error("[phenex] failed to initialize resizable panels:", error);
+  }
+
+  try {
     providerConfig = await loadProviderConfig();
     console.log("[phenex] provider config loaded");
   } catch (error) {
@@ -2009,6 +2017,31 @@ async function init(): Promise<void> {
   }
 
   await restoreDetachedWindows();
+}
+
+async function initResizablePanels(): Promise<void> {
+  const main = document.querySelector<HTMLElement>(".main");
+  if (!main) return;
+
+  const els = getElements();
+
+  await applyStoredRatio(main, "--project-nav-width", "projectNav", 0.18);
+  await applyStoredRatio(main, "--chat-panel-width", "chatPanel", 0.25);
+
+  createVerticalResizer({
+    container: main,
+    propertyName: "--project-nav-width",
+    position: "left",
+    saveKey: "projectNav",
+  });
+
+  createVerticalResizer({
+    container: main,
+    propertyName: "--chat-panel-width",
+    position: "right",
+    saveKey: "chatPanel",
+    disabled: () => els.chatPanel.classList.contains("collapsed") || els.chatPanel.classList.contains("detached"),
+  });
 }
 
 function startApp(): void {

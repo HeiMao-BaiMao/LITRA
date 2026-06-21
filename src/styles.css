@@ -113,9 +113,57 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .main {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 10;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resizer-line {
+  width: 2px;
+  height: 100%;
+  background-color: transparent;
+  transition: background-color 0.2s;
+}
+
+.resizer:hover:not(.resizer-disabled) .resizer-line,
+.resizer.resizer-dragging .resizer-line {
+  background-color: var(--accent);
+}
+
+.resizer-left {
+  left: var(--project-nav-width, 18%);
+  transform: translateX(-50%);
+}
+
+.resizer-right {
+  left: calc(100% - var(--chat-panel-width, 25%));
+  transform: translateX(-50%);
+}
+
+.resizer-inside {
+  left: var(--settings-sidebar-width, 25%);
+  transform: translateX(-50%);
+}
+
+.resizer-disabled {
+  cursor: default;
+}
+
+.resizer-disabled .resizer-line {
+  background-color: transparent !important;
 }
 
 .editor-section {
@@ -146,7 +194,7 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .chat-panel {
-  flex: 0 0 25%;
+  flex: 0 0 var(--chat-panel-width, 25%);
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border-color);
@@ -444,7 +492,7 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .project-nav {
-  flex: 0 0 18%;
+  flex: 0 0 var(--project-nav-width, 18%);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -644,6 +692,7 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .settings-editor {
+  position: relative;
   flex: 1;
   display: flex;
   min-width: 0;
@@ -651,7 +700,7 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .settings-editor-sidebar {
-  flex: 0 0 25%;
+  flex: 0 0 var(--settings-sidebar-width, 25%);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;

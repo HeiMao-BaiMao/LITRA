@@ -1,4 +1,5 @@
 import { getElements } from "./layout.ts";
+import { applyStoredRatio, createVerticalResizer } from "./resizable.ts";
 import type { Character, CustomField, WorldEntry } from "../project/schema.ts";
 
 export interface SettingsEditorActions {
@@ -300,7 +301,7 @@ function createAddButton(label: string, onClick: () => void): HTMLButtonElement 
   return btn;
 }
 
-export function renderSettingsEditor(
+export async function renderSettingsEditor(
   view: "characters" | "world",
   characters: Character[],
   worldEntries: WorldEntry[],
@@ -308,13 +309,20 @@ export function renderSettingsEditor(
   currentWorldEntryId: string | null,
   actions: SettingsEditorActions,
   container?: HTMLElement,
-): void {
+): Promise<void> {
   currentActions = actions;
   const panel = container ?? getElements().settingsPanel;
+
+  await applyStoredRatio(panel, "--settings-sidebar-width", "settingsSidebar", 0.25);
+
   panel.innerHTML = "";
 
   const wrapper = document.createElement("div");
   wrapper.className = "settings-editor";
+  wrapper.style.setProperty(
+    "--settings-sidebar-width",
+    panel.style.getPropertyValue("--settings-sidebar-width"),
+  );
 
   const sidebar = document.createElement("div");
   sidebar.className = "settings-editor-sidebar";
@@ -374,4 +382,11 @@ export function renderSettingsEditor(
   wrapper.appendChild(sidebar);
   wrapper.appendChild(detail);
   panel.appendChild(wrapper);
+
+  createVerticalResizer({
+    container: wrapper,
+    propertyName: "--settings-sidebar-width",
+    position: "inside",
+    saveKey: "settingsSidebar",
+  });
 }
