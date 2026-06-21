@@ -1,4 +1,4 @@
-import { streamText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
+import { isLoopFinished, streamText, type ModelMessage, type TextStreamPart, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
 import { buildProviderOptions } from "./provider-options.ts";
 import {
@@ -10,7 +10,6 @@ import {
 import type { AiSettings } from "../settings.ts";
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
-
 function buildSystem(basePrompt: string, settingsContext?: string): string {
   if (!settingsContext) return basePrompt;
   return `${basePrompt}\n\n以下は本作の設定資料です。本文やフィードバックに矛盾がないよう参照してください。\n\n${settingsContext}`;
@@ -44,44 +43,77 @@ function normalizeOptionalRange(
   return value;
 }
 
-interface ToolResultLike {
-  toolName: string;
-  input: unknown;
-  output: unknown;
+export interface StreamRunResult {
+  textChunkCount: number;
+  textCharCount: number;
+  toolResultCount: number;
+  toolErrorCount: number;
+  finishReason?: string;
+  stoppedAfterToolResult: boolean;
 }
 
 async function consumeStream(
   result: {
-    textStream: AsyncIterable<string>;
-    toolResults: PromiseLike<ToolResultLike[]>;
+    fullStream: AsyncIterable<TextStreamPart<ToolSet>>;
   },
   onChunk: (chunk: string) => void,
   onToolResult?: (toolName: string, input: unknown, output: unknown) => void,
-): Promise<void> {
+): Promise<StreamRunResult> {
   let chunkCount = 0;
-  const textConsumer = (async () => {
-    for await (const chunk of result.textStream) {
-      chunkCount++;
-      if (chunkCount <= 3 || chunkCount % 10 === 0) {
-        console.log(`[phenex:ai] text chunk #${chunkCount}:`, chunk.slice(0, 80));
-      }
-      onChunk(chunk);
-    }
-    console.log(`[phenex:ai] text stream finished. total chunks: ${chunkCount}`);
-  })();
+  let charCount = 0;
+  let toolResultCount = 0;
+  let toolErrorCount = 0;
+  let finishReason: string | undefined;
+  let lastSignificantPart: "text" | "tool-result" | "tool-error" | undefined;
 
-  const toolConsumer = (async () => {
-    const results = await result.toolResults;
-    console.log(`[phenex:ai] tool results count: ${results.length}`);
-    if (onToolResult) {
-      for (const item of results) {
-        console.log(`[phenex:ai] tool call: ${item.toolName}`, item.input);
-        onToolResult(item.toolName, item.input, item.output);
+  for await (const part of result.fullStream) {
+    switch (part.type) {
+      case "text-delta": {
+        const chunk = part.text;
+        if (!chunk) break;
+        chunkCount++;
+        charCount += chunk.length;
+        lastSignificantPart = "text";
+        if (chunkCount <= 3 || chunkCount % 10 === 0) {
+          console.log(`[phenex:ai] text chunk #${chunkCount}:`, chunk.slice(0, 80));
+        }
+        onChunk(chunk);
+        break;
+      }
+      case "tool-result": {
+        if (part.preliminary) break;
+        toolResultCount++;
+        lastSignificantPart = "tool-result";
+        console.log(`[phenex:ai] tool result: ${part.toolName}`, part.input);
+        onToolResult?.(part.toolName, part.input, part.output);
+        break;
+      }
+      case "tool-error": {
+        toolErrorCount++;
+        lastSignificantPart = "tool-error";
+        console.error(`[phenex:ai] tool error: ${part.toolName}`, part.error);
+        onToolResult?.(part.toolName, part.input, { error: part.error });
+        break;
+      }
+      case "finish": {
+        finishReason = part.finishReason;
+        break;
+      }
+      case "error": {
+        throw part.error;
       }
     }
-  })();
+  }
 
-  await Promise.all([textConsumer, toolConsumer]);
+  console.log(`[phenex:ai] stream finished. text chunks: ${chunkCount}, tool results: ${toolResultCount}, finish: ${finishReason ?? "unknown"}`);
+  return {
+    textChunkCount: chunkCount,
+    textCharCount: charCount,
+    toolResultCount,
+    toolErrorCount,
+    finishReason,
+    stoppedAfterToolResult: lastSignificantPart === "tool-result" || lastSignificantPart === "tool-error",
+  };
 }
 
 export interface StreamChatOptions {
@@ -170,7 +202,7 @@ export async function streamChat({
   settingsContext,
   tools,
   onToolResult,
-}: StreamChatOptions): Promise<void> {
+}: StreamChatOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
     const result = streamText({
@@ -181,11 +213,11 @@ export async function streamChat({
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
-      stopWhen: tools ? stepCountIs(5) : undefined,
+      stopWhen: tools ? isLoopFinished() : undefined,
       ...buildAdvancedOptions(s),
     });
 
-    await consumeStream(result, onChunk, onToolResult);
+    return await consumeStream(result, onChunk, onToolResult);
   } catch (error) {
     console.error("streamChat error:", error);
     throw error;
@@ -200,7 +232,7 @@ export async function streamContinuation({
   settingsContext,
   tools,
   onToolResult,
-}: StreamContinuationOptions): Promise<void> {
+}: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
     const result = streamText({
@@ -211,11 +243,11 @@ export async function streamContinuation({
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
-      stopWhen: tools ? stepCountIs(5) : undefined,
+      stopWhen: tools ? isLoopFinished() : undefined,
       ...buildAdvancedOptions(s),
     });
 
-    await consumeStream(result, onChunk, onToolResult);
+    return await consumeStream(result, onChunk, onToolResult);
   } catch (error) {
     console.error("streamContinuation error:", error);
     throw error;
@@ -229,7 +261,7 @@ export async function streamRewrite({
   onChunk,
   abortSignal,
   settingsContext,
-}: StreamRewriteOptions): Promise<void> {
+}: StreamRewriteOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
     const result = streamText({
@@ -242,7 +274,7 @@ export async function streamRewrite({
       ...buildAdvancedOptions(s),
     });
 
-    await consumeStream(result, onChunk);
+    return await consumeStream(result, onChunk);
   } catch (error) {
     console.error("streamRewrite error:", error);
     throw error;
@@ -255,7 +287,7 @@ export async function streamFeedback({
   onChunk,
   abortSignal,
   settingsContext,
-}: StreamFeedbackOptions): Promise<void> {
+}: StreamFeedbackOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
     const result = streamText({
@@ -268,7 +300,7 @@ export async function streamFeedback({
       ...buildAdvancedOptions(s),
     });
 
-    await consumeStream(result, onChunk);
+    return await consumeStream(result, onChunk);
   } catch (error) {
     console.error("streamFeedback error:", error);
     throw error;

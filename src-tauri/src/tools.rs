@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::borrow::Cow;
 use std::fs;
 use std::path::PathBuf;
 
@@ -43,6 +44,10 @@ fn episode_list_path(project_id: &str) -> Result<PathBuf, String> {
     Ok(project_dir(project_id)?.join("episodes.json"))
 }
 
+fn normalize_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 fn summary_file_path(project_id: &str) -> Result<PathBuf, String> {
     Ok(project_dir(project_id)?.join("summaries.json"))
 }
@@ -50,8 +55,7 @@ fn summary_file_path(project_id: &str) -> Result<PathBuf, String> {
 fn read_json(path: &PathBuf) -> Result<serde_json::Value, String> {
     let text = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
@@ -64,8 +68,7 @@ fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
 
 fn write_text(path: &PathBuf, content: &str) -> Result<(), String> {
     ensure_parent_dir(path)?;
-    fs::write(path, content)
-        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+    fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
 fn write_json(path: &PathBuf, value: &serde_json::Value) -> Result<(), String> {
@@ -74,7 +77,10 @@ fn write_json(path: &PathBuf, value: &serde_json::Value) -> Result<(), String> {
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
-fn find_episode_file_name(episodes: &serde_json::Value, episode_id: &str) -> Result<String, String> {
+fn find_episode_file_name(
+    episodes: &serde_json::Value,
+    episode_id: &str,
+) -> Result<String, String> {
     episodes["episodes"]
         .as_array()
         .ok_or_else(|| "Invalid episodes list".to_string())?
@@ -85,6 +91,48 @@ fn find_episode_file_name(episodes: &serde_json::Value, episode_id: &str) -> Res
         .ok_or_else(|| format!("Episode {} not found", episode_id))
 }
 
+fn find_episode_entry<'a>(
+    episodes: &'a serde_json::Value,
+    episode_id: &str,
+) -> Result<&'a serde_json::Value, String> {
+    episodes["episodes"]
+        .as_array()
+        .ok_or_else(|| "Invalid episodes list".to_string())?
+        .iter()
+        .find(|ep| ep["id"].as_str() == Some(episode_id))
+        .ok_or_else(|| format!("Episode {} not found", episode_id))
+}
+
+fn read_episode_text_by_id(
+    project_id: &str,
+    episode_id: &str,
+) -> Result<(String, String, i64, String), String> {
+    let episodes_path = episode_list_path(project_id)?;
+    let episodes = read_json(&episodes_path)?;
+    let episode = find_episode_entry(&episodes, episode_id)?;
+    let title = episode["title"].as_str().unwrap_or_default().to_string();
+    let order = episode["order"].as_i64().unwrap_or(0);
+    let file_name = episode["fileName"]
+        .as_str()
+        .ok_or_else(|| "Episode fileName missing".to_string())?
+        .to_string();
+    let file_path = episodes_dir(project_id)?.join(&file_name);
+    let text = normalize_newlines(
+        &fs::read_to_string(&file_path)
+            .map_err(|e| format!("Failed to read episode {}: {}", file_name, e))?,
+    );
+
+    Ok((title, file_name, order, text))
+}
+
+fn line_numbered_text(lines: &[EpisodeLine]) -> String {
+    lines
+        .iter()
+        .map(|line| format!("{}: {}", line.line_number, line.text))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[tauri::command]
 pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
     let episodes_path = episode_list_path(&req.project_id)?;
@@ -92,15 +140,20 @@ pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
     let file_name = find_episode_file_name(&episodes, &req.episode_id)?;
     let file_path = episodes_dir(&req.project_id)?.join(&file_name);
 
-    let current_text = fs::read_to_string(&file_path)
-        .map_err(|e| format!("Failed to read episode {}: {}", file_name, e))?
-        .replace("\r\n", "\n");
+    let current_text = normalize_newlines(
+        &fs::read_to_string(&file_path)
+            .map_err(|e| format!("Failed to read episode {}: {}", file_name, e))?,
+    );
     let lines: Vec<&str> = current_text.split('\n').collect();
 
     let start = req.start_line.saturating_sub(1);
     let end = req.end_line;
 
-    if start >= lines.len() || end > lines.len() || end < start {
+    if req.start_line == 0
+        || req.end_line < req.start_line
+        || start >= lines.len()
+        || end > lines.len()
+    {
         return Ok(EditResult {
             success: false,
             message: "指定された行範囲が無効です。".to_string(),
@@ -111,7 +164,8 @@ pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
     }
 
     let actual_text = lines[start..end].join("\n");
-    if actual_text != req.expected_text {
+    let expected_text = normalize_newlines(&req.expected_text);
+    if actual_text != expected_text {
         return Ok(EditResult {
             success: false,
             message: "指定した行範囲の内容が一致しませんでした。".to_string(),
@@ -122,7 +176,8 @@ pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
     }
 
     let mut new_lines: Vec<String> = lines[..start].iter().map(|s| s.to_string()).collect();
-    for line in req.replacement_text.split('\n') {
+    let replacement_text = normalize_newlines(&req.replacement_text);
+    for line in replacement_text.split('\n') {
         new_lines.push(line.to_string());
     }
     new_lines.extend(lines[end..].iter().map(|s| s.to_string()));
@@ -133,10 +188,242 @@ pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
 
     Ok(EditResult {
         success: true,
-        message: format!("{}行目から{}行目を編集しました。", req.start_line, req.end_line),
+        message: format!(
+            "{}行目から{}行目を編集しました。",
+            req.start_line, req.end_line
+        ),
         new_text: Some(new_text),
         actual_text: None,
         total_lines: Some(lines.len()),
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeLinesRequest {
+    pub project_id: String,
+    pub episode_id: String,
+    pub start_line: Option<usize>,
+    pub end_line: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeLine {
+    pub line_number: usize,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeLinesResult {
+    pub episode_id: String,
+    pub title: String,
+    pub order: i64,
+    pub total_lines: usize,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub lines: Vec<EpisodeLine>,
+    pub line_numbered_text: String,
+}
+
+#[tauri::command]
+pub fn get_episode_lines(req: EpisodeLinesRequest) -> Result<EpisodeLinesResult, String> {
+    let (title, _file_name, order, text) =
+        read_episode_text_by_id(&req.project_id, &req.episode_id)?;
+    let raw_lines: Vec<&str> = text.split('\n').collect();
+    let total_lines = raw_lines.len();
+    let start_line = req.start_line.unwrap_or(1).max(1);
+    let end_line = req.end_line.unwrap_or(total_lines).min(total_lines);
+
+    if start_line > end_line || start_line > total_lines {
+        return Err(format!(
+            "Invalid line range: startLine={}, endLine={}, totalLines={}",
+            start_line, end_line, total_lines
+        ));
+    }
+
+    let lines = raw_lines[(start_line - 1)..end_line]
+        .iter()
+        .enumerate()
+        .map(|(index, text)| EpisodeLine {
+            line_number: start_line + index,
+            text: (*text).to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(EpisodeLinesResult {
+        episode_id: req.episode_id,
+        title,
+        order,
+        total_lines,
+        start_line,
+        end_line,
+        line_numbered_text: line_numbered_text(&lines),
+        lines,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeLineSearchRequest {
+    pub project_id: String,
+    pub episode_id: String,
+    pub query: String,
+    pub context_lines: Option<usize>,
+    pub max_matches: Option<usize>,
+    pub case_sensitive: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeLineSearchMatch {
+    pub start_line: usize,
+    pub end_line: usize,
+    pub expected_text: String,
+    pub excerpt_start_line: usize,
+    pub excerpt_end_line: usize,
+    pub line_numbered_text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeLineSearchResult {
+    pub episode_id: String,
+    pub title: String,
+    pub order: i64,
+    pub total_lines: usize,
+    pub query: String,
+    pub matches: Vec<EpisodeLineSearchMatch>,
+}
+
+fn byte_offset_to_line(text: &str, byte_offset: usize) -> usize {
+    let limit = byte_offset.min(text.len());
+    text.as_bytes()[..limit]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count()
+        + 1
+}
+
+fn byte_span_end_to_line(text: &str, end_byte_offset: usize) -> usize {
+    let limit = end_byte_offset.min(text.len());
+    if limit == 0 {
+        1
+    } else {
+        byte_offset_to_line(text, limit - 1)
+    }
+}
+
+fn build_line_search_match(
+    raw_lines: &[&str],
+    start_line: usize,
+    end_line: usize,
+    context_lines: usize,
+) -> EpisodeLineSearchMatch {
+    let total_lines = raw_lines.len();
+    let excerpt_start_line = start_line.saturating_sub(context_lines).max(1);
+    let excerpt_end_line = (end_line + context_lines).min(total_lines);
+    let excerpt_lines = raw_lines[(excerpt_start_line - 1)..excerpt_end_line]
+        .iter()
+        .enumerate()
+        .map(|(index, text)| EpisodeLine {
+            line_number: excerpt_start_line + index,
+            text: (*text).to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    EpisodeLineSearchMatch {
+        start_line,
+        end_line,
+        expected_text: raw_lines[(start_line - 1)..end_line].join("\n"),
+        excerpt_start_line,
+        excerpt_end_line,
+        line_numbered_text: line_numbered_text(&excerpt_lines),
+    }
+}
+
+fn find_line_search_matches(
+    raw_lines: &[&str],
+    text: &str,
+    query: &str,
+    case_sensitive: bool,
+    context_lines: usize,
+    max_matches: usize,
+) -> Vec<EpisodeLineSearchMatch> {
+    let (search_text, search_query): (Cow<'_, str>, Cow<'_, str>) = if case_sensitive {
+        (Cow::Borrowed(text), Cow::Borrowed(query))
+    } else {
+        (
+            Cow::Owned(text.to_lowercase()),
+            Cow::Owned(query.to_lowercase()),
+        )
+    };
+
+    let mut matches = Vec::new();
+    for (byte_index, _) in search_text.match_indices(search_query.as_ref()) {
+        let start_line = byte_offset_to_line(search_text.as_ref(), byte_index);
+        let end_line = byte_span_end_to_line(search_text.as_ref(), byte_index + search_query.len());
+        matches.push(build_line_search_match(
+            raw_lines,
+            start_line,
+            end_line,
+            context_lines,
+        ));
+        if matches.len() >= max_matches {
+            break;
+        }
+    }
+    matches
+}
+
+#[tauri::command]
+pub fn find_episode_lines(
+    req: EpisodeLineSearchRequest,
+) -> Result<EpisodeLineSearchResult, String> {
+    let raw_query = normalize_newlines(&req.query);
+    let trimmed_query = raw_query.trim().to_string();
+    if trimmed_query.is_empty() {
+        return Err("query must not be empty".to_string());
+    }
+
+    let (title, _file_name, order, text) =
+        read_episode_text_by_id(&req.project_id, &req.episode_id)?;
+    let raw_lines: Vec<&str> = text.split('\n').collect();
+    let total_lines = raw_lines.len();
+    let context_lines = req.context_lines.unwrap_or(3).min(50);
+    let max_matches = req.max_matches.unwrap_or(20).min(200).max(1);
+    let case_sensitive = req.case_sensitive.unwrap_or(true);
+
+    let mut query = raw_query;
+    let mut matches = find_line_search_matches(
+        &raw_lines,
+        &text,
+        &query,
+        case_sensitive,
+        context_lines,
+        max_matches,
+    );
+
+    if matches.is_empty() && query != trimmed_query {
+        query = trimmed_query;
+        matches = find_line_search_matches(
+            &raw_lines,
+            &text,
+            &query,
+            case_sensitive,
+            context_lines,
+            max_matches,
+        );
+    }
+
+    Ok(EpisodeLineSearchResult {
+        episode_id: req.episode_id,
+        title,
+        order,
+        total_lines,
+        query,
+        matches,
     })
 }
 
@@ -286,8 +573,7 @@ pub fn save_episode_summary(req: SaveSummaryRequest) -> Result<(), String> {
         "updatedAt": chrono::Utc::now().to_rfc3339(),
     });
 
-    write_json(&path, &summaries)
-        .map_err(|e| format!("Failed to write summaries.json: {}", e))?;
+    write_json(&path, &summaries).map_err(|e| format!("Failed to write summaries.json: {}", e))?;
 
     Ok(())
 }
@@ -320,8 +606,7 @@ pub fn save_episode_one_liner(req: SaveOneLinerRequest) -> Result<(), String> {
         "updatedAt": chrono::Utc::now().to_rfc3339(),
     });
 
-    write_json(&path, &summaries)
-        .map_err(|e| format!("Failed to write summaries.json: {}", e))?;
+    write_json(&path, &summaries).map_err(|e| format!("Failed to write summaries.json: {}", e))?;
 
     Ok(())
 }
@@ -357,7 +642,11 @@ mod tests {
                 "fileName": "ep-1.txt"
             }]
         });
-        fs::write(base.join("episodes.json"), serde_json::to_string_pretty(&episodes).unwrap()).unwrap();
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
 
         // 編集対象ファイルを用意
         fs::write(episodes_dir_path.join("ep-1.txt"), "旧テキスト\n次の行").unwrap();
@@ -380,6 +669,197 @@ mod tests {
     }
 
     #[test]
+    fn edit_episode_rejects_reversed_line_range() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
+        fs::write(episodes_dir_path.join("ep-1.txt"), "一行目\n二行目").unwrap();
+
+        let result = edit_episode_text(EditRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            start_line: 2,
+            end_line: 1,
+            expected_text: "".to_string(),
+            replacement_text: "差し込み".to_string(),
+        })
+        .unwrap();
+
+        assert!(!result.success, "reversed range should fail");
+        let written = fs::read_to_string(episodes_dir_path.join("ep-1.txt")).unwrap();
+        assert_eq!(written, "一行目\n二行目");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn edit_episode_accepts_line_tool_text_from_crlf_file() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            episodes_dir_path.join("ep-1.txt"),
+            "一行目\r\n二行目\r\n三行目",
+        )
+        .unwrap();
+
+        let found = find_episode_lines(EpisodeLineSearchRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            query: "二行目".to_string(),
+            context_lines: Some(0),
+            max_matches: Some(1),
+            case_sensitive: Some(true),
+        })
+        .unwrap();
+        assert_eq!(found.matches[0].expected_text, "二行目");
+
+        let result = edit_episode_text(EditRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            start_line: found.matches[0].start_line,
+            end_line: found.matches[0].end_line,
+            expected_text: found.matches[0].expected_text.clone(),
+            replacement_text: "差し替え".to_string(),
+        })
+        .unwrap();
+
+        assert!(
+            result.success,
+            "edit should accept text returned by line search"
+        );
+        let written = fs::read_to_string(episodes_dir_path.join("ep-1.txt")).unwrap();
+        assert_eq!(written, "一行目\n差し替え\n三行目");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn episode_line_tools_return_line_numbers_and_expected_text() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            episodes_dir_path.join("ep-1.txt"),
+            "一行目\n違う……\n三行目\n違う……二回目",
+        )
+        .unwrap();
+
+        let lines = get_episode_lines(EpisodeLinesRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            start_line: Some(2),
+            end_line: Some(3),
+        })
+        .unwrap();
+        assert_eq!(lines.total_lines, 4);
+        assert_eq!(lines.line_numbered_text, "2: 違う……\n3: 三行目");
+
+        let found = find_episode_lines(EpisodeLineSearchRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            query: "違う……".to_string(),
+            context_lines: Some(1),
+            max_matches: Some(10),
+            case_sensitive: Some(true),
+        })
+        .unwrap();
+        assert_eq!(found.matches.len(), 2);
+        assert_eq!(found.matches[0].start_line, 2);
+        assert_eq!(found.matches[0].expected_text, "違う……");
+        assert!(found.matches[0].line_numbered_text.contains("1: 一行目"));
+        assert!(found.matches[0].line_numbered_text.contains("3: 三行目"));
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn episode_line_search_finds_multiline_case_insensitive_text() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
+        fs::write(episodes_dir_path.join("ep-1.txt"), "Alpha\nBeta\nGamma").unwrap();
+
+        let found = find_episode_lines(EpisodeLineSearchRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            query: "\nalpha\nbeta\n".to_string(),
+            context_lines: Some(0),
+            max_matches: Some(1),
+            case_sensitive: Some(false),
+        })
+        .unwrap();
+
+        assert_eq!(found.query, "alpha\nbeta");
+        assert_eq!(found.matches.len(), 1);
+        assert_eq!(found.matches[0].start_line, 1);
+        assert_eq!(found.matches[0].end_line, 2);
+        assert_eq!(found.matches[0].expected_text, "Alpha\nBeta");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
     fn save_summary_creates_project_dir() {
         let project_id = test_project_id();
 
@@ -393,7 +873,10 @@ mod tests {
         let path = summary_file_path(&project_id).unwrap();
         assert!(path.exists());
         let summaries = read_json(&path).unwrap();
-        assert_eq!(summaries["summaries"]["ep-1"]["content"].as_str().unwrap(), "要約本文");
+        assert_eq!(
+            summaries["summaries"]["ep-1"]["content"].as_str().unwrap(),
+            "要約本文"
+        );
 
         cleanup(&project_id);
     }
@@ -412,7 +895,10 @@ mod tests {
         let path = summary_file_path(&project_id).unwrap();
         assert!(path.exists());
         let summaries = read_json(&path).unwrap();
-        assert_eq!(summaries["summaries"]["ep-1"]["oneLiner"].as_str().unwrap(), "一行要約");
+        assert_eq!(
+            summaries["summaries"]["ep-1"]["oneLiner"].as_str().unwrap(),
+            "一行要約"
+        );
 
         cleanup(&project_id);
     }

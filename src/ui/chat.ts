@@ -45,6 +45,19 @@ export function updateLastAssistantChunk(chunk: string): void {
   sync();
 }
 
+export function removeLastEmptyAssistantMessage(): void {
+  const lastMessage = state.chatMessages[state.chatMessages.length - 1];
+  if (!lastMessage || lastMessage.role !== "assistant" || lastMessage.content.trim().length > 0) {
+    return;
+  }
+
+  state.chatMessages.pop();
+  const container = getElements().chatMessages;
+  const lastEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
+  lastEl?.remove();
+  sync();
+}
+
 export function clearChatDisplay(): void {
   getElements().chatMessages.innerHTML = "";
 }

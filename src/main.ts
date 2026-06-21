@@ -22,6 +22,8 @@ import {
   createCreateCharacterTool,
   createCreateWorldEntryTool,
   createEditEpisodeTool,
+  createFindEpisodeLinesTool,
+  createGetEpisodeLinesTool,
   createListCharactersTool,
   createListEpisodesTool,
   createListWorldEntriesTool,
@@ -45,6 +47,7 @@ import {
   appendMessage,
   clearChat,
   clearChatDisplay,
+  removeLastEmptyAssistantMessage,
   renderMessages,
   setChatSyncCallback,
   updateLastAssistantChunk,
@@ -137,6 +140,8 @@ const CONTEXT_CHAR_PER_TOKEN = 1.6;
 const CONTEXT_OVERHEAD_TOKENS = 2048;
 const TOOL_DISPLAY_INPUT_MAX_CHARS = 4000;
 const TOOL_DISPLAY_OUTPUT_MAX_CHARS = 12000;
+const CHAT_LENGTH_CONTINUATION_PROMPT =
+  "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを書いてください。前置き、見出し、注釈は不要です。";
 
 interface PromptContextBudgets {
   settingsField: number;
@@ -181,9 +186,9 @@ function getPromptContextBudgets(settings: AiSettings = currentSettings): Prompt
     summarySource: scaled(0.8, 30000, 240000),
     continuationContext: scaled(0.7, 18000, 180000),
     rewriteContextSide: scaled(0.35, 9000, 90000),
-    chatHistoryMessages: maxContextTokens >= 131072 ? 80 : maxContextTokens >= 65536 ? 60 : 30,
-    chatMessage: scaled(0.12, 6000, 30000),
-    chatHistory: scaled(0.8, 42000, 200000),
+    chatHistoryMessages: Number.MAX_SAFE_INTEGER,
+    chatMessage: usableChars,
+    chatHistory: usableChars,
   };
 }
 
@@ -292,6 +297,7 @@ function createAiTools(): ToolSet | undefined {
         oneLiner,
         updatedAt: new Date().toISOString(),
       };
+      syncSummaryToWindow();
     },
   };
 
@@ -310,6 +316,8 @@ function createAiTools(): ToolSet | undefined {
   };
 
   const tools: ToolSet = {
+    findEpisodeLines: createFindEpisodeLinesTool(searchDeps),
+    getEpisodeLines: createGetEpisodeLinesTool(searchDeps),
     listEpisodes: createListEpisodesTool(searchDeps),
     retrieveEpisode: createRetrieveEpisodeTool(searchDeps),
     searchEpisodes: createSearchEpisodesTool(searchDeps),
@@ -339,18 +347,91 @@ function createAiTools(): ToolSet | undefined {
   return tools;
 }
 
+function displayJsonReplacer(_key: string, value: unknown): unknown {
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+  }
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "symbol") return String(value);
+  if (typeof value === "function") return `[Function ${value.name || "anonymous"}]`;
+  if (typeof value === "undefined") return "undefined";
+  return value;
+}
+
 function stringifyForDisplay(value: unknown, maxChars: number): string {
   let text: string;
   try {
-    text = JSON.stringify(value, null, 2);
+    const json = JSON.stringify(value, displayJsonReplacer, 2);
+    text = typeof json === "string" ? json : String(value);
   } catch {
-    text = String(value);
+    text = value instanceof Error ? `${value.name}: ${value.message}` : String(value);
   }
   return limitPromptText(text, maxChars, "head");
 }
 
 function isToolResultLog(content: string): boolean {
   return content.startsWith("【ツール実行:");
+}
+
+function appendAssistantChunk(chunk: string): void {
+  const lastMessage = state.chatMessages[state.chatMessages.length - 1];
+  if (!lastMessage || lastMessage.role !== "assistant" || isToolResultLog(lastMessage.content)) {
+    appendMessage("assistant", "");
+  }
+  updateLastAssistantChunk(chunk);
+}
+
+function appendToolInterruptedFallback(): void {
+  const lastMessage = state.chatMessages[state.chatMessages.length - 1];
+  if (lastMessage?.role === "assistant" && !isToolResultLog(lastMessage.content) && lastMessage.content.trim()) {
+    return;
+  }
+
+  appendMessage(
+    "assistant",
+    "（ツール実行後にモデルの最終応答が返りませんでした。必要なら続けて指示してください。）",
+  );
+}
+
+async function streamChatOnce(
+  messages: ModelMessage[],
+  controller: AbortController,
+  allowTools: boolean,
+) {
+  return await streamChat({
+    settings: currentSettings,
+    messages,
+    settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+    tools: allowTools ? createAiTools() : undefined,
+    onChunk: (chunk) => {
+      appendAssistantChunk(chunk);
+    },
+    onToolResult: allowTools ? handleToolResult : undefined,
+    abortSignal: controller.signal,
+  });
+}
+
+async function streamChatWithAutoContinuation(
+  initialMessages: ModelMessage[],
+  controller: AbortController,
+) {
+  let messages = initialMessages;
+  let run = await streamChatOnce(messages, controller, true);
+
+  while (run.finishReason === "length" && run.textCharCount > 0 && !controller.signal.aborted) {
+    console.warn("[phenex] chat output hit maxOutputTokens; auto-continuing");
+    messages = [
+      ...buildChatMessagesForModel(),
+      { role: "user", content: CHAT_LENGTH_CONTINUATION_PROMPT },
+    ];
+    run = await streamChatOnce(messages, controller, false);
+  }
+
+  return run;
 }
 
 function buildChatMessagesForModel(): ModelMessage[] {
@@ -636,6 +717,7 @@ function formatToolResult(toolName: string, input: unknown, output: unknown): st
 }
 
 function handleToolResult(toolName: string, input: unknown, output: unknown): void {
+  removeLastEmptyAssistantMessage();
   const formatted = formatToolResult(toolName, input, output);
   appendMessage("assistant", formatted);
 }
@@ -853,17 +935,20 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
   try {
     const messages: ModelMessage[] = [{ role: "user", content: prompt }];
 
-    await streamChat({
+    const run = await streamChat({
       settings: currentSettings,
       messages,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       tools: createAiTools(),
       onChunk: (chunk) => {
-        updateLastAssistantChunk(chunk);
+        appendAssistantChunk(chunk);
       },
       onToolResult: handleToolResult,
       abortSignal: controller.signal,
     });
+    if (run.stoppedAfterToolResult) {
+      appendToolInterruptedFallback();
+    }
     await saveCurrentChat();
   } catch (error) {
     if (error instanceof Error && error.name !== "AbortError") {
@@ -1296,7 +1381,7 @@ async function handleFeedback(): Promise<void> {
       selection,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       onChunk: (chunk) => {
-        updateLastAssistantChunk(chunk);
+        appendAssistantChunk(chunk);
       },
       abortSignal: controller.signal,
     });
@@ -1323,17 +1408,10 @@ async function handleChatMessage(): Promise<void> {
     const messages = buildChatMessagesForModel();
     console.log("[phenex] streaming chat with messages:", messages.length);
 
-    await streamChat({
-      settings: currentSettings,
-      messages,
-      settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
-      tools: createAiTools(),
-      onChunk: (chunk) => {
-        updateLastAssistantChunk(chunk);
-      },
-      onToolResult: handleToolResult,
-      abortSignal: controller.signal,
-    });
+    const run = await streamChatWithAutoContinuation(messages, controller);
+    if (run.stoppedAfterToolResult) {
+      appendToolInterruptedFallback();
+    }
 
     const lastMessage = state.chatMessages[state.chatMessages.length - 1];
     if (lastMessage?.role === "assistant" && lastMessage.content.trim().length === 0) {
@@ -1543,7 +1621,7 @@ async function init(): Promise<void> {
       baseUrl: "",
       model: "",
       temperature: 0.7,
-      maxTokens: 1000,
+      maxTokens: 8192,
       maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
     };
   }

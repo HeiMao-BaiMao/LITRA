@@ -19,6 +19,8 @@ pub fn run() {
             settings::create_world_entry,
             settings::update_world_entry,
             tools::edit_episode_text,
+            tools::find_episode_lines,
+            tools::get_episode_lines,
             tools::list_episodes_with_summaries,
             tools::retrieve_episode_content,
             tools::save_episode_one_liner,

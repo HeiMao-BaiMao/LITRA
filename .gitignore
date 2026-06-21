@@ -28,3 +28,6 @@ dist-ssr
 
 # Rust lockfile is not tracked in this project
 src-tauri/Cargo.lock
+# CocoIndex Code (ccc)
+/.cocoindex_code/*
+!/.cocoindex_code/settings.yml

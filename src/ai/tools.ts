@@ -64,10 +64,19 @@ function validateStringField(name: string, value: unknown): ValidationResult<str
 
 function validateSettingsUpdates(
   updates: Record<string, unknown>,
+  allowedFields: readonly string[],
 ): ValidationResult<Record<string, string | CustomField[]>> | ValidationError {
   const normalized: Record<string, string | CustomField[]> = {};
+  const allowed = new Set(allowedFields);
 
   for (const [key, value] of Object.entries(updates)) {
+    if (!allowed.has(key)) {
+      return {
+        success: false,
+        error: `フィールド "${key}" は更新できません。使用可能なフィールド: ${allowedFields.join(", ")}。`,
+      };
+    }
+
     if (key === "customFields") {
       const result = validateCustomFields(value);
       if (!result.success) return result;
@@ -93,6 +102,32 @@ function validateSettingsUpdates(
   }
 
   return { success: true, data: normalized };
+}
+
+function limitToolText(text: string, maxChars = 12000): string {
+  if (text.length <= maxChars) return text;
+
+  const marker = "\n\n【中略】\n\n";
+  const available = Math.max(0, maxChars - marker.length);
+  if (available <= 0) return text.slice(0, maxChars);
+
+  const headChars = Math.ceil(available / 2);
+  const tailChars = Math.floor(available / 2);
+  return `${text.slice(0, headChars)}${marker}${text.slice(text.length - tailChars)}`;
+}
+
+function findById<T extends { id: string }>(items: T[], id: string): T | undefined {
+  return items.find((item) => item.id === id);
+}
+
+async function rebuildSearchIndexQuietly(projectId: string): Promise<boolean> {
+  try {
+    await invoke("rebuild_search_index", { projectId });
+    return true;
+  } catch (error) {
+    console.warn("[phenex] failed to rebuild search index after tool mutation:", error);
+    return false;
+  }
 }
 
 function wrapToolExecute<TInput, TOutput>(
@@ -125,12 +160,51 @@ export interface SummaryToolDependencies {
   onSaveOneLiner?: (episodeId: string, oneLiner: string) => void;
 }
 
-const editInputSchema = z.object({
-  startLine: z.number().int().min(1).describe("置き換え開始行（1始まり）"),
-  endLine: z.number().int().min(1).describe("置き換え終了行（1始まり）"),
-  expectedText: z.string().describe("該当行範囲の現在の正確なテキスト"),
-  replacementText: z.string().describe("挿入する置き換え後のテキスト"),
-});
+interface EpisodeLineResult {
+  lineNumber: number;
+  text: string;
+}
+
+interface EpisodeLinesResponse {
+  episodeId: string;
+  title: string;
+  order: number;
+  totalLines: number;
+  startLine: number;
+  endLine: number;
+  lines: EpisodeLineResult[];
+  lineNumberedText: string;
+}
+
+interface EpisodeLineSearchMatch {
+  startLine: number;
+  endLine: number;
+  expectedText: string;
+  excerptStartLine: number;
+  excerptEndLine: number;
+  lineNumberedText: string;
+}
+
+interface EpisodeLineSearchResponse {
+  episodeId: string;
+  title: string;
+  order: number;
+  totalLines: number;
+  query: string;
+  matches: EpisodeLineSearchMatch[];
+}
+
+const editInputSchema = z
+  .object({
+    startLine: z.number().int().min(1).describe("置き換え開始行（1始まり）"),
+    endLine: z.number().int().min(1).describe("置き換え終了行（1始まり）"),
+    expectedText: z.string().describe("該当行範囲の現在の正確なテキスト"),
+    replacementText: z.string().describe("挿入する置き換え後のテキスト"),
+  })
+  .refine((value) => value.endLine >= value.startLine, {
+    message: "endLine は startLine 以上である必要があります。",
+    path: ["endLine"],
+  });
 
 export function createEditEpisodeTool(deps: EditToolDependencies) {
   return tool({
@@ -157,7 +231,69 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
       if (result.success && result.newText != null) {
         deps.onApply(result.newText);
       }
-      return result;
+      const searchIndexUpdated = result.success ? await rebuildSearchIndexQuietly(deps.projectId) : false;
+      return {
+        success: result.success,
+        message: result.message,
+        totalLines: result.totalLines,
+        actualText: result.actualText != null ? limitToolText(result.actualText) : undefined,
+        applied: result.success,
+        editedLineRange: { startLine, endLine },
+        replacementLineCount: replacementText.split("\n").length,
+        searchIndexUpdated,
+      };
+    }),
+  });
+}
+
+const getEpisodeLinesInputSchema = z.object({
+  episodeId: z.string().describe("行番号付きで取得するエピソードのID"),
+  startLine: z.number().int().min(1).optional().describe("取得開始行（1始まり）。省略時は1行目"),
+  endLine: z.number().int().min(1).optional().describe("取得終了行（1始まり、両端含む）。省略時は最終行"),
+});
+
+export function createGetEpisodeLinesTool(deps: SearchDependencies) {
+  return tool({
+    description:
+      "指定したエピソード本文を行番号付きで取得します。editEpisode の startLine/endLine/expectedText を決めるために使ってください。行範囲を指定するとその範囲だけ返します。",
+    inputSchema: getEpisodeLinesInputSchema,
+    execute: wrapToolExecute("getEpisodeLines", async ({ episodeId, startLine, endLine }) => {
+      return await invoke<EpisodeLinesResponse>("get_episode_lines", {
+        req: {
+          projectId: deps.projectId,
+          episodeId,
+          startLine,
+          endLine,
+        },
+      });
+    }),
+  });
+}
+
+const findEpisodeLinesInputSchema = z.object({
+  episodeId: z.string().describe("検索するエピソードのID"),
+  query: z.string().describe("探したい本文中の正確な語句・一文・一部フレーズ"),
+  contextLines: z.number().int().min(0).max(50).optional().describe("一致行の前後に付ける行数（デフォルト3）"),
+  maxMatches: z.number().int().min(1).max(200).optional().describe("返す候補数（デフォルト20）"),
+  caseSensitive: z.boolean().optional().describe("大文字小文字を区別するか（デフォルトtrue）"),
+});
+
+export function createFindEpisodeLinesTool(deps: SearchDependencies) {
+  return tool({
+    description:
+      "指定したエピソード本文から語句を検索し、一致した行番号、周辺の行番号付き本文、editEpisode に使える expectedText を返します。行番号を数える代わりに必ずこのツールを使ってください。",
+    inputSchema: findEpisodeLinesInputSchema,
+    execute: wrapToolExecute("findEpisodeLines", async ({ episodeId, query, contextLines, maxMatches, caseSensitive }) => {
+      return await invoke<EpisodeLineSearchResponse>("find_episode_lines", {
+        req: {
+          projectId: deps.projectId,
+          episodeId,
+          query,
+          contextLines,
+          maxMatches,
+          caseSensitive,
+        },
+      });
     }),
   });
 }
@@ -188,7 +324,7 @@ const retrieveInputSchema = z.object({
 export function createRetrieveEpisodeTool(deps: SearchDependencies) {
   return tool({
     description:
-      "指定したエピソードの要約または本文を取得します。listEpisodes で特定したエピソードの詳細を確認する場合に使用してください。",
+      "指定したエピソードの要約または本文全文を取得します。行番号が必要な本文編集では findEpisodeLines または getEpisodeLines を使ってください。",
     inputSchema: retrieveInputSchema,
     execute: wrapToolExecute("retrieveEpisode", async ({ episodeId, type }) => {
       return await invoke<{
@@ -274,8 +410,9 @@ export function createSaveEpisodeSummaryTool(deps: SummaryToolDependencies) {
           content: validation.data,
         },
       });
+      const searchIndexUpdated = await rebuildSearchIndexQuietly(deps.projectId);
       deps.onSaveSummary?.(episodeId, validation.data);
-      return { success: true, message: "要約を保存しました。" };
+      return { success: true, message: "要約を保存しました。", searchIndexUpdated };
     }),
   });
 }
@@ -311,6 +448,47 @@ export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
 
 import type { Character, WorldEntry } from "../project/schema.ts";
 
+const CHARACTER_UPDATE_FIELDS = [
+  "name",
+  "alias",
+  "role",
+  "gender",
+  "age",
+  "birthday",
+  "bloodType",
+  "height",
+  "weight",
+  "appearance",
+  "personality",
+  "individuality",
+  "skills",
+  "specialSkills",
+  "upbringing",
+  "background",
+  "notes",
+  "customFields",
+] as const;
+
+const WORLD_ENTRY_UPDATE_FIELDS = [
+  "name",
+  "category",
+  "era",
+  "geography",
+  "climate",
+  "population",
+  "politics",
+  "laws",
+  "economy",
+  "military",
+  "religion",
+  "language",
+  "culture",
+  "history",
+  "technology",
+  "notes",
+  "customFields",
+] as const;
+
 export interface SettingsToolDependencies {
   projectId: string;
   onUpdateCharacters: (characters: Character[]) => void;
@@ -345,7 +523,7 @@ export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
       "指定したキャラクターの設定を部分更新します。更新可能なフィールド例: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes, customFields。",
     inputSchema: updateCharacterInputSchema,
     execute: wrapToolExecute("updateCharacter", async ({ characterId, updates }) => {
-      const validation = validateSettingsUpdates(updates as Record<string, unknown>);
+      const validation = validateSettingsUpdates(updates as Record<string, unknown>, CHARACTER_UPDATE_FIELDS);
       if (!validation.success) {
         return { error: `updateCharacter の入力が不正です: ${validation.error}` };
       }
@@ -358,7 +536,11 @@ export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
         },
       });
       deps.onUpdateCharacters(result.characters);
-      return { success: true, message: "キャラクター設定を更新しました。" };
+      return {
+        success: true,
+        message: "キャラクター設定を更新しました。",
+        character: findById(result.characters, characterId),
+      };
     }),
   });
 }
@@ -384,7 +566,11 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
         },
       });
       deps.onUpdateCharacters(result.characters);
-      return { success: true, message: `キャラクター「${validation.data}」を作成しました。` };
+      return {
+        success: true,
+        message: `キャラクター「${validation.data}」を作成しました。`,
+        character: result.characters[result.characters.length - 1],
+      };
     }),
   });
 }
@@ -417,7 +603,7 @@ export function createUpdateWorldEntryTool(deps: SettingsToolDependencies) {
       "指定した世界観設定を部分更新します。更新可能なフィールド例: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes, customFields。",
     inputSchema: updateWorldEntryInputSchema,
     execute: wrapToolExecute("updateWorldEntry", async ({ entryId, updates }) => {
-      const validation = validateSettingsUpdates(updates as Record<string, unknown>);
+      const validation = validateSettingsUpdates(updates as Record<string, unknown>, WORLD_ENTRY_UPDATE_FIELDS);
       if (!validation.success) {
         return { error: `updateWorldEntry の入力が不正です: ${validation.error}` };
       }
@@ -430,7 +616,11 @@ export function createUpdateWorldEntryTool(deps: SettingsToolDependencies) {
         },
       });
       deps.onUpdateWorldEntries(result.entries);
-      return { success: true, message: "世界観設定を更新しました。" };
+      return {
+        success: true,
+        message: "世界観設定を更新しました。",
+        entry: findById(result.entries, entryId),
+      };
     }),
   });
 }
@@ -462,7 +652,11 @@ export function createCreateWorldEntryTool(deps: SettingsToolDependencies) {
         },
       });
       deps.onUpdateWorldEntries(result.entries);
-      return { success: true, message: `世界観「${nameValidation.data}」を作成しました。` };
+      return {
+        success: true,
+        message: `世界観「${nameValidation.data}」を作成しました。`,
+        entry: result.entries[result.entries.length - 1],
+      };
     }),
   });
 }
