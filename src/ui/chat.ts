@@ -1,6 +1,6 @@
 import { getElements } from "./layout.ts";
 import { state, type ChatMessage } from "../state.ts";
-import { renderMarkdown } from "../markdown.ts";
+import { renderChatMessageHtml } from "../markdown.ts";
 
 let onSync: ((messages: ChatMessage[], isGenerating: boolean) => void) | null = null;
 
@@ -16,7 +16,7 @@ export function appendMessage(role: ChatMessage["role"], content: string): void 
   const container = getElements().chatMessages;
   const messageEl = document.createElement("div");
   messageEl.className = `chat-message ${role}`;
-  messageEl.innerHTML = renderMarkdown(content);
+  renderChatMessageHtml(messageEl, content);
   container.appendChild(messageEl);
   scrollToBottom();
 
@@ -40,7 +40,7 @@ export function updateLastAssistantChunk(chunk: string): void {
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
   if (lastMessage && lastMessage.role === "assistant") {
     lastMessage.content += chunk;
-    messageEl.innerHTML = renderMarkdown(lastMessage.content);
+    renderChatMessageHtml(messageEl, lastMessage.content);
   }
   sync();
 }
@@ -59,7 +59,7 @@ export function renderMessages(messages: ChatMessage[]): void {
   for (const message of messages) {
     const messageEl = document.createElement("div");
     messageEl.className = `chat-message ${message.role}`;
-    messageEl.innerHTML = renderMarkdown(message.content);
+    renderChatMessageHtml(messageEl, message.content);
     container.appendChild(messageEl);
     state.chatMessages.push(message);
   }

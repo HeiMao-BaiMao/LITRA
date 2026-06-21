@@ -45,7 +45,7 @@ import {
   setChatSyncCallback,
   updateLastAssistantChunk,
 } from "./ui/chat.ts";
-import { renderMarkdown } from "./markdown.ts";
+import { renderChatMessageHtml } from "./markdown.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
   bindAdvancedSettingsToggle,
@@ -1205,7 +1205,7 @@ async function handleChatMessage(): Promise<void> {
       const container = getElements().chatMessages;
       const lastEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
       if (lastEl) {
-        lastEl.innerHTML = renderMarkdown(lastMessage.content);
+        renderChatMessageHtml(lastEl, lastMessage.content);
       }
       syncChatToWindow();
       await saveCurrentChat();

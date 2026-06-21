@@ -1,6 +1,6 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import type { ChatMessage } from "./state.ts";
-import { renderMarkdown } from "./markdown.ts";
+import { renderChatMessageHtml } from "./markdown.ts";
 
 interface ChatSyncPayload {
   messages: ChatMessage[];
@@ -12,7 +12,7 @@ function renderMessages(container: HTMLElement, messages: ChatMessage[]): void {
   for (const message of messages) {
     const el = document.createElement("div");
     el.className = `chat-message ${message.role}`;
-    el.innerHTML = renderMarkdown(message.content);
+    renderChatMessageHtml(el, message.content);
     container.appendChild(el);
   }
   container.scrollTop = container.scrollHeight;
