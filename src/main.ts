@@ -818,9 +818,9 @@ async function saveCurrentChat(): Promise<void> {
 }
 
 function buildSettingsContext(currentEpisodeId?: string): string {
-  function formatFields(entries: [string, string][]): string {
+  function formatFields(entries: [string, string | undefined][]): string {
     return entries
-      .filter(([, value]) => value.trim().length > 0)
+      .filter(([, value]) => (value?.trim().length ?? 0) > 0)
       .map(([label, value]) => `  - ${label}: ${value}`)
       .join("\n");
   }
