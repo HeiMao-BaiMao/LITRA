@@ -825,7 +825,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
       .join("\n");
   }
 
-  const charLines = characters
+  const charLines = (characters ?? [])
     .map((c) => {
       const fixed: [string, string][] = [
         ["名前", c.name],
@@ -845,14 +845,14 @@ function buildSettingsContext(currentEpisodeId?: string): string {
         ["生い立ち", c.upbringing],
         ["背景", c.background],
         ["メモ", c.notes],
-        ...c.customFields.map((f): [string, string] => [f.label || "カスタム", f.value]),
+        ...(c.customFields ?? []).map((f): [string, string] => [f.label || "カスタム", f.value]),
       ];
       const details = formatFields(fixed);
       return details ? `■ ${c.name || "（無題）"}\n${details}` : `■ ${c.name || "（無題）"}`;
     })
     .join("\n\n");
 
-  const worldLines = worldEntries
+  const worldLines = (worldEntries ?? [])
     .map((e) => {
       const fixed: [string, string][] = [
         ["名前", e.name],
@@ -871,7 +871,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
         ["歴史", e.history],
         ["技術・魔術体系", e.technology],
         ["メモ", e.notes],
-        ...e.customFields.map((f): [string, string] => [f.label || "カスタム", f.value]),
+        ...(e.customFields ?? []).map((f): [string, string] => [f.label || "カスタム", f.value]),
       ];
       const details = formatFields(fixed);
       return details ? `■ ${e.name || "（無題）"}\n${details}` : `■ ${e.name || "（無題）"}`;

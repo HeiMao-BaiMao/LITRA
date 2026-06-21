@@ -195,7 +195,7 @@ function renderCharacterForm(character: Character): HTMLElement {
   form.appendChild(notes);
 
   form.appendChild(
-    renderCustomFieldsSection(character.customFields, () => {
+    renderCustomFieldsSection(character.customFields ?? [], () => {
       debounceUpdate(callbackUpdate);
     }),
   );
@@ -242,7 +242,7 @@ function renderWorldEntryForm(entry: WorldEntry): HTMLElement {
   form.appendChild(notes);
 
   form.appendChild(
-    renderCustomFieldsSection(entry.customFields, () => {
+    renderCustomFieldsSection(entry.customFields ?? [], () => {
       debounceUpdate(callbackUpdate);
     }),
   );
