@@ -252,19 +252,21 @@ function renderToolCallHtml(content: string): string | null {
   const status = deriveToolStatus(tool, output);
   const chips = [...summarizeToolInput(tool.toolName, input), ...summarizeToolOutput(tool.toolName, output)];
 
-  return `<div class="tool-call-card ${statusClass(status)}">
-    <div class="tool-call-header">
-      <div class="tool-call-title">
-        <span class="tool-call-icon">TOOL</span>
-        <span class="tool-call-name">${escapeHtml(tool.toolName)}</span>
+  return `<details class="tool-call-card ${statusClass(status)}">
+    <summary class="tool-call-summary">
+      <div class="tool-call-header">
+        <div class="tool-call-title">
+          <span class="tool-call-icon">TOOL</span>
+          <span class="tool-call-name">${escapeHtml(tool.toolName)}</span>
+        </div>
+        <span class="tool-call-status">${escapeHtml(status)}</span>
       </div>
-      <span class="tool-call-status">${escapeHtml(status)}</span>
-    </div>
-    ${tool.id ? `<div class="tool-call-id">${escapeHtml(tool.id)}</div>` : ""}
-    ${renderChips(chips)}
+      ${tool.id ? `<div class="tool-call-id">${escapeHtml(tool.id)}</div>` : ""}
+      ${renderChips(chips)}
+    </summary>
     ${renderToolSection("入力", tool.input)}
     ${renderToolSection("結果", tool.output)}
-  </div>`;
+  </details>`;
 }
 
 export function renderChatMessageHtml(element: HTMLElement, content: string): void {

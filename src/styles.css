@@ -340,6 +340,16 @@ button#btn-cancel:hover:not(:disabled) {
   border-left-color: #d5a84c;
 }
 
+.tool-call-summary {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+}
+
+.tool-call-summary::-webkit-details-marker {
+  display: none;
+}
+
 .tool-call-header {
   display: flex;
   align-items: center;
