@@ -1181,10 +1181,18 @@ async function handleChatMessage(): Promise<void> {
   console.log("[phenex] handleChatMessage start", { provider: currentSettings.provider, model: currentSettings.model, maxTokens: currentSettings.maxTokens });
   const controller = startGeneration();
   try {
-    const messages: ModelMessage[] = state.chatMessages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+    // 空応答の場合でも UI に何か表示できるよう、事前に空のアシスタント返答枠を用意する
+    const lastMsg = state.chatMessages[state.chatMessages.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.content.trim().length > 0) {
+      appendMessage("assistant", "");
+    }
+
+    const messages: ModelMessage[] = state.chatMessages
+      .filter((msg) => !(msg.role === "assistant" && msg.content === ""))
+      .map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
     console.log("[phenex] streaming chat with messages:", messages.length);
 
     await streamChat({
