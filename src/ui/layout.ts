@@ -15,6 +15,7 @@ export interface AppElements {
   settingApiKey: HTMLInputElement;
   settingBaseUrl: HTMLInputElement;
   settingModel: HTMLInputElement;
+  btnFetchModels: HTMLButtonElement;
   settingTemperature: HTMLInputElement;
   settingMaxTokens: HTMLInputElement;
   btnSaveSettings: HTMLButtonElement;
@@ -44,6 +45,7 @@ export function getElements(): AppElements {
   const settingApiKey = document.querySelector<HTMLInputElement>("#setting-api-key");
   const settingBaseUrl = document.querySelector<HTMLInputElement>("#setting-base-url");
   const settingModel = document.querySelector<HTMLInputElement>("#setting-model");
+  const btnFetchModels = document.querySelector<HTMLButtonElement>("#btn-fetch-models");
   const settingTemperature = document.querySelector<HTMLInputElement>("#setting-temperature");
   const settingMaxTokens = document.querySelector<HTMLInputElement>("#setting-max-tokens");
   const btnSaveSettings = document.querySelector<HTMLButtonElement>("#btn-save-settings");
@@ -66,6 +68,7 @@ export function getElements(): AppElements {
     !settingApiKey ||
     !settingBaseUrl ||
     !settingModel ||
+    !btnFetchModels ||
     !settingTemperature ||
     !settingMaxTokens ||
     !btnSaveSettings ||
@@ -91,6 +94,7 @@ export function getElements(): AppElements {
     settingApiKey,
     settingBaseUrl,
     settingModel,
+    btnFetchModels,
     settingTemperature,
     settingMaxTokens,
     btnSaveSettings,

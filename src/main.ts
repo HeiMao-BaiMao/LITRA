@@ -11,11 +11,14 @@ import { initEditor, getSelection, insertAtCursor, replaceSelection } from "./ui
 import { appendMessage, updateLastAssistantChunk } from "./ui/chat.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
+  bindModelFetchAction,
   bindSettingsActions,
   hideSettingsModal,
+  populateModelList,
   renderSettings,
   showSettingsModal,
 } from "./ui/settings-modal.ts";
+import { fetchAvailableModels } from "./ai/model-list.ts";
 import type { ModelMessage } from "ai";
 
 let currentSettings: AiSettings;
@@ -207,6 +210,28 @@ function cancelSettings(): void {
   hideSettingsModal();
 }
 
+async function handleFetchModels(settings: AiSettings): Promise<void> {
+  const { btnFetchModels } = getElements();
+  btnFetchModels.disabled = true;
+  btnFetchModels.textContent = "取得中...";
+
+  try {
+    const result = await fetchAvailableModels(settings);
+    if (result.error) {
+      window.alert(`モデル取得に失敗しました: ${result.error}`);
+      return;
+    }
+
+    populateModelList(result.models);
+    if (result.models.length === 0) {
+      window.alert("利用可能なモデルが見つかりませんでした。");
+    }
+  } finally {
+    btnFetchModels.disabled = false;
+    btnFetchModels.textContent = "取得";
+  }
+}
+
 async function init(): Promise<void> {
   currentSettings = await loadSettings();
 
@@ -230,6 +255,10 @@ async function init(): Promise<void> {
   bindSettingsActions({
     onSave: (settings) => void saveAndCloseSettings(settings),
     onCancel: cancelSettings,
+  });
+
+  bindModelFetchAction({
+    onFetch: (settings) => void handleFetchModels(settings),
   });
 }
 

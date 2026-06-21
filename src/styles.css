@@ -278,6 +278,19 @@ button#btn-cancel:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+.model-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.model-input-row input {
+  flex: 1;
+}
+
+.model-input-row button {
+  flex-shrink: 0;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

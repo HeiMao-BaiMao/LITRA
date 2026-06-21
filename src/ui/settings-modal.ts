@@ -39,6 +39,18 @@ export function readSettingsFromModal(): AiSettings {
   };
 }
 
+export function populateModelList(modelIds: string[]): void {
+  const datalist = document.querySelector<HTMLDataListElement>("#setting-model-list");
+  if (!datalist) return;
+
+  datalist.innerHTML = "";
+  for (const id of modelIds) {
+    const option = document.createElement("option");
+    option.value = id;
+    datalist.appendChild(option);
+  }
+}
+
 export function showSettingsModal(): void {
   getElements().settingsModal.classList.remove("hidden");
 }
@@ -52,6 +64,10 @@ export interface SettingsActions {
   onCancel: () => void;
 }
 
+export interface ModelFetchActions {
+  onFetch: (settings: AiSettings) => void;
+}
+
 export function bindSettingsActions(actions: SettingsActions): void {
   const { settingsForm, btnCancelSettings } = getElements();
 
@@ -61,4 +77,12 @@ export function bindSettingsActions(actions: SettingsActions): void {
   });
 
   btnCancelSettings.addEventListener("click", actions.onCancel);
+}
+
+export function bindModelFetchAction(actions: ModelFetchActions): void {
+  const { btnFetchModels } = getElements();
+
+  btnFetchModels.addEventListener("click", () => {
+    actions.onFetch(readSettingsFromModal());
+  });
 }
