@@ -145,6 +145,9 @@ const TOOL_DISPLAY_INPUT_MAX_CHARS = 4000;
 const TOOL_DISPLAY_OUTPUT_MAX_CHARS = 12000;
 const CHAT_LENGTH_CONTINUATION_PROMPT =
   "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを書いてください。前置き、見出し、注釈は不要です。";
+const CHAT_TOOL_CALL_RETRY_LIMIT = 3;
+const CHAT_TOOL_CALL_RETRY_PROMPT =
+  "直前の応答は、必要なツール呼び出しに到達しないまま説明文で終わっています。説明、手順、expectedText/replacementText の表示を続けず、直ちに必要なツールを呼び出してください。本文編集では findEpisodeLines または getEpisodeLines で確認し、続けて editEpisode を呼び出してください。ユーザーへの文章回答はツール実行後だけにしてください。";
 
 interface PromptContextBudgets {
   settingsField: number;
@@ -405,6 +408,70 @@ function isToolResultLog(content: string): boolean {
   return content.startsWith("【ツール");
 }
 
+function modelMessageContentToString(content: ModelMessage["content"]): string {
+  if (typeof content === "string") return content;
+  return JSON.stringify(content);
+}
+
+function getLastUserMessageText(messages: ModelMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === "user") return modelMessageContentToString(message.content);
+  }
+  return "";
+}
+
+function getLastAssistantPlainText(): string {
+  for (let i = state.chatMessages.length - 1; i >= 0; i--) {
+    const message = state.chatMessages[i];
+    if (message.role !== "assistant") continue;
+    if (isToolResultLog(message.content)) continue;
+    return message.content;
+  }
+  return "";
+}
+
+function textLooksLikeToolRequired(text: string): boolean {
+  return /editEpisode|findEpisodeLines|getEpisodeLines|expectedText|replacementText|startLine|endLine|行番号|本文を確認|現在の本文|現状の本文|変更\d|変更[0-9a-zA-Zぁ-んァ-ヶ一-龠]*|置き換え|置換|差し替え|挿入|削除|反映|編集を実行|ツール.?コール|ツール.?呼び出し|保存して|要約を保存|一行要約/.test(text);
+}
+
+function shouldRetryMissingToolCall(messages: ModelMessage[], run: StreamRunResult): boolean {
+  if (controllerWasAborted()) return false;
+  if (run.toolCallCount > 0 || run.toolResultCount > 0 || run.toolErrorCount > 0) return false;
+
+  const lastUserText = getLastUserMessageText(messages);
+  const lastAssistantText = getLastAssistantPlainText();
+  return textLooksLikeToolRequired(`${lastUserText}\n${lastAssistantText}`);
+}
+
+function controllerWasAborted(): boolean {
+  return state.abortController?.signal.aborted === true;
+}
+
+function markLastAssistantToolCallMissed(reason: string): string {
+  for (let i = state.chatMessages.length - 1; i >= 0; i--) {
+    const message = state.chatMessages[i];
+    if (message.role !== "assistant") continue;
+    if (isToolResultLog(message.content)) continue;
+
+    const original = message.content;
+    const replacement =
+      `【ツール未到達: 再試行】\n` +
+      `状態: ${reason}\n` +
+      `説明文だけが生成され、実際のツール呼び出しが返りませんでした。ツール呼び出しを優先して再試行します。`;
+    updateMessageContent(i, replacement);
+    return original;
+  }
+  return "";
+}
+
+function appendMissingToolFallback(): void {
+  appendMessage(
+    "assistant",
+    "（必要なツール呼び出しに到達できませんでした。説明文の生成を止めて再試行しましたが、モデルが tool-call を返しませんでした。）",
+  );
+}
+
 function toolStatusLabel(status: ToolLogStatus): string {
   switch (status) {
     case "input":
@@ -572,10 +639,40 @@ async function streamChatWithAutoContinuation(
   controller: AbortController,
 ) {
   let messages = initialMessages;
+  let toolCallRetryCount = 0;
   let run = await streamChatOnce(messages, controller, true);
   finalizeToolRun(run);
 
-  while (run.finishReason === "length" && run.textCharCount > 0 && !controller.signal.aborted) {
+  while (!controller.signal.aborted) {
+    if (shouldRetryMissingToolCall(messages, run)) {
+      if (toolCallRetryCount >= CHAT_TOOL_CALL_RETRY_LIMIT) {
+        appendMissingToolFallback();
+        break;
+      }
+
+      toolCallRetryCount++;
+      console.warn("[phenex] model did not emit a tool call; retrying with tool-call directive", {
+        retry: toolCallRetryCount,
+      });
+      const missedText = markLastAssistantToolCallMissed(
+        `ツール未実行のため再試行 ${toolCallRetryCount}/${CHAT_TOOL_CALL_RETRY_LIMIT}`,
+      );
+      messages = [
+        ...buildChatMessagesForModel(),
+        {
+          role: "user",
+          content: `${CHAT_TOOL_CALL_RETRY_PROMPT}\n\n【直前に生成された未実行の説明文】\n${limitPromptText(missedText, 4000, "head")}`,
+        },
+      ];
+      run = await streamChatOnce(messages, controller, true);
+      finalizeToolRun(run);
+      continue;
+    }
+
+    if (run.finishReason !== "length" || run.textCharCount <= 0) {
+      break;
+    }
+
     console.warn("[phenex] chat output hit maxOutputTokens; auto-continuing");
     messages = [
       ...buildChatMessagesForModel(),
