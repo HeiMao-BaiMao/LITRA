@@ -45,6 +45,7 @@ import {
   setChatSyncCallback,
   updateLastAssistantChunk,
 } from "./ui/chat.ts";
+import { renderMarkdown } from "./markdown.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
   bindAdvancedSettingsToggle,
@@ -1177,12 +1178,14 @@ async function handleFeedback(): Promise<void> {
 }
 
 async function handleChatMessage(): Promise<void> {
+  console.log("[phenex] handleChatMessage start", { provider: currentSettings.provider, model: currentSettings.model, maxTokens: currentSettings.maxTokens });
   const controller = startGeneration();
   try {
     const messages: ModelMessage[] = state.chatMessages.map((msg) => ({
       role: msg.role,
       content: msg.content,
     }));
+    console.log("[phenex] streaming chat with messages:", messages.length);
 
     await streamChat({
       settings: currentSettings,
@@ -1195,7 +1198,21 @@ async function handleChatMessage(): Promise<void> {
       onToolResult: handleToolResult,
       abortSignal: controller.signal,
     });
+
+    const lastMessage = state.chatMessages[state.chatMessages.length - 1];
+    if (lastMessage?.role === "assistant" && lastMessage.content.trim().length === 0) {
+      lastMessage.content = "（応答がありませんでした）";
+      const container = getElements().chatMessages;
+      const lastEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
+      if (lastEl) {
+        lastEl.innerHTML = renderMarkdown(lastMessage.content);
+      }
+      syncChatToWindow();
+      await saveCurrentChat();
+    }
+
     await saveCurrentChat();
+    console.log("[phenex] handleChatMessage finished");
   } catch (error) {
     console.error("[phenex] chat error:", error);
     if (error instanceof Error && error.name !== "AbortError") {

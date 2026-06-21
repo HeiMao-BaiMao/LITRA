@@ -43,16 +43,24 @@ async function consumeStream(
   onChunk: (chunk: string) => void,
   onToolResult?: (toolName: string, input: unknown, output: unknown) => void,
 ): Promise<void> {
+  let chunkCount = 0;
   const textConsumer = (async () => {
     for await (const chunk of result.textStream) {
+      chunkCount++;
+      if (chunkCount <= 3 || chunkCount % 10 === 0) {
+        console.log(`[phenex:ai] text chunk #${chunkCount}:`, chunk.slice(0, 80));
+      }
       onChunk(chunk);
     }
+    console.log(`[phenex:ai] text stream finished. total chunks: ${chunkCount}`);
   })();
 
   const toolConsumer = (async () => {
     const results = await result.toolResults;
+    console.log(`[phenex:ai] tool results count: ${results.length}`);
     if (onToolResult) {
       for (const item of results) {
+        console.log(`[phenex:ai] tool call: ${item.toolName}`, item.input);
         onToolResult(item.toolName, item.input, item.output);
       }
     }
@@ -98,6 +106,15 @@ export interface StreamFeedbackOptions {
   settingsContext?: string;
 }
 
+function normalizeSettings(settings: AiSettings): AiSettings {
+  const normalized = { ...settings };
+  if (typeof normalized.maxTokens !== "number" || Number.isNaN(normalized.maxTokens) || normalized.maxTokens <= 0) {
+    console.warn(`[phenex:ai] invalid maxTokens ${normalized.maxTokens}, falling back to 8192`);
+    normalized.maxTokens = 8192;
+  }
+  return normalized;
+}
+
 export async function streamChat({
   settings,
   messages,
@@ -108,16 +125,17 @@ export async function streamChat({
   onToolResult,
 }: StreamChatOptions): Promise<void> {
   try {
+    const s = normalizeSettings(settings);
     const result = streamText({
-      model: createModel(settings),
+      model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       messages,
-      temperature: settings.temperature,
-      maxOutputTokens: settings.maxTokens,
+      temperature: s.temperature,
+      maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
       stopWhen: tools ? stepCountIs(5) : undefined,
-      ...buildAdvancedOptions(settings),
+      ...buildAdvancedOptions(s),
     });
 
     await consumeStream(result, onChunk, onToolResult);
@@ -137,16 +155,17 @@ export async function streamContinuation({
   onToolResult,
 }: StreamContinuationOptions): Promise<void> {
   try {
+    const s = normalizeSettings(settings);
     const result = streamText({
-      model: createModel(settings),
+      model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildContinuationPrompt(context),
-      temperature: settings.temperature,
-      maxOutputTokens: settings.maxTokens,
+      temperature: s.temperature,
+      maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
       stopWhen: tools ? stepCountIs(5) : undefined,
-      ...buildAdvancedOptions(settings),
+      ...buildAdvancedOptions(s),
     });
 
     await consumeStream(result, onChunk, onToolResult);
@@ -165,14 +184,15 @@ export async function streamRewrite({
   settingsContext,
 }: StreamRewriteOptions): Promise<void> {
   try {
+    const s = normalizeSettings(settings);
     const result = streamText({
-      model: createModel(settings),
+      model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildRewritePrompt(selection, context),
-      temperature: settings.temperature,
-      maxOutputTokens: settings.maxTokens,
+      temperature: s.temperature,
+      maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(settings),
+      ...buildAdvancedOptions(s),
     });
 
     await consumeStream(result, onChunk);
@@ -190,14 +210,15 @@ export async function streamFeedback({
   settingsContext,
 }: StreamFeedbackOptions): Promise<void> {
   try {
+    const s = normalizeSettings(settings);
     const result = streamText({
-      model: createModel(settings),
+      model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildFeedbackPrompt(selection),
-      temperature: settings.temperature,
-      maxOutputTokens: settings.maxTokens,
+      temperature: s.temperature,
+      maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(settings),
+      ...buildAdvancedOptions(s),
     });
 
     await consumeStream(result, onChunk);
