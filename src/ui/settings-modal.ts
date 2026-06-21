@@ -6,7 +6,12 @@ import type {
   OpenAIReasoningEffort,
   Provider,
 } from "../settings.ts";
-import type { ProviderConfig, ProviderEntry } from "../providers/config.ts";
+import {
+  getProviderModelDefaults,
+  getProviderModelIds,
+  type ProviderConfig,
+  type ProviderEntry,
+} from "../providers/config.ts";
 import { DEEPSEEK_FIXED_MODELS } from "../ai/model-list.ts";
 
 export function renderProviderOptions(config: ProviderConfig): void {
@@ -83,15 +88,15 @@ function updateAdvancedVisibility(provider: Provider): void {
 function populateDeepSeekModelSelect(currentModel: string): void {
   const { settingModelSelect } = getElements();
   settingModelSelect.innerHTML = "";
-  for (const id of DEEPSEEK_FIXED_MODELS) {
+  for (const { id, label } of DEEPSEEK_FIXED_MODELS) {
     const option = document.createElement("option");
     option.value = id;
-    option.textContent = id;
+    option.textContent = label;
     settingModelSelect.appendChild(option);
   }
-  settingModelSelect.value = DEEPSEEK_FIXED_MODELS.includes(currentModel)
+  settingModelSelect.value = DEEPSEEK_FIXED_MODELS.some((m) => m.id === currentModel)
     ? currentModel
-    : DEEPSEEK_FIXED_MODELS[0];
+    : DEEPSEEK_FIXED_MODELS[0]?.id ?? "";
 }
 
 function updateModelInputMode(provider: Provider): void {
@@ -110,6 +115,43 @@ function updateModelFetchState(provider: Provider): void {
   btnFetchModels.textContent = isDeepSeek ? "DeepSeek は固定" : "取得";
 }
 
+function populateConfiguredModelList(entry: ProviderEntry | undefined): void {
+  populateModelList(getProviderModelIds(entry));
+}
+
+function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string): void {
+  const defaults = getProviderModelDefaults(entry, modelId);
+  if (!defaults) return;
+
+  const {
+    settingTemperature,
+    settingMaxTokens,
+    settingMaxContextTokens,
+    settingTopP,
+    settingTopK,
+    settingFrequencyPenalty,
+    settingPresencePenalty,
+    settingOpenaiReasoningEffort,
+    settingDeepseekThinkingMode,
+    settingDeepseekReasoningEffort,
+    settingAnthropicThinkingEnabled,
+    settingAnthropicThinkingBudget,
+  } = getElements();
+
+  if (defaults.temperature !== undefined) settingTemperature.value = String(defaults.temperature);
+  if (defaults.maxTokens !== undefined) settingMaxTokens.value = String(defaults.maxTokens);
+  if (defaults.maxContextTokens !== undefined) settingMaxContextTokens.value = String(defaults.maxContextTokens);
+  settingTopP.value = optionalNumberInput(defaults.topP);
+  settingTopK.value = optionalNumberInput(defaults.topK);
+  settingFrequencyPenalty.value = optionalNumberInput(defaults.frequencyPenalty);
+  settingPresencePenalty.value = optionalNumberInput(defaults.presencePenalty);
+  settingOpenaiReasoningEffort.value = defaults.openaiReasoningEffort ?? "";
+  settingDeepseekThinkingMode.value = defaults.deepseekThinkingMode ?? "";
+  settingDeepseekReasoningEffort.value = defaults.deepseekReasoningEffort ?? "";
+  settingAnthropicThinkingEnabled.checked = defaults.anthropicThinkingEnabled ?? false;
+  settingAnthropicThinkingBudget.value = optionalNumberInput(defaults.anthropicThinkingBudget);
+}
+
 export function renderSettings(settings: AiSettings): void {
   const {
     settingProvider,
@@ -118,6 +160,7 @@ export function renderSettings(settings: AiSettings): void {
     settingModel,
     settingTemperature,
     settingMaxTokens,
+    settingMaxContextTokens,
     settingTopP,
     settingTopK,
     settingFrequencyPenalty,
@@ -138,6 +181,7 @@ export function renderSettings(settings: AiSettings): void {
   settingModelSelect.value = settings.model;
   settingTemperature.value = String(settings.temperature);
   settingMaxTokens.value = String(settings.maxTokens);
+  settingMaxContextTokens.value = String(settings.maxContextTokens);
   settingTopP.value = optionalNumberInput(settings.topP);
   settingTopK.value = optionalNumberInput(settings.topK);
   settingFrequencyPenalty.value = optionalNumberInput(settings.frequencyPenalty);
@@ -163,6 +207,7 @@ export function readSettingsFromModal(): AiSettings {
     settingModelSelect,
     settingTemperature,
     settingMaxTokens,
+    settingMaxContextTokens,
     settingTopP,
     settingTopK,
     settingFrequencyPenalty,
@@ -185,6 +230,7 @@ export function readSettingsFromModal(): AiSettings {
     model,
     temperature: Number(settingTemperature.value),
     maxTokens: Number(settingMaxTokens.value),
+    maxContextTokens: Number(settingMaxContextTokens.value),
     topP: parseOptionalNumber(settingTopP.value),
     topK: parseOptionalNumber(settingTopK.value),
     frequencyPenalty: parseOptionalNumber(settingFrequencyPenalty.value),
@@ -231,16 +277,14 @@ export interface ProviderChangeActions {
 }
 
 export function bindProviderChangeAction(actions: ProviderChangeActions): void {
-  const { settingProvider } = getElements();
+  const { settingProvider, settingModel, settingModelSelect } = getElements();
 
   settingProvider.addEventListener("change", () => {
     const { provider } = readSettingsFromModal();
-    const datalist = document.querySelector<HTMLDataListElement>("#setting-model-list");
-    if (datalist) datalist.innerHTML = "";
 
     const entry = actions.onChange(provider);
     if (entry) {
-      const { settingBaseUrl, settingModel, settingModelSelect } = getElements();
+      const { settingBaseUrl } = getElements();
       settingBaseUrl.value = entry.defaultBaseUrl;
       settingModel.value = entry.defaultModel;
       settingModelSelect.value = entry.defaultModel;
@@ -250,6 +294,18 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     updateModelFetchState(provider);
     updateModelInputMode(provider);
     populateDeepSeekModelSelect(entry?.defaultModel ?? "");
+    populateConfiguredModelList(entry);
+    applyModelDefaults(entry, entry?.defaultModel ?? "");
+  });
+
+  settingModel.addEventListener("change", () => {
+    const { provider, model } = readSettingsFromModal();
+    applyModelDefaults(actions.onChange(provider), model);
+  });
+
+  settingModelSelect.addEventListener("change", () => {
+    const { provider, model } = readSettingsFromModal();
+    applyModelDefaults(actions.onChange(provider), model);
   });
 }
 

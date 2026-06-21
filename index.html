@@ -176,7 +176,11 @@
             </label>
             <label>
               <span>最大トークン数 (max tokens)</span>
-              <input id="setting-max-tokens" type="number" min="1" max="8192" />
+              <input id="setting-max-tokens" type="number" min="1" max="65536" />
+            </label>
+            <label>
+              <span>最大コンテキスト数 (context tokens)</span>
+              <input id="setting-max-context-tokens" type="number" min="2048" max="1048576" />
             </label>
 
             <button

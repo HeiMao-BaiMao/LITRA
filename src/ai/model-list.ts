@@ -1,6 +1,11 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import type { AiSettings } from "../settings.ts";
-import { loadProviderConfig, getProviderEntry } from "../providers/config.ts";
+import {
+  getProviderEntry,
+  getProviderModelIds,
+  loadProviderConfig,
+  providerRequiresApiKey,
+} from "../providers/config.ts";
 
 export interface ModelListResult {
   models: string[];
@@ -12,16 +17,32 @@ export interface ModelListResult {
  * 取得に失敗した場合は、公式ドキュメントで公開されている既知のモデル一覧を
  * フォールバックとして返す。
  */
-export const DEEPSEEK_FIXED_MODELS = ["deepseek-v4-pro", "deepseek-v4-flash"].sort();
+export interface DeepSeekFixedModel {
+  id: string;
+  label: string;
+}
+
+/**
+ * DeepSeek の固定モデル選択肢。
+ * ストリーミングで content を返すには thinking を無効にする必要がある。
+ */
+export const DEEPSEEK_FIXED_MODELS: DeepSeekFixedModel[] = [
+  { id: "deepseek-v4-flash", label: "DeepSeek-V4 Flash" },
+  { id: "deepseek-v4-pro", label: "DeepSeek-V4 Pro" },
+];
 
 function getOpenAiFallbackModels(
   providerId: string,
   baseUrl: string,
+  configuredModels: string[],
 ): string[] | undefined {
   const isDeepSeek =
     providerId === "deepseek" || baseUrl.includes("api.deepseek.com");
   if (isDeepSeek) {
-    return DEEPSEEK_FIXED_MODELS;
+    return Array.from(new Set([...configuredModels, ...DEEPSEEK_FIXED_MODELS.map((m) => m.id)]));
+  }
+  if (configuredModels.length > 0) {
+    return configuredModels;
   }
   return undefined;
 }
@@ -29,11 +50,12 @@ function getOpenAiFallbackModels(
 async function fetchOpenAiCompatibleModels(
   settings: AiSettings,
   providerId: string,
+  configuredModels: string[],
 ): Promise<ModelListResult> {
   try {
     const { default: OpenAI } = await import("openai");
     const client = new OpenAI({
-      apiKey: settings.apiKey,
+      apiKey: settings.apiKey || "sk-no-key-required",
       baseURL: settings.baseUrl,
       fetch,
       dangerouslyAllowBrowser: true,
@@ -46,7 +68,7 @@ async function fetchOpenAiCompatibleModels(
 
     // DeepSeek の /v1/models は返すモデルが不完全なことがあるため、
     // 取得結果と既知のフォールバック一覧を統合する。
-    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl);
+    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl, configuredModels);
     const models =
       fallback && fallback.length > 0
         ? Array.from(new Set([...fetchedModels, ...fallback])).sort()
@@ -65,7 +87,7 @@ async function fetchOpenAiCompatibleModels(
       return { models: [], error: message };
     }
 
-    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl);
+    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl, configuredModels);
     if (fallback && fallback.length > 0) {
       return { models: fallback };
     }
@@ -149,10 +171,6 @@ async function fetchGoogleModels(
 export async function fetchAvailableModels(
   settings: AiSettings,
 ): Promise<ModelListResult> {
-  if (!settings.apiKey) {
-    return { models: [], error: "API キーが設定されていません。" };
-  }
-
   const config = await loadProviderConfig();
   const entry = getProviderEntry(config, settings.provider);
 
@@ -160,9 +178,15 @@ export async function fetchAvailableModels(
     return { models: [], error: "未知のプロバイダーです。" };
   }
 
+  if (providerRequiresApiKey(entry) && !settings.apiKey) {
+    return { models: [], error: "API キーが設定されていません。" };
+  }
+
+  const configuredModels = getProviderModelIds(entry);
+
   switch (entry.sdkType) {
     case "openai":
-      return fetchOpenAiCompatibleModels(settings, entry.id);
+      return fetchOpenAiCompatibleModels(settings, entry.id, configuredModels);
     case "anthropic":
       return fetchAnthropicModels(settings);
     case "google":

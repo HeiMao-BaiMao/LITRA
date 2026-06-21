@@ -25,13 +25,12 @@ export function buildProviderOptions(settings: AiSettings): Record<string, Recor
     }
     case "deepseek": {
       const options: Record<string, JSONValue> = {};
-      if (settings.deepseekThinkingMode) {
-        options.thinking = { type: settings.deepseekThinkingMode };
-      }
+      // DeepSeek v4 系は thinking が有効だと reasoning_content のみが返り、
+      // 通常の content ストリームが空になる。デフォルトで無効にしておく。
+      options.thinking = { type: settings.deepseekThinkingMode ?? "disabled" };
       if (settings.deepseekReasoningEffort) {
         options.reasoningEffort = settings.deepseekReasoningEffort;
       }
-      if (Object.keys(options).length === 0) return undefined;
       return { deepseek: options };
     }
     default:

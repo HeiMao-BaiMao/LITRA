@@ -1,3 +1,25 @@
+export type PromptTrimMode = "head" | "tail" | "middle";
+
+export function limitPromptText(text: string, maxChars: number, mode: PromptTrimMode = "middle"): string {
+  if (text.length <= maxChars) return text;
+
+  const marker = "\n\n【中略】\n\n";
+  const available = Math.max(0, maxChars - marker.length);
+  if (available <= 0) return text.slice(0, maxChars);
+
+  if (mode === "head") {
+    return `${text.slice(0, available)}${marker}`;
+  }
+
+  if (mode === "tail") {
+    return `${marker}${text.slice(text.length - available)}`;
+  }
+
+  const headChars = Math.ceil(available / 2);
+  const tailChars = Math.floor(available / 2);
+  return `${text.slice(0, headChars)}${marker}${text.slice(text.length - tailChars)}`;
+}
+
 export const systemPrompt = `あなたは日本語の創作小説を専門に支援するアシスタントです。
 以下の指針に従ってください。
 - ユーザーの意図と方向性を最優先し、無理な展開を押し付けない。
@@ -6,6 +28,8 @@ export const systemPrompt = `あなたは日本語の創作小説を専門に支
 - 同一人物の口調や一人称、動作の癖など、キャラクターの一貫性を保つ。
 - 場面の緊張感やリズムを意識し、不要な列挙や解説を挟まない。
 - 含蓄のある会話と、読者が情景を想像できる具体的な描写を心がける。
+- 続きを書く・書き直す依頼では、指定がない限り本文だけを返し、前置き、解説、Markdown見出し、コードフェンスを出さない。
+- 設定資料や過去話の情報が不足している場合は、推測で断定せず、必要なツールで確認してから答える。
 - 必要に応じて提供されたツールを使用してください。編集ツールを使う際は、行番号と内容が正確に一致することを確認してください。
 
 【利用可能なツールと使い方】
@@ -54,22 +78,27 @@ export const systemPrompt = `あなたは日本語の創作小説を専門に支
 - 編集系ツール（editEpisode, updateCharacter, updateWorldEntry）は、変更を加える前に必ず現在値を取得・確認してください。
 - editEpisode は行番号と expectedText が完全に一致しないと失敗します。失敗した場合は返された actualText を使って修正してください。
 - 1回の応答で複数のツールを順番に呼び出せます（最大5ステップ）。必要に応じて取得→編集→保存の流れを組み合わせてください。
+- ツール引数の文字列フィールドは長文や改行を含んでも問題ありません。256K トークンまで普通に扱えます。改行は JSON 文字列内で \\n として表現してください。
+- updateCharacter / updateWorldEntry の customFields は、必ず {label: "ラベル名", value: "内容"} の配列形式で指定してください。key ではありません。
+- 要約（saveEpisodeSummary）も長文・改行込みで保存可能です。短く圧縮しすぎないでください。
 - ツール実行結果はユーザーに表示されるため、簡潔に状況を報告してください。`;
 
 export function buildContinuationPrompt(context: string): string {
-  return `以下の小説の続きを、文脈に合わせて自然に書いてください。
-既存の文体、トーン、キャラクターの口調を維持し、無理な説明や注釈は入れないでください。
+  return `以下の小説本文の直後に続く文章を書いてください。
+既存の文体、視点、時制、トーン、キャラクターの口調を維持し、無理な説明や注釈は入れないでください。
+出力は続き本文だけにしてください。
 過去エピソードの確認や本文の修正が必要な場合は、提供されているツールを使用してください。
 
-【本文】
+【直前までの本文】
 ${context}`;
 }
 
 export function buildRewritePrompt(selection: string, context: string): string {
   return `以下の選択された文章を、創作小説の文脈に合わせて書き直してください。
-文体やトーンは周囲の文章と調和させ、意味は保ちつつ表現を磨いてください。余計な前置きや注釈は不要です。
+文体やトーンは周囲の文章と調和させ、意味は保ちつつ表現を磨いてください。
+出力は書き直し後の文章だけにしてください。余計な前置きや注釈は不要です。
 
-【周囲の文脈】
+【周囲の文脈】（[選択部分] の位置に挿入されます）
 ${context}
 
 【書き直す文章】
@@ -80,5 +109,27 @@ export function buildFeedbackPrompt(selection: string): string {
   return `以下の小説の文章に対して、日本語創作小説の観点からフィードバックを簡潔に行ってください。
 良い点、改善点、特に文体の一貫性、情景描写、会話の自然さ、キャラクターの心情表現、リズム・テンポについて提案を含めてください。
 
+【対象文】
 ${selection}`;
+}
+
+export function buildSummaryPrompt(
+  episodeId: string,
+  title: string,
+  sourceText: string,
+  sourceIsExcerpt: boolean,
+): string {
+  const excerptInstruction = sourceIsExcerpt
+    ? "本文には【中略】が含まれています。保存前に retrieveEpisode で fullText を取得し、全文を確認してください。"
+    : "本文全体を確認したうえで作成してください。";
+
+  return `エピソード「${title || "無題"}」（episodeId: ${episodeId}）の要約と一行要約を作成してください。
+${excerptInstruction}
+
+要約は出来事の因果関係、登場人物の感情変化、次話に効く伏線や未解決事項が分かる長さにしてください。
+一行要約は一覧で見たときに内容を思い出せる短い文にしてください。
+作成後は saveEpisodeSummary と saveEpisodeOneLiner を使って保存してください。
+
+【本文】
+${sourceText}`;
 }

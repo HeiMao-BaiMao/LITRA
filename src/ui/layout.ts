@@ -41,6 +41,7 @@ export interface AppElements {
   btnFetchModels: HTMLButtonElement;
   settingTemperature: HTMLInputElement;
   settingMaxTokens: HTMLInputElement;
+  settingMaxContextTokens: HTMLInputElement;
   advancedSettingsToggle: HTMLButtonElement;
   advancedSettings: HTMLElement;
   settingTopP: HTMLInputElement;
@@ -110,6 +111,7 @@ export function getElements(): AppElements {
   const btnFetchModels = document.querySelector<HTMLButtonElement>("#btn-fetch-models");
   const settingTemperature = document.querySelector<HTMLInputElement>("#setting-temperature");
   const settingMaxTokens = document.querySelector<HTMLInputElement>("#setting-max-tokens");
+  const settingMaxContextTokens = document.querySelector<HTMLInputElement>("#setting-max-context-tokens");
   const advancedSettingsToggle = document.querySelector<HTMLButtonElement>("#advanced-settings-toggle");
   const advancedSettings = document.querySelector<HTMLElement>("#advanced-settings");
   const settingTopP = document.querySelector<HTMLInputElement>("#setting-top-p");
@@ -150,6 +152,7 @@ export function getElements(): AppElements {
     !btnFetchModels ||
     !settingTemperature ||
     !settingMaxTokens ||
+    !settingMaxContextTokens ||
     !advancedSettingsToggle ||
     !advancedSettings ||
     !settingTopP ||
@@ -237,6 +240,7 @@ export function getElements(): AppElements {
     btnFetchModels,
     settingTemperature,
     settingMaxTokens,
+    settingMaxContextTokens,
     advancedSettingsToggle,
     advancedSettings,
     settingTopP,

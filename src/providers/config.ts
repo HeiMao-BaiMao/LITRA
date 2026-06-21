@@ -7,12 +7,31 @@ import {
 
 export type SdkType = "openai" | "anthropic" | "google";
 
+export interface ProviderModelDefaults {
+  id: string;
+  label?: string;
+  temperature?: number;
+  maxTokens?: number;
+  maxContextTokens?: number;
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  openaiReasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  deepseekThinkingMode?: "adaptive" | "enabled" | "disabled";
+  deepseekReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
+  anthropicThinkingEnabled?: boolean;
+  anthropicThinkingBudget?: number;
+}
+
 export interface ProviderEntry {
   id: string;
   name: string;
   sdkType: SdkType;
   defaultBaseUrl: string;
   defaultModel: string;
+  requiresApiKey?: boolean;
+  models?: ProviderModelDefaults[];
 }
 
 export interface ProviderConfig {
@@ -31,15 +50,48 @@ async function initializeDefaultConfig(): Promise<void> {
   await writeTextFile(CONFIG_FILE, text, { baseDir: BASE_DIR });
 }
 
+function mergeDefaultModels(
+  existingModels: ProviderModelDefaults[] | undefined,
+  defaultModels: ProviderModelDefaults[] | undefined,
+): ProviderModelDefaults[] | undefined {
+  if (!existingModels && !defaultModels) return undefined;
+
+  const mergedById = new Map<string, ProviderModelDefaults>();
+  for (const model of defaultModels ?? []) {
+    mergedById.set(model.id, model);
+  }
+  for (const model of existingModels ?? []) {
+    mergedById.set(model.id, {
+      ...(mergedById.get(model.id) ?? {}),
+      ...model,
+    });
+  }
+
+  return Array.from(mergedById.values());
+}
+
 function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
-  const existingIds = new Set(config.providers.map((p) => p.id));
-  const merged = [...config.providers];
+  const existingById = new Map(config.providers.map((p) => [p.id, p]));
+  const merged: ProviderEntry[] = [];
 
   for (const defaultProvider of DEFAULT_CONFIG.providers) {
-    if (!existingIds.has(defaultProvider.id)) {
+    const existing = existingById.get(defaultProvider.id);
+    if (existing) {
+      merged.push({
+        ...defaultProvider,
+        ...existing,
+        defaultBaseUrl: existing.defaultBaseUrl || defaultProvider.defaultBaseUrl,
+        defaultModel: defaultProvider.defaultModel,
+        requiresApiKey: existing.requiresApiKey ?? defaultProvider.requiresApiKey,
+        models: mergeDefaultModels(existing.models, defaultProvider.models),
+      });
+      existingById.delete(defaultProvider.id);
+    } else {
       merged.push(defaultProvider);
     }
   }
+
+  merged.push(...existingById.values());
 
   return { providers: merged };
 }
@@ -58,7 +110,7 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
   }
 
   const merged = mergeDefaultProviders(parsed);
-  if (merged.providers.length !== parsed.providers.length) {
+  if (JSON.stringify(merged) !== JSON.stringify(parsed)) {
     await writeTextFile(CONFIG_FILE, JSON.stringify(merged, null, 2), { baseDir: BASE_DIR });
   }
 
@@ -70,6 +122,56 @@ export function getProviderEntry(
   providerId: string,
 ): ProviderEntry | undefined {
   return config.providers.find((provider) => provider.id === providerId);
+}
+
+export function getProviderModelDefaults(
+  provider: ProviderEntry | undefined,
+  modelId: string,
+): ProviderModelDefaults | undefined {
+  return provider?.models?.find((model) => model.id === modelId);
+}
+
+export function getProviderModelIds(provider: ProviderEntry | undefined): string[] {
+  return provider?.models?.map((model) => model.id) ?? [];
+}
+
+export function providerRequiresApiKey(provider: ProviderEntry | undefined): boolean {
+  return provider?.requiresApiKey ?? true;
+}
+
+function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults {
+  if (typeof value !== "object" || value === null) return false;
+  const model = value as Partial<ProviderModelDefaults>;
+  return (
+    typeof model.id === "string" &&
+    (model.label === undefined || typeof model.label === "string") &&
+    (model.temperature === undefined || typeof model.temperature === "number") &&
+    (model.maxTokens === undefined || typeof model.maxTokens === "number") &&
+    (model.maxContextTokens === undefined || typeof model.maxContextTokens === "number") &&
+    (model.topP === undefined || typeof model.topP === "number") &&
+    (model.topK === undefined || typeof model.topK === "number") &&
+    (model.frequencyPenalty === undefined || typeof model.frequencyPenalty === "number") &&
+    (model.presencePenalty === undefined || typeof model.presencePenalty === "number") &&
+    (model.openaiReasoningEffort === undefined ||
+      model.openaiReasoningEffort === "none" ||
+      model.openaiReasoningEffort === "minimal" ||
+      model.openaiReasoningEffort === "low" ||
+      model.openaiReasoningEffort === "medium" ||
+      model.openaiReasoningEffort === "high" ||
+      model.openaiReasoningEffort === "xhigh") &&
+    (model.deepseekThinkingMode === undefined ||
+      model.deepseekThinkingMode === "adaptive" ||
+      model.deepseekThinkingMode === "enabled" ||
+      model.deepseekThinkingMode === "disabled") &&
+    (model.deepseekReasoningEffort === undefined ||
+      model.deepseekReasoningEffort === "low" ||
+      model.deepseekReasoningEffort === "medium" ||
+      model.deepseekReasoningEffort === "high" ||
+      model.deepseekReasoningEffort === "xhigh" ||
+      model.deepseekReasoningEffort === "max") &&
+    (model.anthropicThinkingEnabled === undefined || typeof model.anthropicThinkingEnabled === "boolean") &&
+    (model.anthropicThinkingBudget === undefined || typeof model.anthropicThinkingBudget === "number")
+  );
 }
 
 function isProviderConfig(value: unknown): value is ProviderConfig {
@@ -84,7 +186,9 @@ function isProviderConfig(value: unknown): value is ProviderConfig {
       typeof p.name === "string" &&
       (p.sdkType === "openai" || p.sdkType === "anthropic" || p.sdkType === "google") &&
       typeof p.defaultBaseUrl === "string" &&
-      typeof p.defaultModel === "string"
+      typeof p.defaultModel === "string" &&
+      (p.requiresApiKey === undefined || typeof p.requiresApiKey === "boolean") &&
+      (p.models === undefined || (Array.isArray(p.models) && p.models.every(isProviderModelDefaults)))
     );
   });
 }

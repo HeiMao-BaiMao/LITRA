@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow, getAllWebviewWindows } from "@tauri-apps/api/webviewWindow";
 import {
@@ -16,6 +17,7 @@ import {
   streamFeedback,
   streamRewrite,
 } from "./ai/service.ts";
+import { buildSummaryPrompt, limitPromptText } from "./ai/prompts.ts";
 import {
   createCreateCharacterTool,
   createCreateWorldEntryTool,
@@ -41,6 +43,8 @@ import {
 } from "./ui/editor.ts";
 import {
   appendMessage,
+  clearChat,
+  clearChatDisplay,
   renderMessages,
   setChatSyncCallback,
   updateLastAssistantChunk,
@@ -82,7 +86,9 @@ import {
 import { fetchAvailableModels } from "./ai/model-list.ts";
 import {
   getProviderEntry,
+  getProviderModelIds,
   loadProviderConfig,
+  providerRequiresApiKey,
   type ProviderConfig,
 } from "./providers/config.ts";
 import {
@@ -125,6 +131,61 @@ let characters: Character[] = [];
 let worldEntries: WorldEntry[] = [];
 let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
+
+const DEFAULT_MAX_CONTEXT_TOKENS = 65536;
+const CONTEXT_CHAR_PER_TOKEN = 1.6;
+const CONTEXT_OVERHEAD_TOKENS = 2048;
+const TOOL_DISPLAY_INPUT_MAX_CHARS = 4000;
+const TOOL_DISPLAY_OUTPUT_MAX_CHARS = 12000;
+
+interface PromptContextBudgets {
+  settingsField: number;
+  settingsSection: number;
+  previousSummary: number;
+  currentMemo: number;
+  summarySource: number;
+  continuationContext: number;
+  rewriteContextSide: number;
+  chatHistoryMessages: number;
+  chatMessage: number;
+  chatHistory: number;
+}
+
+function positiveFinite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getPromptContextBudgets(settings: AiSettings = currentSettings): PromptContextBudgets {
+  const maxContextTokens = positiveFinite(settings.maxContextTokens)
+    ? Math.floor(settings.maxContextTokens)
+    : DEFAULT_MAX_CONTEXT_TOKENS;
+  const maxOutputTokens = positiveFinite(settings.maxTokens) ? Math.floor(settings.maxTokens) : 8192;
+  const reservedTokens = Math.min(
+    Math.max(maxOutputTokens, 1024) + CONTEXT_OVERHEAD_TOKENS,
+    Math.floor(maxContextTokens * 0.5),
+  );
+  const usableTokens = Math.max(2048, maxContextTokens - reservedTokens);
+  const usableChars = Math.max(4096, Math.floor(usableTokens * CONTEXT_CHAR_PER_TOKEN));
+  const scaled = (ratio: number, min: number, max: number) =>
+    Math.floor(clampNumber(usableChars * ratio, min, max));
+
+  return {
+    settingsField: scaled(0.025, 1200, 12000),
+    settingsSection: scaled(0.35, 16000, 120000),
+    previousSummary: scaled(0.05, 2600, 16000),
+    currentMemo: scaled(0.12, 5000, 40000),
+    summarySource: scaled(0.8, 30000, 240000),
+    continuationContext: scaled(0.7, 18000, 180000),
+    rewriteContextSide: scaled(0.35, 9000, 90000),
+    chatHistoryMessages: maxContextTokens >= 131072 ? 80 : maxContextTokens >= 65536 ? 60 : 30,
+    chatMessage: scaled(0.12, 6000, 30000),
+    chatHistory: scaled(0.8, 42000, 200000),
+  };
+}
 
 let memoCollapsedBeforeDetach = false;
 let chatCollapsedBeforeDetach = false;
@@ -193,8 +254,14 @@ function validateEpisode(): boolean {
 }
 
 function validateSettings(): boolean {
-  if (!currentSettings.apiKey) {
+  const entry = getProviderEntry(providerConfig, currentSettings.provider);
+  if (providerRequiresApiKey(entry) && !currentSettings.apiKey) {
     window.alert("API キーを設定してください。");
+    showSettingsModal();
+    return false;
+  }
+  if (!currentSettings.model.trim()) {
+    window.alert("モデル名を設定してください。");
     showSettingsModal();
     return false;
   }
@@ -270,6 +337,59 @@ function createAiTools(): ToolSet | undefined {
   }
 
   return tools;
+}
+
+function stringifyForDisplay(value: unknown, maxChars: number): string {
+  let text: string;
+  try {
+    text = JSON.stringify(value, null, 2);
+  } catch {
+    text = String(value);
+  }
+  return limitPromptText(text, maxChars, "head");
+}
+
+function isToolResultLog(content: string): boolean {
+  return content.startsWith("【ツール実行:");
+}
+
+function buildChatMessagesForModel(): ModelMessage[] {
+  const budgets = getPromptContextBudgets();
+  const naturalMessages = state.chatMessages.filter(
+    (message) => message.content.trim().length > 0 && !isToolResultLog(message.content),
+  );
+
+  const selected: typeof naturalMessages = [];
+  let totalChars = 0;
+
+  for (let i = naturalMessages.length - 1; i >= 0; i--) {
+    const message = naturalMessages[i];
+    const content = limitPromptText(message.content, budgets.chatMessage, "middle");
+    const nextTotal = totalChars + content.length;
+
+    if (selected.length >= budgets.chatHistoryMessages || (selected.length > 0 && nextTotal > budgets.chatHistory)) {
+      break;
+    }
+
+    selected.unshift({ ...message, content });
+    totalChars = nextTotal;
+  }
+
+  return selected.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
+}
+
+function buildContinuationContext(text: string, start: number): string {
+  return limitPromptText(text.slice(0, start), getPromptContextBudgets().continuationContext, "tail");
+}
+
+function buildRewriteContext(editorText: string, start: number, end: number): string {
+  const budgets = getPromptContextBudgets();
+  const before = limitPromptText(editorText.slice(0, start), budgets.rewriteContextSide, "tail");
+  const after = limitPromptText(editorText.slice(end), budgets.rewriteContextSide, "head");
+  return `${before}\n[選択部分]\n${after}`;
 }
 
 function applyPanelVisibility(): void {
@@ -510,8 +630,8 @@ async function restoreDetachedWindows(): Promise<void> {
 
 function formatToolResult(toolName: string, input: unknown, output: unknown): string {
   let text = `【ツール実行: ${toolName}】\n`;
-  text += `入力: ${JSON.stringify(input, null, 2)}\n`;
-  text += `結果:\n${JSON.stringify(output, null, 2)}`;
+  text += `入力: ${stringifyForDisplay(input, TOOL_DISPLAY_INPUT_MAX_CHARS)}\n`;
+  text += `結果:\n${stringifyForDisplay(output, TOOL_DISPLAY_OUTPUT_MAX_CHARS)}`;
   return text;
 }
 
@@ -715,19 +835,23 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
   await saveCurrentEpisode();
 
   const text = await loadEpisode(currentProject.id, episode.fileName);
-  const truncated = text.slice(0, 12000);
+  const budgets = getPromptContextBudgets();
+  const sourceText = limitPromptText(text, budgets.summarySource, "middle");
+  const prompt = buildSummaryPrompt(
+    episode.id,
+    episode.title || "無題",
+    sourceText,
+    text.length > budgets.summarySource,
+  );
 
   appendMessage(
     "user",
-    `「${episode.title || "無題"}」の要約と一行要約を作成してください。\n\n【本文】\n${truncated}`,
+    `「${episode.title || "無題"}」の要約と一行要約を作成してください。`,
   );
 
   const controller = startGeneration();
   try {
-    const messages: ModelMessage[] = state.chatMessages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+    const messages: ModelMessage[] = [{ role: "user", content: prompt }];
 
     await streamChat({
       settings: currentSettings,
@@ -819,14 +943,21 @@ async function saveCurrentChat(): Promise<void> {
 }
 
 function buildSettingsContext(currentEpisodeId?: string): string {
+  const budgets = getPromptContextBudgets();
+
   function formatFields(entries: [string, string | undefined][]): string {
     return entries
-      .filter(([, value]) => (value?.trim().length ?? 0) > 0)
+      .map(([label, value]): [string, string] | null => {
+        const trimmed = value?.trim();
+        if (!trimmed) return null;
+        return [label, limitPromptText(trimmed, budgets.settingsField, "head")];
+      })
+      .filter((entry): entry is [string, string] => entry != null)
       .map(([label, value]) => `  - ${label}: ${value}`)
       .join("\n");
   }
 
-  const charLines = (characters ?? [])
+  const charLinesRaw = (characters ?? [])
     .map((c) => {
       const fixed: [string, string][] = [
         ["名前", c.name],
@@ -852,8 +983,9 @@ function buildSettingsContext(currentEpisodeId?: string): string {
       return details ? `■ ${c.name || "（無題）"}\n${details}` : `■ ${c.name || "（無題）"}`;
     })
     .join("\n\n");
+  const charLines = limitPromptText(charLinesRaw, budgets.settingsSection, "head");
 
-  const worldLines = (worldEntries ?? [])
+  const worldLinesRaw = (worldEntries ?? [])
     .map((e) => {
       const fixed: [string, string][] = [
         ["名前", e.name],
@@ -878,6 +1010,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
       return details ? `■ ${e.name || "（無題）"}\n${details}` : `■ ${e.name || "（無題）"}`;
     })
     .join("\n\n");
+  const worldLines = limitPromptText(worldLinesRaw, budgets.settingsSection, "head");
 
   const contextParts: string[] = [
     `【世界観設定】\n${worldLines || "（未登録）"}`,
@@ -894,7 +1027,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
     const summaryLines = previousEpisodes
       .map((ep) => {
         const summary = episodeSummaries.summaries[ep.id]?.content?.trim();
-        return summary ? `■ ${ep.title || "（無題）"}\n${summary}` : null;
+        return summary ? `■ ${ep.title || "（無題）"}\n${limitPromptText(summary, budgets.previousSummary, "head")}` : null;
       })
       .filter((line): line is string => line != null)
       .join("\n\n");
@@ -905,7 +1038,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
 
     const currentMemo = episodeMemos.memos[currentEpisodeId]?.content?.trim();
     if (currentMemo) {
-      contextParts.push(`【本章の覚え書き】\n${currentMemo}`);
+      contextParts.push(`【本章の覚え書き】\n${limitPromptText(currentMemo, budgets.currentMemo, "head")}`);
     }
   }
 
@@ -1087,7 +1220,7 @@ async function handleContinue(): Promise<void> {
 
   const { start } = getSelection();
   const text = getElements().editor.value;
-  const context = text.slice(0, start);
+  const context = buildContinuationContext(text, start);
 
   const controller = startGeneration();
   try {
@@ -1122,7 +1255,7 @@ async function handleRewrite(): Promise<void> {
   }
 
   const editorText = getElements().editor.value;
-  const context = `${editorText.slice(0, start)}\n[選択部分]\n${editorText.slice(end)}`;
+  const context = buildRewriteContext(editorText, start, end);
 
   const controller = startGeneration();
   try {
@@ -1187,12 +1320,7 @@ async function handleChatMessage(): Promise<void> {
       appendMessage("assistant", "");
     }
 
-    const messages: ModelMessage[] = state.chatMessages
-      .filter((msg) => !(msg.role === "assistant" && msg.content === ""))
-      .map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+    const messages = buildChatMessagesForModel();
     console.log("[phenex] streaming chat with messages:", messages.length);
 
     await streamChat({
@@ -1233,6 +1361,23 @@ async function handleChatMessage(): Promise<void> {
   }
 }
 
+async function handleChatCommand(message: string): Promise<boolean> {
+  if (message === "/clear") {
+    clearChatDisplay();
+    await emit("chat-clear-display", {});
+    return true;
+  }
+
+  if (message === "/new") {
+    stopGeneration();
+    clearChat();
+    await saveCurrentChat();
+    return true;
+  }
+
+  return false;
+}
+
 async function handleChatSubmit(): Promise<void> {
   if (!validateProject() || !validateSettings()) return;
 
@@ -1245,6 +1390,7 @@ async function handleChatSubmit(): Promise<void> {
   if (!message) return;
 
   chatInput.value = "";
+  if (await handleChatCommand(message)) return;
   appendMessage("user", message);
   await handleChatMessage();
 }
@@ -1252,6 +1398,7 @@ async function handleChatSubmit(): Promise<void> {
 function openSettings(): void {
   renderProviderOptions(providerConfig);
   renderSettings(currentSettings);
+  populateModelList(getProviderModelIds(getProviderEntry(providerConfig, currentSettings.provider)));
   showSettingsModal();
 }
 
@@ -1281,7 +1428,9 @@ async function handleFetchModels(settings: AiSettings): Promise<void> {
       return;
     }
 
-    populateModelList(result.models);
+    const configuredModels = getProviderModelIds(getProviderEntry(providerConfig, settings.provider));
+    const models = Array.from(new Set([...configuredModels, ...result.models])).sort();
+    populateModelList(models);
     if (result.models.length === 0) {
       window.alert("利用可能なモデルが見つかりませんでした。");
     }
@@ -1395,6 +1544,7 @@ async function init(): Promise<void> {
       model: "",
       temperature: 0.7,
       maxTokens: 1000,
+      maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
     };
   }
 
@@ -1415,9 +1565,11 @@ async function init(): Promise<void> {
     syncMemoToWindow();
   });
 
-  listen<{ content: string }>("chat-send", (event) => {
+  listen<{ content: string }>("chat-send", async (event) => {
     if (!validateProject() || !validateSettings()) return;
-    appendMessage("user", event.payload.content);
+    const content = event.payload.content.trim();
+    if (await handleChatCommand(content)) return;
+    appendMessage("user", content);
     void handleChatMessage();
   });
 

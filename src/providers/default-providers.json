@@ -5,28 +5,250 @@
       "name": "OpenAI",
       "sdkType": "openai",
       "defaultBaseUrl": "https://api.openai.com/v1",
-      "defaultModel": "gpt-5.5"
+      "defaultModel": "gpt-5.5",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "temperature": 0.85,
+          "maxTokens": 32768,
+          "maxContextTokens": 256000,
+          "topP": 0.95,
+          "frequencyPenalty": 0.15,
+          "presencePenalty": 0.1,
+          "openaiReasoningEffort": "low"
+        },
+        {
+          "id": "gpt-5.4",
+          "label": "GPT-5.4",
+          "temperature": 0.85,
+          "maxTokens": 24576,
+          "maxContextTokens": 256000,
+          "topP": 0.95,
+          "frequencyPenalty": 0.15,
+          "presencePenalty": 0.1,
+          "openaiReasoningEffort": "low"
+        },
+        {
+          "id": "gpt-5.4-mini",
+          "label": "GPT-5.4 Mini",
+          "temperature": 0.8,
+          "maxTokens": 16384,
+          "maxContextTokens": 128000,
+          "topP": 0.95,
+          "frequencyPenalty": 0.1,
+          "presencePenalty": 0.05,
+          "openaiReasoningEffort": "minimal"
+        }
+      ]
     },
     {
       "id": "anthropic",
       "name": "Anthropic",
       "sdkType": "anthropic",
       "defaultBaseUrl": "https://api.anthropic.com",
-      "defaultModel": "claude-opus-4-8"
+      "defaultModel": "claude-sonnet-4-6",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "claude-opus-4-8",
+          "label": "Claude Opus 4.8",
+          "temperature": 0.8,
+          "maxTokens": 32768,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "anthropicThinkingEnabled": false
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "label": "Claude Sonnet 4.6",
+          "temperature": 0.82,
+          "maxTokens": 32768,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "anthropicThinkingEnabled": false
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "label": "Claude Haiku 4.5",
+          "temperature": 0.75,
+          "maxTokens": 16384,
+          "maxContextTokens": 200000,
+          "topP": 0.95,
+          "anthropicThinkingEnabled": false
+        }
+      ]
     },
     {
       "id": "deepseek",
       "name": "DeepSeek",
       "sdkType": "openai",
       "defaultBaseUrl": "https://api.deepseek.com",
-      "defaultModel": "deepseek-v4-flash"
+      "defaultModel": "deepseek-v4-flash",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek-V4 Flash",
+          "temperature": 0.82,
+          "maxTokens": 24576,
+          "maxContextTokens": 128000,
+          "topP": 0.95,
+          "frequencyPenalty": 0.1,
+          "presencePenalty": 0.05,
+          "deepseekThinkingMode": "disabled"
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek-V4 Pro",
+          "temperature": 0.8,
+          "maxTokens": 32768,
+          "maxContextTokens": 128000,
+          "topP": 0.95,
+          "frequencyPenalty": 0.12,
+          "presencePenalty": 0.08,
+          "deepseekThinkingMode": "disabled"
+        }
+      ]
     },
     {
       "id": "google",
       "name": "Google",
       "sdkType": "google",
       "defaultBaseUrl": "https://generativelanguage.googleapis.com/v1beta",
-      "defaultModel": "gemini-3.5-flash"
+      "defaultModel": "gemini-3.5-flash",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "gemini-3.5-flash",
+          "label": "Gemini 3.5 Flash",
+          "temperature": 0.85,
+          "maxTokens": 32768,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "topK": 40
+        },
+        {
+          "id": "gemini-3.1-pro-preview",
+          "label": "Gemini 3.1 Pro Preview",
+          "temperature": 0.8,
+          "maxTokens": 32768,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "topK": 40
+        },
+        {
+          "id": "gemini-3-flash-preview",
+          "label": "Gemini 3 Flash Preview",
+          "temperature": 0.82,
+          "maxTokens": 24576,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "topK": 40
+        },
+        {
+          "id": "gemini-3.1-flash-lite",
+          "label": "Gemini 3.1 Flash-Lite",
+          "temperature": 0.75,
+          "maxTokens": 16384,
+          "maxContextTokens": 1048576,
+          "topP": 0.9,
+          "topK": 40
+        }
+      ]
+    },
+    {
+      "id": "llamacpp",
+      "name": "llama.cpp",
+      "sdkType": "openai",
+      "defaultBaseUrl": "http://127.0.0.1:8080/v1",
+      "defaultModel": "gpt-3.5-turbo",
+      "requiresApiKey": false,
+      "models": [
+        {
+          "id": "gpt-3.5-turbo",
+          "label": "llama.cpp loaded model",
+          "temperature": 0.85,
+          "maxTokens": 4096,
+          "maxContextTokens": 32768,
+          "topP": 0.95,
+          "topK": 40,
+          "frequencyPenalty": 0.05,
+          "presencePenalty": 0.05
+        },
+        {
+          "id": "local-model",
+          "label": "local-model",
+          "temperature": 0.85,
+          "maxTokens": 4096,
+          "maxContextTokens": 32768,
+          "topP": 0.95,
+          "topK": 40,
+          "frequencyPenalty": 0.05,
+          "presencePenalty": 0.05
+        }
+      ]
+    },
+    {
+      "id": "sakura",
+      "name": "さくらの AI Engine",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.ai.sakura.ad.jp/v1",
+      "defaultModel": "gpt-oss-120b",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "gpt-oss-120b",
+          "label": "gpt-oss-120b",
+          "temperature": 0.85,
+          "maxTokens": 32768,
+          "maxContextTokens": 131072,
+          "topP": 0.95,
+          "frequencyPenalty": 0.1,
+          "presencePenalty": 0.05
+        },
+        {
+          "id": "preview/Kimi-K2.6",
+          "label": "Kimi-K2.6 Preview",
+          "temperature": 0.78,
+          "maxTokens": 16000,
+          "maxContextTokens": 128000,
+          "topP": 0.95,
+          "frequencyPenalty": 0.05,
+          "presencePenalty": 0.05
+        },
+        {
+          "id": "Qwen3-Coder-480B-A35B-Instruct-FP8",
+          "label": "Qwen3-Coder 480B",
+          "temperature": 0.78,
+          "maxTokens": 32768,
+          "maxContextTokens": 65536,
+          "topP": 0.95,
+          "frequencyPenalty": 0.05,
+          "presencePenalty": 0.05
+        },
+        {
+          "id": "Qwen3-Coder-30B-A3B-Instruct",
+          "label": "Qwen3-Coder 30B",
+          "temperature": 0.78,
+          "maxTokens": 24576,
+          "maxContextTokens": 65536,
+          "topP": 0.95,
+          "frequencyPenalty": 0.05,
+          "presencePenalty": 0.05
+        },
+        {
+          "id": "llm-jp-3.1-8x13b-instruct4",
+          "label": "llm-jp-3.1 8x13B",
+          "temperature": 0.82,
+          "maxTokens": 16384,
+          "maxContextTokens": 32768,
+          "topP": 0.95,
+          "frequencyPenalty": 0.1,
+          "presencePenalty": 0.05
+        }
+      ]
     }
   ]
 }

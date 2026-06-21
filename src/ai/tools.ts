@@ -1,7 +1,99 @@
 import { tool } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
+import type { CustomField } from "../project/schema.ts";
 
+interface ValidationResult<T> {
+  success: true;
+  data: T;
+}
+
+interface ValidationError {
+  success: false;
+  error: string;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateCustomFields(value: unknown): ValidationResult<CustomField[]> | ValidationError {
+  if (!Array.isArray(value)) {
+    return { success: false, error: "customFields は配列である必要があります。例: [{label: '二人称', value: '君'}]" };
+  }
+
+  const normalized: CustomField[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i];
+    if (!isPlainObject(item)) {
+      return { success: false, error: `customFields[${i}] はオブジェクトである必要があります。` };
+    }
+
+    // label の代わりに key が使われていた場合は寛容に変換する
+    const labelRaw = item.label ?? item.key;
+    const valueRaw = item.value;
+
+    if (typeof labelRaw !== "string" || labelRaw.trim() === "") {
+      return {
+        success: false,
+        error: `customFields[${i}] には label（文字列）が必要です。誤って key を使っていないか確認してください。`,
+      };
+    }
+    if (typeof valueRaw !== "string") {
+      return { success: false, error: `customFields[${i}].value は文字列である必要があります。` };
+    }
+
+    normalized.push({ label: labelRaw.trim(), value: valueRaw });
+  }
+
+  return { success: true, data: normalized };
+}
+
+function validateStringField(name: string, value: unknown): ValidationResult<string> | ValidationError {
+  if (typeof value === "string") {
+    return { success: true, data: value };
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return { success: true, data: String(value) };
+  }
+  return {
+    success: false,
+    error: `"${name}" は文字列である必要があります。受け取った型: ${Array.isArray(value) ? "array" : typeof value}。`,
+  };
+}
+
+function validateSettingsUpdates(
+  updates: Record<string, unknown>,
+): ValidationResult<Record<string, string | CustomField[]>> | ValidationError {
+  const normalized: Record<string, string | CustomField[]> = {};
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (key === "customFields") {
+      const result = validateCustomFields(value);
+      if (!result.success) return result;
+      normalized[key] = result.data;
+      continue;
+    }
+
+    if (typeof value === "string") {
+      normalized[key] = value;
+      continue;
+    }
+
+    // 数値などは文字列に変換して寛容に受け入れる
+    if (typeof value === "number" || typeof value === "boolean") {
+      normalized[key] = String(value);
+      continue;
+    }
+
+    return {
+      success: false,
+      error: `フィールド "${key}" の値が不正です。文字列（改行は \\n を使用）または customFields 配列のみ許可されています。受け取った型: ${Array.isArray(value) ? "array" : typeof value}。`,
+    };
+  }
+
+  return { success: true, data: normalized };
+}
 
 function wrapToolExecute<TInput, TOutput>(
   name: string,
@@ -161,23 +253,28 @@ export function createRebuildSearchIndexTool(deps: SearchDependencies) {
 
 const saveSummaryInputSchema = z.object({
   episodeId: z.string().describe("要約を保存するエピソードのID"),
-  content: z.string().describe("エピソードの要約文。本文の内容を簡潔にまとめたもの。"),
+  content: z.string().describe("エピソードの要約文。本文の内容をまとめたもの。長文や改行を含んでも構いません。"),
 });
 
 export function createSaveEpisodeSummaryTool(deps: SummaryToolDependencies) {
   return tool({
     description:
-      "指定したエピソードの要約を保存または更新します。retrieveEpisode で本文を確認し、内容を要約してから呼び出してください。",
+      "指定したエピソードの要約を保存または更新します。retrieveEpisode で本文を確認し、内容を要約してから呼び出してください。要約は長くても構いません。",
     inputSchema: saveSummaryInputSchema,
     execute: wrapToolExecute("saveEpisodeSummary", async ({ episodeId, content }) => {
+      const validation = validateStringField("content", content);
+      if (!validation.success) {
+        return { error: `saveEpisodeSummary の入力が不正です: ${validation.error}` };
+      }
+
       await invoke("save_episode_summary", {
         req: {
           projectId: deps.projectId,
           episodeId,
-          content,
+          content: validation.data,
         },
       });
-      deps.onSaveSummary?.(episodeId, content);
+      deps.onSaveSummary?.(episodeId, validation.data);
       return { success: true, message: "要約を保存しました。" };
     }),
   });
@@ -185,35 +282,40 @@ export function createSaveEpisodeSummaryTool(deps: SummaryToolDependencies) {
 
 const saveOneLinerInputSchema = z.object({
   episodeId: z.string().describe("一行要約を保存するエピソードのID"),
-  oneLiner: z.string().describe("エピソードの一行要約。100文字以内を目安に。"),
+  oneLiner: z.string().describe("エピソードの一行要約。短くまとめたもの。"),
 });
 
 export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
   return tool({
     description:
-      "指定したエピソードの一行要約を保存または更新します。要約をさらに短く圧縮したものを saveEpisodeSummary の後などに呼び出してください。",
+      "指定したエピソードの一行要約を保存または更新します。saveEpisodeSummary の後に、さらに短く圧縮したものを保存する際に使用してください。",
     inputSchema: saveOneLinerInputSchema,
     execute: wrapToolExecute("saveEpisodeOneLiner", async ({ episodeId, oneLiner }) => {
+      const validation = validateStringField("oneLiner", oneLiner);
+      if (!validation.success) {
+        return { error: `saveEpisodeOneLiner の入力が不正です: ${validation.error}` };
+      }
+
       await invoke("save_episode_one_liner", {
         req: {
           projectId: deps.projectId,
           episodeId,
-          oneLiner,
+          oneLiner: validation.data,
         },
       });
-      deps.onSaveOneLiner?.(episodeId, oneLiner);
+      deps.onSaveOneLiner?.(episodeId, validation.data);
       return { success: true, message: "一行要約を保存しました。" };
     }),
   });
 }
+
+import type { Character, WorldEntry } from "../project/schema.ts";
 
 export interface SettingsToolDependencies {
   projectId: string;
   onUpdateCharacters: (characters: Character[]) => void;
   onUpdateWorldEntries: (entries: WorldEntry[]) => void;
 }
-
-import type { Character, WorldEntry } from "../project/schema.ts";
 
 export function createListCharactersTool(deps: SettingsToolDependencies) {
   return tool({
@@ -243,11 +345,16 @@ export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
       "指定したキャラクターの設定を部分更新します。更新可能なフィールド例: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes, customFields。",
     inputSchema: updateCharacterInputSchema,
     execute: wrapToolExecute("updateCharacter", async ({ characterId, updates }) => {
+      const validation = validateSettingsUpdates(updates as Record<string, unknown>);
+      if (!validation.success) {
+        return { error: `updateCharacter の入力が不正です: ${validation.error}` };
+      }
+
       const result = await invoke<{ characters: Character[] }>("update_character", {
         req: {
           projectId: deps.projectId,
           characterId,
-          updates,
+          updates: validation.data,
         },
       });
       deps.onUpdateCharacters(result.characters);
@@ -265,14 +372,19 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
     description: "新しいキャラクター設定を作成します。",
     inputSchema: createCharacterInputSchema,
     execute: wrapToolExecute("createCharacter", async ({ name }) => {
+      const validation = validateStringField("name", name);
+      if (!validation.success) {
+        return { error: `createCharacter の入力が不正です: ${validation.error}` };
+      }
+
       const result = await invoke<{ characters: Character[] }>("create_character", {
         req: {
           projectId: deps.projectId,
-          name,
+          name: validation.data,
         },
       });
       deps.onUpdateCharacters(result.characters);
-      return { success: true, message: `キャラクター「${name}」を作成しました。` };
+      return { success: true, message: `キャラクター「${validation.data}」を作成しました。` };
     }),
   });
 }
@@ -305,11 +417,16 @@ export function createUpdateWorldEntryTool(deps: SettingsToolDependencies) {
       "指定した世界観設定を部分更新します。更新可能なフィールド例: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes, customFields。",
     inputSchema: updateWorldEntryInputSchema,
     execute: wrapToolExecute("updateWorldEntry", async ({ entryId, updates }) => {
+      const validation = validateSettingsUpdates(updates as Record<string, unknown>);
+      if (!validation.success) {
+        return { error: `updateWorldEntry の入力が不正です: ${validation.error}` };
+      }
+
       const result = await invoke<{ entries: WorldEntry[] }>("update_world_entry", {
         req: {
           projectId: deps.projectId,
           entryId,
-          updates,
+          updates: validation.data,
         },
       });
       deps.onUpdateWorldEntries(result.entries);
@@ -328,15 +445,24 @@ export function createCreateWorldEntryTool(deps: SettingsToolDependencies) {
     description: "新しい世界観設定を作成します。",
     inputSchema: createWorldEntryInputSchema,
     execute: wrapToolExecute("createWorldEntry", async ({ name, category }) => {
+      const nameValidation = validateStringField("name", name);
+      if (!nameValidation.success) {
+        return { error: `createWorldEntry の入力が不正です: ${nameValidation.error}` };
+      }
+      const categoryValidation = validateStringField("category", category);
+      if (!categoryValidation.success) {
+        return { error: `createWorldEntry の入力が不正です: ${categoryValidation.error}` };
+      }
+
       const result = await invoke<{ entries: WorldEntry[] }>("create_world_entry", {
         req: {
           projectId: deps.projectId,
-          name,
-          category,
+          name: nameValidation.data,
+          category: categoryValidation.data,
         },
       });
       deps.onUpdateWorldEntries(result.entries);
-      return { success: true, message: `世界観「${name}」を作成しました。` };
+      return { success: true, message: `世界観「${nameValidation.data}」を作成しました。` };
     }),
   });
 }

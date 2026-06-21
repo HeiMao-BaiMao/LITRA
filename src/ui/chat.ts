@@ -45,8 +45,12 @@ export function updateLastAssistantChunk(chunk: string): void {
   sync();
 }
 
-export function clearChat(): void {
+export function clearChatDisplay(): void {
   getElements().chatMessages.innerHTML = "";
+}
+
+export function clearChat(): void {
+  clearChatDisplay();
   state.chatMessages.length = 0;
   sync();
 }

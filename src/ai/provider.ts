@@ -6,14 +6,19 @@ import { fetch } from "@tauri-apps/plugin-http";
 import type { AiSettings } from "../settings.ts";
 
 export function createModel(settings: AiSettings) {
+  const baseURL = settings.baseUrl.trim();
+  const apiKey =
+    settings.apiKey.trim() || (settings.provider === "llamacpp" ? "sk-no-key-required" : settings.apiKey);
   const common = {
-    apiKey: settings.apiKey,
-    baseURL: settings.baseUrl,
+    apiKey,
     fetch,
+    ...(baseURL ? { baseURL } : {}),
   };
 
   switch (settings.provider) {
     case "openai":
+    case "llamacpp":
+    case "sakura":
       return createOpenAI(common)(settings.model);
     case "anthropic":
       return createAnthropic(common)(settings.model);
@@ -21,5 +26,9 @@ export function createModel(settings: AiSettings) {
       return createDeepSeek(common)(settings.model);
     case "google":
       return createGoogleGenerativeAI(common)(settings.model);
+    default: {
+      const provider: never = settings.provider;
+      throw new Error(`Unsupported AI provider: ${provider}`);
+    }
   }
 }

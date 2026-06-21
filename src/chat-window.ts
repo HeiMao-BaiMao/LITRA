@@ -44,6 +44,10 @@ function init(): void {
     setGeneratingState(event.payload.isGenerating, input, btnSend, btnCancel);
   });
 
+  listen("chat-clear-display", () => {
+    messagesContainer.innerHTML = "";
+  });
+
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const text = input.value.trim();
