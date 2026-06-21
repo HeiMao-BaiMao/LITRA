@@ -82,7 +82,7 @@ export async function loadSettings(): Promise<AiSettings> {
     baseUrl: (await store.get<string>("baseUrl")) ?? entry?.defaultBaseUrl ?? "",
     model: (await store.get<string>("model")) ?? entry?.defaultModel ?? "",
     temperature: (await store.get<number>("temperature")) ?? 0.7,
-    maxTokens: (await store.get<number>("maxTokens")) ?? 1000,
+    maxTokens: (await store.get<number>("maxTokens")) ?? 8192,
     topP: optionalNumber(await store.get("topP")),
     topK: optionalNumber(await store.get("topK")),
     frequencyPenalty: optionalNumber(await store.get("frequencyPenalty")),
