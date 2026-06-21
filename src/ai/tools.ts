@@ -2,6 +2,20 @@ import { tool } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 
+function wrapToolExecute<TInput, TOutput>(
+  name: string,
+  execute: (input: TInput) => Promise<TOutput>,
+): (input: TInput) => Promise<TOutput | { error: string }> {
+  return async (input) => {
+    try {
+      return await execute(input);
+    } catch (error) {
+      console.error(`[phenex] tool ${name} error:`, error);
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  };
+}
+
 export interface EditToolDependencies {
   projectId: string;
   episodeId: string;
@@ -30,7 +44,7 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
     description:
       "指定した行範囲の内容が一致している場合に、その範囲を置き換えます。行番号は1始まりです。expectedText には該当行範囲の正確なテキスト、replacementText には置き換え後の正確なテキストを指定してください。",
     inputSchema: editInputSchema,
-    execute: async ({ startLine, endLine, expectedText, replacementText }) => {
+    execute: wrapToolExecute("editEpisode", async ({ startLine, endLine, expectedText, replacementText }) => {
       const result = await invoke<{
         success: boolean;
         message: string;
@@ -49,7 +63,7 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
         deps.onApply(result.newText);
       }
       return result;
-    },
+    }),
   });
 }
 
@@ -58,14 +72,14 @@ export function createListEpisodesTool(deps: SearchDependencies) {
     description:
       "登録されているエピソードの一行要約一覧を取得します。過去話の内容を確認したい場合に、まずこのツールで該当エピソードを特定してください。",
     inputSchema: z.object({}),
-    execute: async () => {
+    execute: wrapToolExecute("listEpisodes", async () => {
       return await invoke<{
         episodeId: string;
         order: number;
         title: string;
         oneLineSummary: string;
       }[]>("list_episodes_with_summaries", { projectId: deps.projectId });
-    },
+    }),
   });
 }
 
@@ -81,7 +95,7 @@ export function createRetrieveEpisodeTool(deps: SearchDependencies) {
     description:
       "指定したエピソードの要約または本文を取得します。listEpisodes で特定したエピソードの詳細を確認する場合に使用してください。",
     inputSchema: retrieveInputSchema,
-    execute: async ({ episodeId, type }) => {
+    execute: wrapToolExecute("retrieveEpisode", async ({ episodeId, type }) => {
       return await invoke<{
         episodeId: string;
         title: string;
@@ -93,7 +107,7 @@ export function createRetrieveEpisodeTool(deps: SearchDependencies) {
         episodeId,
         contentType: type,
       });
-    },
+    }),
   });
 }
 
@@ -107,7 +121,7 @@ export function createSearchEpisodesTool(deps: SearchDependencies) {
     description:
       "エピソード本文・要約を全文検索します。登場人物の名前、地名、過去の出来事などを探したい場合に使用してください。",
     inputSchema: searchInputSchema,
-    execute: async ({ query, limit }) => {
+    execute: wrapToolExecute("searchEpisodes", async ({ query, limit }) => {
       return await invoke<{
         score: number;
         episodeId: string;
@@ -119,7 +133,7 @@ export function createSearchEpisodesTool(deps: SearchDependencies) {
         query,
         limit,
       });
-    },
+    }),
   });
 }
 
@@ -128,13 +142,13 @@ export function createRebuildSearchIndexTool(deps: SearchDependencies) {
     description:
       "内部検索インデックスを最新のエピソード内容で再構築します。インデックスが古い可能性がある場合や、検索結果がない場合に使用してください。",
     inputSchema: z.object({}),
-    execute: async () => {
+    execute: wrapToolExecute("rebuildSearchIndex", async () => {
       return await invoke<{
         success: boolean;
         message: string;
         indexedDocuments: number;
       }>("rebuild_search_index", { projectId: deps.projectId });
-    },
+    }),
   });
 }
 
@@ -148,7 +162,7 @@ export function createSaveEpisodeSummaryTool(deps: SummaryToolDependencies) {
     description:
       "指定したエピソードの要約を保存または更新します。retrieveEpisode で本文を確認し、内容を要約してから呼び出してください。",
     inputSchema: saveSummaryInputSchema,
-    execute: async ({ episodeId, content }) => {
+    execute: wrapToolExecute("saveEpisodeSummary", async ({ episodeId, content }) => {
       await invoke("save_episode_summary", {
         projectId: deps.projectId,
         episodeId,
@@ -156,7 +170,7 @@ export function createSaveEpisodeSummaryTool(deps: SummaryToolDependencies) {
       });
       deps.onSaveSummary?.(episodeId, content);
       return { success: true, message: "要約を保存しました。" };
-    },
+    }),
   });
 }
 
@@ -170,7 +184,7 @@ export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
     description:
       "指定したエピソードの一行要約を保存または更新します。要約をさらに短く圧縮したものを saveEpisodeSummary の後などに呼び出してください。",
     inputSchema: saveOneLinerInputSchema,
-    execute: async ({ episodeId, oneLiner }) => {
+    execute: wrapToolExecute("saveEpisodeOneLiner", async ({ episodeId, oneLiner }) => {
       await invoke("save_episode_one_liner", {
         projectId: deps.projectId,
         episodeId,
@@ -178,7 +192,7 @@ export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
       });
       deps.onSaveOneLiner?.(episodeId, oneLiner);
       return { success: true, message: "一行要約を保存しました。" };
-    },
+    }),
   });
 }
 
@@ -195,13 +209,13 @@ export function createListCharactersTool(deps: SettingsToolDependencies) {
     description:
       "登録されているキャラクター設定一覧を取得します。キャラクターのIDと各項目を確認してから updateCharacter で編集してください。",
     inputSchema: z.object({}),
-    execute: async () => {
+    execute: wrapToolExecute("listCharacters", async () => {
       const result = await invoke<{ characters: Character[] }>("list_characters", {
         projectId: deps.projectId,
       });
       deps.onUpdateCharacters(result.characters);
       return result;
-    },
+    }),
   });
 }
 
@@ -217,7 +231,7 @@ export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
     description:
       "指定したキャラクターの設定を部分更新します。更新可能なフィールド例: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes, customFields。",
     inputSchema: updateCharacterInputSchema,
-    execute: async ({ characterId, updates }) => {
+    execute: wrapToolExecute("updateCharacter", async ({ characterId, updates }) => {
       const result = await invoke<{ characters: Character[] }>("update_character", {
         projectId: deps.projectId,
         characterId,
@@ -225,7 +239,7 @@ export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
       });
       deps.onUpdateCharacters(result.characters);
       return { success: true, message: "キャラクター設定を更新しました。" };
-    },
+    }),
   });
 }
 
@@ -237,14 +251,14 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
   return tool({
     description: "新しいキャラクター設定を作成します。",
     inputSchema: createCharacterInputSchema,
-    execute: async ({ name }) => {
+    execute: wrapToolExecute("createCharacter", async ({ name }) => {
       const result = await invoke<{ characters: Character[] }>("create_character", {
         projectId: deps.projectId,
         name,
       });
       deps.onUpdateCharacters(result.characters);
       return { success: true, message: `キャラクター「${name}」を作成しました。` };
-    },
+    }),
   });
 }
 
@@ -253,13 +267,13 @@ export function createListWorldEntriesTool(deps: SettingsToolDependencies) {
     description:
       "登録されている世界観設定一覧を取得します。世界観のIDと各項目を確認してから updateWorldEntry で編集してください。",
     inputSchema: z.object({}),
-    execute: async () => {
+    execute: wrapToolExecute("listWorldEntries", async () => {
       const result = await invoke<{ entries: WorldEntry[] }>("list_world_entries", {
         projectId: deps.projectId,
       });
       deps.onUpdateWorldEntries(result.entries);
       return result;
-    },
+    }),
   });
 }
 
@@ -275,7 +289,7 @@ export function createUpdateWorldEntryTool(deps: SettingsToolDependencies) {
     description:
       "指定した世界観設定を部分更新します。更新可能なフィールド例: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes, customFields。",
     inputSchema: updateWorldEntryInputSchema,
-    execute: async ({ entryId, updates }) => {
+    execute: wrapToolExecute("updateWorldEntry", async ({ entryId, updates }) => {
       const result = await invoke<{ entries: WorldEntry[] }>("update_world_entry", {
         projectId: deps.projectId,
         entryId,
@@ -283,7 +297,7 @@ export function createUpdateWorldEntryTool(deps: SettingsToolDependencies) {
       });
       deps.onUpdateWorldEntries(result.entries);
       return { success: true, message: "世界観設定を更新しました。" };
-    },
+    }),
   });
 }
 
@@ -296,7 +310,7 @@ export function createCreateWorldEntryTool(deps: SettingsToolDependencies) {
   return tool({
     description: "新しい世界観設定を作成します。",
     inputSchema: createWorldEntryInputSchema,
-    execute: async ({ name, category }) => {
+    execute: wrapToolExecute("createWorldEntry", async ({ name, category }) => {
       const result = await invoke<{ entries: WorldEntry[] }>("create_world_entry", {
         projectId: deps.projectId,
         name,
@@ -304,6 +318,6 @@ export function createCreateWorldEntryTool(deps: SettingsToolDependencies) {
       });
       deps.onUpdateWorldEntries(result.entries);
       return { success: true, message: `世界観「${name}」を作成しました。` };
-    },
+    }),
   });
 }
