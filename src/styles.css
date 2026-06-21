@@ -171,8 +171,83 @@ button#btn-cancel:hover:not(:disabled) {
   border-radius: 8px;
   font-size: 0.9rem;
   line-height: 1.6;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.chat-message > *:first-child {
+  margin-top: 0;
+}
+
+.chat-message > *:last-child {
+  margin-bottom: 0;
+}
+
+.chat-message p {
+  margin: 0.5rem 0;
+}
+
+.chat-message ul,
+.chat-message ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.chat-message li {
+  margin: 0.25rem 0;
+}
+
+.chat-message code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.25);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+}
+
+.chat-message pre {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background-color: rgba(0, 0, 0, 0.35);
+  overflow-x: auto;
+}
+
+.chat-message pre code {
+  padding: 0;
+  background-color: transparent;
+  white-space: pre;
+}
+
+.chat-message blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--accent);
+  color: var(--text-secondary);
+}
+
+.chat-message hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 0.75rem 0;
+}
+
+.chat-message table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.85em;
+}
+
+.chat-message th,
+.chat-message td {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.chat-message th {
+  background-color: var(--bg-tertiary);
 }
 
 .chat-message.user {
