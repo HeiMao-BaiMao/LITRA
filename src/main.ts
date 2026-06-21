@@ -12,16 +12,24 @@ import { appendMessage, updateLastAssistantChunk } from "./ui/chat.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
   bindModelFetchAction,
+  bindProviderChangeAction,
   bindSettingsActions,
   hideSettingsModal,
   populateModelList,
+  renderProviderOptions,
   renderSettings,
   showSettingsModal,
 } from "./ui/settings-modal.ts";
 import { fetchAvailableModels } from "./ai/model-list.ts";
+import {
+  getProviderEntry,
+  loadProviderConfig,
+  type ProviderConfig,
+} from "./providers/config.ts";
 import type { ModelMessage } from "ai";
 
 let currentSettings: AiSettings;
+let providerConfig: ProviderConfig;
 
 function setGenerating(generating: boolean): void {
   state.isGenerating = generating;
@@ -196,6 +204,7 @@ async function handleChatSubmit(): Promise<void> {
 }
 
 function openSettings(): void {
+  renderProviderOptions(providerConfig);
   renderSettings(currentSettings);
   showSettingsModal();
 }
@@ -208,6 +217,10 @@ async function saveAndCloseSettings(settings: AiSettings): Promise<void> {
 
 function cancelSettings(): void {
   hideSettingsModal();
+}
+
+function handleProviderChange(providerId: string) {
+  return getProviderEntry(providerConfig, providerId);
 }
 
 async function handleFetchModels(settings: AiSettings): Promise<void> {
@@ -233,6 +246,7 @@ async function handleFetchModels(settings: AiSettings): Promise<void> {
 }
 
 async function init(): Promise<void> {
+  providerConfig = await loadProviderConfig();
   currentSettings = await loadSettings();
 
   getElements();
@@ -259,6 +273,10 @@ async function init(): Promise<void> {
 
   bindModelFetchAction({
     onFetch: (settings) => void handleFetchModels(settings),
+  });
+
+  bindProviderChangeAction({
+    onChange: handleProviderChange,
   });
 }
 
