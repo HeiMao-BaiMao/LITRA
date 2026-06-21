@@ -1,4 +1,4 @@
-import { streamText, type ModelMessage, type ToolSet } from "ai";
+import { streamText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
 import { buildProviderOptions } from "./provider-options.ts";
 import {
@@ -116,6 +116,7 @@ export async function streamChat({
       maxOutputTokens: settings.maxTokens,
       abortSignal,
       tools,
+      stopWhen: tools ? stepCountIs(5) : undefined,
       ...buildAdvancedOptions(settings),
     });
 
@@ -144,6 +145,7 @@ export async function streamContinuation({
       maxOutputTokens: settings.maxTokens,
       abortSignal,
       tools,
+      stopWhen: tools ? stepCountIs(5) : undefined,
       ...buildAdvancedOptions(settings),
     });
 
