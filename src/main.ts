@@ -883,7 +883,7 @@ async function openChatWindow(): Promise<void> {
     title: "AI チャット - Phenex",
     width: 480,
     height: 640,
-    minWidth: 400,
+    minWidth: 200,
     minHeight: 320,
   });
 

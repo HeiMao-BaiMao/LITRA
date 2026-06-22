@@ -1452,6 +1452,18 @@ button.danger:hover:not(:disabled) {
     transform: translateX(0);
   }
 
+  /* 独立ウィンドウ内のチャットパネルは常に表示する */
+  .detachable-window .chat-panel.detached {
+    position: static;
+    transform: none;
+    width: 100%;
+    height: 100vh;
+  }
+
+  .chat-panel.detached .chat-controls {
+    flex-direction: column;
+  }
+
   .toolbar-project-name {
     max-width: 50%;
   }
