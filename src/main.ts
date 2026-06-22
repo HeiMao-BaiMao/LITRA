@@ -881,9 +881,9 @@ async function openChatWindow(): Promise<void> {
   const webview = new WebviewWindow("chat", {
     url: "chat-window.html",
     title: "AI チャット - Phenex",
-    width: 420,
+    width: 480,
     height: 640,
-    minWidth: 280,
+    minWidth: 400,
     minHeight: 320,
   });
 
