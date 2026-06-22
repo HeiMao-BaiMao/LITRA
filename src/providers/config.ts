@@ -1,6 +1,7 @@
 import {
   BaseDirectory,
   exists,
+  mkdir,
   readTextFile,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
@@ -46,6 +47,7 @@ import defaultProviders from "./default-providers.json" with { type: "json" };
 const DEFAULT_CONFIG: ProviderConfig = defaultProviders as ProviderConfig;
 
 async function initializeDefaultConfig(): Promise<void> {
+  await mkdir("", { baseDir: BASE_DIR, recursive: true });
   const text = JSON.stringify(DEFAULT_CONFIG, null, 2);
   await writeTextFile(CONFIG_FILE, text, { baseDir: BASE_DIR });
 }
