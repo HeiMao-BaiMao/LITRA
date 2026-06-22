@@ -500,8 +500,8 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .chat-controls button {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: fit-content;
 }
 
 .hidden {
