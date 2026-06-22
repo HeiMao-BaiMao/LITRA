@@ -24,7 +24,7 @@ export interface DeepSeekFixedModel {
 
 /**
  * DeepSeek の固定モデル選択肢。
- * ストリーミングで content を返すには thinking を無効にする必要がある。
+ * V4 系は thinking がデフォルトで有効。
  */
 export const DEEPSEEK_FIXED_MODELS: DeepSeekFixedModel[] = [
   { id: "deepseek-v4-flash", label: "DeepSeek-V4 Flash" },

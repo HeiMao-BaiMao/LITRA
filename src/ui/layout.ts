@@ -50,7 +50,6 @@ export interface AppElements {
   settingFrequencyPenalty: HTMLInputElement;
   settingPresencePenalty: HTMLInputElement;
   settingOpenaiReasoningEffort: HTMLSelectElement;
-  settingDeepseekThinkingMode: HTMLSelectElement;
   settingDeepseekReasoningEffort: HTMLSelectElement;
   settingAnthropicThinkingEnabled: HTMLInputElement;
   settingAnthropicThinkingBudget: HTMLInputElement;
@@ -121,7 +120,6 @@ export function getElements(): AppElements {
   const settingFrequencyPenalty = document.querySelector<HTMLInputElement>("#setting-frequency-penalty");
   const settingPresencePenalty = document.querySelector<HTMLInputElement>("#setting-presence-penalty");
   const settingOpenaiReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-openai-reasoning-effort");
-  const settingDeepseekThinkingMode = document.querySelector<HTMLSelectElement>("#setting-deepseek-thinking-mode");
   const settingDeepseekReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-deepseek-reasoning-effort");
   const settingAnthropicThinkingEnabled = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-enabled");
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
@@ -162,7 +160,6 @@ export function getElements(): AppElements {
     !settingFrequencyPenalty ||
     !settingPresencePenalty ||
     !settingOpenaiReasoningEffort ||
-    !settingDeepseekThinkingMode ||
     !settingDeepseekReasoningEffort ||
     !settingAnthropicThinkingEnabled ||
     !settingAnthropicThinkingBudget ||
@@ -252,7 +249,6 @@ export function getElements(): AppElements {
     settingFrequencyPenalty,
     settingPresencePenalty,
     settingOpenaiReasoningEffort,
-    settingDeepseekThinkingMode,
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,

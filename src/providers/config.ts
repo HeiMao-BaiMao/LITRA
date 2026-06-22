@@ -19,7 +19,6 @@ export interface ProviderModelDefaults {
   frequencyPenalty?: number;
   presencePenalty?: number;
   openaiReasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  deepseekThinkingMode?: "adaptive" | "enabled" | "disabled";
   deepseekReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
@@ -161,10 +160,6 @@ function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults
       model.openaiReasoningEffort === "medium" ||
       model.openaiReasoningEffort === "high" ||
       model.openaiReasoningEffort === "xhigh") &&
-    (model.deepseekThinkingMode === undefined ||
-      model.deepseekThinkingMode === "adaptive" ||
-      model.deepseekThinkingMode === "enabled" ||
-      model.deepseekThinkingMode === "disabled") &&
     (model.deepseekReasoningEffort === undefined ||
       model.deepseekReasoningEffort === "low" ||
       model.deepseekReasoningEffort === "medium" ||

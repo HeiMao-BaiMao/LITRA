@@ -15,15 +15,25 @@ function buildSystem(basePrompt: string, settingsContext?: string): string {
   return `${basePrompt}\n\n以下は本作の設定資料です。本文やフィードバックに矛盾がないよう参照してください。\n\n${settingsContext}`;
 }
 
+function isDeepSeekSamplingIgnored(settings: AiSettings): boolean {
+  return settings.provider === "deepseek";
+}
+
+function buildTemperatureOption(settings: AiSettings) {
+  // DeepSeek の thinking モードでは temperature は無視される。
+  return isDeepSeekSamplingIgnored(settings) ? {} : { temperature: settings.temperature };
+}
+
 function buildAdvancedOptions(settings: AiSettings) {
   const providerOptions = buildProviderOptions(settings);
+  const ignoreSampling = isDeepSeekSamplingIgnored(settings);
   return {
-    ...(settings.topP !== undefined && { topP: settings.topP }),
-    ...(settings.topK !== undefined && { topK: settings.topK }),
-    ...(settings.frequencyPenalty !== undefined && {
+    ...(!ignoreSampling && settings.topP !== undefined && { topP: settings.topP }),
+    ...(!ignoreSampling && settings.topK !== undefined && { topK: settings.topK }),
+    ...(!ignoreSampling && settings.frequencyPenalty !== undefined && {
       frequencyPenalty: settings.frequencyPenalty,
     }),
-    ...(settings.presencePenalty !== undefined && {
+    ...(!ignoreSampling && settings.presencePenalty !== undefined && {
       presencePenalty: settings.presencePenalty,
     }),
     ...(providerOptions && { providerOptions }),
@@ -290,7 +300,7 @@ export async function streamChat({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       messages,
-      temperature: s.temperature,
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
@@ -321,7 +331,7 @@ export async function streamContinuation({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildContinuationPrompt(context),
-      temperature: s.temperature,
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
@@ -350,7 +360,7 @@ export async function streamRewrite({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildRewritePrompt(selection, context),
-      temperature: s.temperature,
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       ...buildAdvancedOptions(s),
@@ -376,7 +386,7 @@ export async function streamFeedback({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildFeedbackPrompt(selection),
-      temperature: s.temperature,
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       ...buildAdvancedOptions(s),

@@ -2,7 +2,6 @@ import { getElements } from "./layout.ts";
 import type {
   AiSettings,
   DeepSeekReasoningEffort,
-  DeepSeekThinkingMode,
   OpenAIReasoningEffort,
   Provider,
 } from "../settings.ts";
@@ -53,11 +52,6 @@ function parseOpenAIReasoningEffort(value: string): OpenAIReasoningEffort | unde
   ) {
     return value;
   }
-  return undefined;
-}
-
-function parseDeepSeekThinkingMode(value: string): DeepSeekThinkingMode | undefined {
-  if (value === "adaptive" || value === "enabled" || value === "disabled") return value;
   return undefined;
 }
 
@@ -115,6 +109,32 @@ function updateModelFetchState(provider: Provider): void {
   btnFetchModels.textContent = isDeepSeek ? "DeepSeek は固定" : "取得";
 }
 
+function setSamplingControlsEnabled(enabled: boolean): void {
+  const {
+    settingTemperature,
+    settingTopP,
+    settingTopK,
+    settingFrequencyPenalty,
+    settingPresencePenalty,
+  } = getElements();
+  const inputs = [
+    settingTemperature,
+    settingTopP,
+    settingTopK,
+    settingFrequencyPenalty,
+    settingPresencePenalty,
+  ];
+  for (const input of inputs) {
+    input.disabled = !enabled;
+    input.parentElement?.classList.toggle("hidden", !enabled);
+  }
+}
+
+function updateSamplingControlsVisibility(provider: Provider): void {
+  // DeepSeek の thinking モードでは temperature / top_p / top_k / ペナルティ類は無視される。
+  setSamplingControlsEnabled(provider !== "deepseek");
+}
+
 function populateConfiguredModelList(entry: ProviderEntry | undefined): void {
   populateModelList(getProviderModelIds(entry));
 }
@@ -132,7 +152,6 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string): 
     settingFrequencyPenalty,
     settingPresencePenalty,
     settingOpenaiReasoningEffort,
-    settingDeepseekThinkingMode,
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
@@ -146,7 +165,6 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string): 
   settingFrequencyPenalty.value = optionalNumberInput(defaults.frequencyPenalty);
   settingPresencePenalty.value = optionalNumberInput(defaults.presencePenalty);
   settingOpenaiReasoningEffort.value = defaults.openaiReasoningEffort ?? "";
-  settingDeepseekThinkingMode.value = defaults.deepseekThinkingMode ?? "";
   settingDeepseekReasoningEffort.value = defaults.deepseekReasoningEffort ?? "";
   settingAnthropicThinkingEnabled.checked = defaults.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(defaults.anthropicThinkingBudget);
@@ -166,7 +184,6 @@ export function renderSettings(settings: AiSettings): void {
     settingFrequencyPenalty,
     settingPresencePenalty,
     settingOpenaiReasoningEffort,
-    settingDeepseekThinkingMode,
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
@@ -187,7 +204,6 @@ export function renderSettings(settings: AiSettings): void {
   settingFrequencyPenalty.value = optionalNumberInput(settings.frequencyPenalty);
   settingPresencePenalty.value = optionalNumberInput(settings.presencePenalty);
   settingOpenaiReasoningEffort.value = settings.openaiReasoningEffort ?? "";
-  settingDeepseekThinkingMode.value = settings.deepseekThinkingMode ?? "";
   settingDeepseekReasoningEffort.value = settings.deepseekReasoningEffort ?? "";
   settingAnthropicThinkingEnabled.checked = settings.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
@@ -195,6 +211,7 @@ export function renderSettings(settings: AiSettings): void {
   updateAdvancedVisibility(settings.provider);
   updateModelFetchState(settings.provider);
   updateModelInputMode(settings.provider);
+  updateSamplingControlsVisibility(settings.provider);
   populateDeepSeekModelSelect(settings.model);
 }
 
@@ -213,7 +230,6 @@ export function readSettingsFromModal(): AiSettings {
     settingFrequencyPenalty,
     settingPresencePenalty,
     settingOpenaiReasoningEffort,
-    settingDeepseekThinkingMode,
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
@@ -236,7 +252,6 @@ export function readSettingsFromModal(): AiSettings {
     frequencyPenalty: parseOptionalNumber(settingFrequencyPenalty.value),
     presencePenalty: parseOptionalNumber(settingPresencePenalty.value),
     openaiReasoningEffort: parseOpenAIReasoningEffort(settingOpenaiReasoningEffort.value),
-    deepseekThinkingMode: parseDeepSeekThinkingMode(settingDeepseekThinkingMode.value),
     deepseekReasoningEffort: parseDeepSeekReasoningEffort(settingDeepseekReasoningEffort.value),
     anthropicThinkingEnabled: settingAnthropicThinkingEnabled.checked,
     anthropicThinkingBudget: parseOptionalNumber(settingAnthropicThinkingBudget.value),
@@ -293,6 +308,7 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     updateAdvancedVisibility(provider);
     updateModelFetchState(provider);
     updateModelInputMode(provider);
+    updateSamplingControlsVisibility(provider);
     populateDeepSeekModelSelect(entry?.defaultModel ?? "");
     populateConfiguredModelList(entry);
     applyModelDefaults(entry, entry?.defaultModel ?? "");

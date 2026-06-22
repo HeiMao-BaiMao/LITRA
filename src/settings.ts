@@ -4,7 +4,6 @@ import { loadProviderConfig, getProviderEntry, getProviderModelDefaults } from "
 export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura";
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
-export type DeepSeekThinkingMode = "adaptive" | "enabled" | "disabled";
 
 export interface AiSettings {
   provider: Provider;
@@ -19,7 +18,6 @@ export interface AiSettings {
   frequencyPenalty?: number;
   presencePenalty?: number;
   openaiReasoningEffort?: OpenAIReasoningEffort;
-  deepseekThinkingMode?: DeepSeekThinkingMode;
   deepseekReasoningEffort?: DeepSeekReasoningEffort;
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
@@ -62,10 +60,6 @@ function isDeepSeekReasoningEffort(value: unknown): value is DeepSeekReasoningEf
   return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
 }
 
-function isDeepSeekThinkingMode(value: unknown): value is DeepSeekThinkingMode {
-  return value === "adaptive" || value === "enabled" || value === "disabled";
-}
-
 function isProvider(value: unknown): value is Provider {
   return (
     value === "openai" ||
@@ -93,10 +87,6 @@ export async function loadSettings(): Promise<AiSettings> {
   if (!model) {
     model = entry?.defaultModel ?? "";
   }
-  const deepseekThinkingMode = isDeepSeekThinkingMode(await store.get("deepseekThinkingMode"))
-    ? (await store.get("deepseekThinkingMode") as DeepSeekThinkingMode)
-    : undefined;
-
   // DeepSeek の旧モデル名を v4 系に移行する。
   // legacy: deepseek-chat    -> v4-flash + thinking disabled
   // legacy: deepseek-reasoner -> v4-flash + thinking enabled
@@ -133,9 +123,6 @@ export async function loadSettings(): Promise<AiSettings> {
       (isOpenAIReasoningEffort(legacyReasoningEffort) ? legacyReasoningEffort : undefined) ??
       (isOpenAIReasoningEffort(modelDefaults?.openaiReasoningEffort) ? modelDefaults.openaiReasoningEffort : undefined);
   } else if (provider === "deepseek") {
-    base.deepseekThinkingMode =
-      deepseekThinkingMode ??
-      (isDeepSeekThinkingMode(modelDefaults?.deepseekThinkingMode) ? modelDefaults.deepseekThinkingMode : undefined);
     base.deepseekReasoningEffort =
       (isDeepSeekReasoningEffort(await store.get("deepseekReasoningEffort"))
         ? (await store.get("deepseekReasoningEffort") as DeepSeekReasoningEffort)
@@ -172,7 +159,6 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("frequencyPenalty", settings.frequencyPenalty);
   await store.set("presencePenalty", settings.presencePenalty);
   await store.set("openaiReasoningEffort", settings.openaiReasoningEffort);
-  await store.set("deepseekThinkingMode", settings.deepseekThinkingMode);
   await store.set("deepseekReasoningEffort", settings.deepseekReasoningEffort);
   await store.set("anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
   await store.set("anthropicThinkingBudget", settings.anthropicThinkingBudget);

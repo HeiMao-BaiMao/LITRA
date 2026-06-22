@@ -91,24 +91,16 @@
         {
           "id": "deepseek-v4-flash",
           "label": "DeepSeek-V4 Flash",
-          "temperature": 0.82,
           "maxTokens": 24576,
           "maxContextTokens": 128000,
-          "topP": 0.95,
-          "frequencyPenalty": 0.1,
-          "presencePenalty": 0.05,
-          "deepseekThinkingMode": "disabled"
+          "deepseekReasoningEffort": "max"
         },
         {
           "id": "deepseek-v4-pro",
           "label": "DeepSeek-V4 Pro",
-          "temperature": 0.8,
           "maxTokens": 32768,
           "maxContextTokens": 128000,
-          "topP": 0.95,
-          "frequencyPenalty": 0.12,
-          "presencePenalty": 0.08,
-          "deepseekThinkingMode": "disabled"
+          "deepseekReasoningEffort": "max"
         }
       ]
     },
