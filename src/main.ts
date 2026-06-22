@@ -300,12 +300,12 @@ function validateSettings(): boolean {
   const entry = getProviderEntry(providerConfig, currentSettings.provider);
   if (providerRequiresApiKey(entry) && !currentSettings.apiKey) {
     window.alert("API キーを設定してください。");
-    showSettingsModal();
+    openSettings();
     return false;
   }
   if (!currentSettings.model.trim()) {
     window.alert("モデル名を設定してください。");
-    showSettingsModal();
+    openSettings();
     return false;
   }
   return true;
