@@ -122,16 +122,69 @@ function buildClassifyPrompt(files: { path: string; snippet: string }[]): string
 - projectMemo: プロジェクト全体の自由メモ・設定覚書き（エピソードに紐づかない雑多なメモ、全体方針、TODOなど）
 - ignore: 取り込みに不向きなファイル（索引、履歴、一時メモなど）
 
+分類例:
+- 「名前: 太郎 / 年齢: 20 / 性格は明るい」→ character
+- 「王都は中央に位置し、四大貴族が支配する」→ world
+- 「# 第一話\n\n　かつてこの地には——」→ episode
+- 「第一話の戦闘シーンで使う術の覚え書き」→ memo（episodeTitle は「第一話」）
+- 「全体の時間軸整理メモ。あとで改稿する」→ projectMemo
+- 「ファイル一覧 / 更新履歴 / 仮メモの断片」→ ignore
+
 各ファイルの内容の先頭部分を参考に判断してください。
 ファイル名やフォルダ名もヒントとして使って構いません。
 
 キャラクター用フィールド名: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes
 世界観用フィールド名: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes
 
-エピソードの場合は title を抽出してください。
-memo の場合は episodeTitle に紐づくエピソードのタイトルを推定してください。紐づくエピソードが不明な場合は空文字にしてください。
-projectMemo の場合は title をメモのタイトルとして抽出してください。
-分類理由を reason に簡潔に書いてください。
+出力は次の JSON 形式にしてください。type は必ず character/world/episode/memo/projectMemo/ignore のいずれかの文字列を使用してください。
+
+\`\`\`json
+{
+  "files": [
+    {
+      "path": "chars/hero.md",
+      "type": "character",
+      "title": "主人公",
+      "fields": { "name": "太郎", "age": "20" },
+      "reason": "名前や年齢、性格が書かれているため"
+    },
+    {
+      "path": "world/kingdom.md",
+      "type": "world",
+      "title": "王都",
+      "fields": { "category": "場所" },
+      "reason": "世界観の地理と政治が主体"
+    },
+    {
+      "path": "episodes/01.md",
+      "type": "episode",
+      "title": "第一話",
+      "reason": "本文のプロット"
+    },
+    {
+      "path": "memos/battle.md",
+      "type": "memo",
+      "title": "戦闘覚え書き",
+      "episodeTitle": "第一話",
+      "reason": "特定エピソードの覚え書き"
+    },
+    {
+      "path": "memos/plan.md",
+      "type": "projectMemo",
+      "title": "全体方針",
+      "reason": "エピソードに紐づかない全体メモ"
+    },
+    {
+      "path": "draft/index.md",
+      "type": "ignore",
+      "title": "索引",
+      "reason": "取り込みに不向きな索引"
+    }
+  ]
+}
+\`\`\`
+
+以下のファイルを分類してください。
 
 ${lines.join("\n\n")}`;
 }
