@@ -1221,11 +1221,19 @@ async function handleMoveEpisode(episodeId: string, direction: "up" | "down"): P
   renderProjectNavigation();
 }
 
-async function handleMoveEpisodeTo(draggedEpisodeId: string, targetEpisodeId: string): Promise<void> {
+async function handleMoveEpisodeTo(
+  draggedEpisodeId: string,
+  targetEpisodeId: string,
+  insertAfter = false,
+): Promise<void> {
   if (!currentProject) return;
   const fromIndex = episodes.findIndex((ep) => ep.id === draggedEpisodeId);
-  const toIndex = episodes.findIndex((ep) => ep.id === targetEpisodeId);
-  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+  let toIndex = episodes.findIndex((ep) => ep.id === targetEpisodeId);
+  if (fromIndex === -1 || toIndex === -1) return;
+  if (insertAfter) {
+    toIndex += 1;
+  }
+  if (fromIndex === toIndex) return;
 
   await moveEpisodeToIndex(currentProject.id, fromIndex, toIndex);
   episodes = (await loadEpisodeList(currentProject.id)).episodes;

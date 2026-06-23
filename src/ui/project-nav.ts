@@ -8,7 +8,7 @@ export interface ProjectNavActions {
   onDeleteEpisode: (episodeId: string) => void;
   onUpdateEpisodeTitle: (episodeId: string, title: string) => void;
   onMoveEpisode: (episodeId: string, direction: "up" | "down") => void;
-  onMoveEpisodeTo?: (draggedEpisodeId: string, targetEpisodeId: string) => void;
+  onMoveEpisodeTo?: (draggedEpisodeId: string, targetEpisodeId: string, insertAfter?: boolean) => void;
   onSelectView: (view: ProjectView) => void;
   onUpdateSummary?: (episodeId: string, text: string) => void;
   onUpdateMemo?: (episodeId: string, text: string) => void;
@@ -68,25 +68,31 @@ function createEpisodeItem(
   const item = document.createElement("div");
   item.className = "nav-episode-item";
   item.dataset.episodeId = episode.id;
+  item.draggable = true;
   if (isActive) {
     item.classList.add("active");
   }
 
-  const dragHandle = document.createElement("span");
-  dragHandle.className = "nav-episode-drag-handle";
-  dragHandle.textContent = "≡";
-  dragHandle.title = "ドラッグして並び替え";
-  dragHandle.draggable = true;
-  dragHandle.addEventListener("dragstart", (event) => {
+  item.addEventListener("dragstart", (event) => {
+    const handle = (event.target as HTMLElement).closest(".nav-episode-drag-handle");
+    if (!handle) {
+      event.preventDefault();
+      return;
+    }
     event.dataTransfer?.setData("text/plain", episode.id);
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
     }
     item.classList.add("dragging");
   });
-  dragHandle.addEventListener("dragend", () => {
+  item.addEventListener("dragend", () => {
     item.classList.remove("dragging");
   });
+
+  const dragHandle = document.createElement("span");
+  dragHandle.className = "nav-episode-drag-handle";
+  dragHandle.textContent = "≡";
+  dragHandle.title = "ドラッグして並び替え";
 
   const moveControls = document.createElement("div");
   moveControls.className = "nav-episode-move-controls";
@@ -207,19 +213,32 @@ export function renderEpisodeList(
 
   if (!actions.onMoveEpisodeTo) return;
 
+  function getDragAfterElement(y: number): HTMLElement | null {
+    const items = [...list.querySelectorAll<HTMLElement>(".nav-episode-item:not(.dragging)")];
+    return items.reduce<HTMLElement | null>((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && (closest === null || offset > closest.getBoundingClientRect().top + closest.getBoundingClientRect().height / 2 - y)) {
+        return child;
+      }
+      return closest;
+    }, null);
+  }
+
   list.addEventListener("dragover", (event) => {
     event.preventDefault();
-    const targetItem = (event.target as HTMLElement).closest<HTMLElement>(".nav-episode-item");
+    const afterElement = getDragAfterElement(event.clientY);
     list.querySelectorAll<HTMLElement>(".nav-episode-item").forEach((el) => {
       el.classList.remove("drag-over");
     });
-    targetItem?.classList.add("drag-over");
+    afterElement?.classList.add("drag-over");
   });
 
   list.addEventListener("dragleave", (event) => {
-    const targetItem = (event.target as HTMLElement).closest<HTMLElement>(".nav-episode-item");
-    if (targetItem && !list.contains(event.relatedTarget as Node)) {
-      targetItem.classList.remove("drag-over");
+    if (!list.contains(event.relatedTarget as Node)) {
+      list.querySelectorAll<HTMLElement>(".nav-episode-item").forEach((el) => {
+        el.classList.remove("drag-over");
+      });
     }
   });
 
@@ -230,10 +249,17 @@ export function renderEpisodeList(
     });
     const draggedId = event.dataTransfer?.getData("text/plain");
     if (!draggedId) return;
-    const targetItem = (event.target as HTMLElement).closest<HTMLElement>(".nav-episode-item");
-    const targetId = targetItem?.dataset.episodeId;
-    if (!targetId || draggedId === targetId) return;
-    actions.onMoveEpisodeTo?.(draggedId, targetId);
+
+    const afterElement = getDragAfterElement(event.clientY);
+    if (afterElement) {
+      const targetId = afterElement.dataset.episodeId;
+      if (!targetId || draggedId === targetId) return;
+      actions.onMoveEpisodeTo?.(draggedId, targetId, false);
+    } else if (episodes.length > 0) {
+      const targetId = episodes[episodes.length - 1].id;
+      if (draggedId === targetId) return;
+      actions.onMoveEpisodeTo?.(draggedId, targetId, true);
+    }
   });
 }
 
