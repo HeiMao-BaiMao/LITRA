@@ -51,6 +51,12 @@ export async function saveWindowDetached(label: string, detached: boolean): Prom
   await s.save();
 }
 
+export async function clearWindowState(): Promise<void> {
+  const s = await getStore();
+  await s.clear();
+  await s.save();
+}
+
 function clampToMonitor(
   bounds: WindowBounds,
   monitors: Awaited<ReturnType<typeof availableMonitors>>,

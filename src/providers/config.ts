@@ -3,6 +3,7 @@ import {
   exists,
   mkdir,
   readTextFile,
+  remove,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
 
@@ -95,6 +96,13 @@ function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
   merged.push(...existingById.values());
 
   return { providers: merged };
+}
+
+export async function resetProviderConfig(): Promise<void> {
+  const fileExists = await exists(CONFIG_FILE, { baseDir: BASE_DIR });
+  if (fileExists) {
+    await remove(CONFIG_FILE, { baseDir: BASE_DIR });
+  }
 }
 
 export async function loadProviderConfig(): Promise<ProviderConfig> {

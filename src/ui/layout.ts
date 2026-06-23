@@ -57,6 +57,7 @@ export interface AppElements {
   settingAnthropicThinkingBudget: HTMLInputElement;
   btnSaveSettings: HTMLButtonElement;
   btnCancelSettings: HTMLButtonElement;
+  btnInitializeSettings: HTMLButtonElement;
   projectModal: HTMLElement;
   projectList: HTMLElement;
   projectTitleInput: HTMLInputElement;
@@ -129,6 +130,7 @@ export function getElements(): AppElements {
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
   const btnSaveSettings = document.querySelector<HTMLButtonElement>("#btn-save-settings");
   const btnCancelSettings = document.querySelector<HTMLButtonElement>("#btn-cancel-settings");
+  const btnInitializeSettings = document.querySelector<HTMLButtonElement>("#btn-initialize-settings");
   const projectModal = document.querySelector<HTMLElement>("#project-modal");
   const projectList = document.querySelector<HTMLElement>("#project-list");
   const projectTitleInput = document.querySelector<HTMLInputElement>("#project-title-input");
@@ -169,6 +171,7 @@ export function getElements(): AppElements {
     !settingAnthropicThinkingBudget ||
     !btnSaveSettings ||
     !btnCancelSettings ||
+    !btnInitializeSettings ||
     !toolbarProjectName ||
     !btnProjects ||
     !editorSection ||
@@ -262,6 +265,7 @@ export function getElements(): AppElements {
     settingAnthropicThinkingBudget,
     btnSaveSettings,
     btnCancelSettings,
+    btnInitializeSettings,
     projectModal,
     projectList,
     projectTitleInput,

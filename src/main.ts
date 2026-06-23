@@ -12,6 +12,7 @@ import {
 import {
   loadSettings,
   saveSettings,
+  resetAllSettings,
   type AiSettings,
   type Provider,
   resolveChatSettings,
@@ -2022,6 +2023,20 @@ function cancelSettings(): void {
   hideSettingsModal();
 }
 
+async function handleInitializeSettings(): Promise<void> {
+  const confirmed = confirm(
+    "すべての設定（AI プロバイダー、モデル、API キー、レイアウト、ウィンドウ状態）を削除して初期状態に戻します。\nプロジェクトデータは削除されません。\nよろしいですか？",
+  );
+  if (!confirmed) return;
+
+  await resetAllSettings();
+  currentSettings = await loadSettings();
+  providerConfig = await loadProviderConfig();
+  renderChatProviderOptions();
+  updateChatSelectorsFromSettings();
+  hideSettingsModal();
+}
+
 function handleProviderChange(providerId: string) {
   return getProviderEntry(providerConfig, providerId);
 }
@@ -2098,6 +2113,7 @@ function bindUiEvents(): void {
   bindSettingsActions({
     onSave: (settings) => void saveAndCloseSettings(settings),
     onCancel: cancelSettings,
+    onInitialize: () => void handleInitializeSettings(),
   });
 
   bindModelFetchAction({

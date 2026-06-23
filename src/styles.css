@@ -1018,6 +1018,36 @@ button#btn-cancel:hover:not(:disabled) {
   margin-top: 0.5rem;
 }
 
+.settings-initialize-section {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.settings-initialize-section p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.danger-button {
+  background-color: transparent;
+  color: #ff6b6b;
+  border: 1px solid #ff6b6b;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.danger-button:hover {
+  background-color: rgba(255, 107, 107, 0.1);
+}
+
 .project-form {
   display: flex;
   gap: 0.5rem;

@@ -38,3 +38,9 @@ export async function savePanelRatio(key: PanelRatioKey, ratio: number): Promise
   await s.set("panelRatios", ratios);
   await s.save();
 }
+
+export async function clearPanelRatios(): Promise<void> {
+  const s = await getStore();
+  await s.clear();
+  await s.save();
+}

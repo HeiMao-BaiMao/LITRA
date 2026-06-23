@@ -335,6 +335,7 @@ export function hideSettingsModal(): void {
 export interface SettingsActions {
   onSave: (settings: AiSettings) => void;
   onCancel: () => void;
+  onInitialize: () => void;
 }
 
 export interface ModelFetchActions {
@@ -383,7 +384,7 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
 }
 
 export function bindSettingsActions(actions: SettingsActions): void {
-  const { settingsForm, btnCancelSettings } = getElements();
+  const { settingsForm, btnCancelSettings, btnInitializeSettings } = getElements();
 
   settingsForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -391,6 +392,7 @@ export function bindSettingsActions(actions: SettingsActions): void {
   });
 
   btnCancelSettings.addEventListener("click", actions.onCancel);
+  btnInitializeSettings.addEventListener("click", () => actions.onInitialize());
 }
 
 export function bindModelFetchAction(actions: ModelFetchActions): void {

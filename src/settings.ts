@@ -1,5 +1,12 @@
 import { load, Store } from "@tauri-apps/plugin-store";
-import { loadProviderConfig, getProviderEntry, getProviderModelDefaults } from "./providers/config.ts";
+import {
+  loadProviderConfig,
+  getProviderEntry,
+  getProviderModelDefaults,
+  resetProviderConfig,
+} from "./providers/config.ts";
+import { clearPanelRatios } from "./layout-store.ts";
+import { clearWindowState } from "./window/bounds.ts";
 
 export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura" | "plamo";
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -40,6 +47,15 @@ const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", 
 
 async function getStore(): Promise<Store> {
   return load(STORE_NAME, { defaults: {}, autoSave: true });
+}
+
+export async function resetAllSettings(): Promise<void> {
+  const store = await getStore();
+  await store.clear();
+  await store.save();
+  await clearPanelRatios();
+  await clearWindowState();
+  await resetProviderConfig();
 }
 
 function optionalNumber(value: unknown): number | undefined {
