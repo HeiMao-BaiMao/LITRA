@@ -433,6 +433,12 @@ ${content}
   - direction: 関係の向き。a-to-b（A→B）/ b-to-a（A←B）/ mutual（A↔B）のいずれか
   - description: 関係の説明
 
+重要:
+- 1つのファイルから複数の関係を抽出してください。
+- 同じ二人でも「日常・仕事・恋愛」など側面が異なる場合は、それぞれ別のrelationships要素に分けてください。
+- 向きが逆の関係（A→B と B→A）も別々の要素に分けてください。
+- 各要素は一対一・一方向の関係を表します。description には「誰が誰に対してどういう態度／感情を持っているか」を簡潔に書いてください。
+
 例:
 \`\`\`json
 {
@@ -450,6 +456,20 @@ ${content}
       "characterBName": "太郎",
       "direction": "b-to-a",
       "description": "三郎は太郎を尊敬している"
+    },
+    {
+      "episodeTitle": "",
+      "characterAName": "ソフィア",
+      "characterBName": "デイヴィッド",
+      "direction": "a-to-b",
+      "description": "個として愛されたいと積極的に攻める"
+    },
+    {
+      "episodeTitle": "",
+      "characterAName": "デイヴィッド",
+      "characterBName": "ソフィア",
+      "direction": "a-to-b",
+      "description": "守る立場から線を引くが、稀に反撃して感情を揺らす"
     }
   ]
 }
