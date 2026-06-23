@@ -637,6 +637,7 @@ button#btn-cancel:hover:not(:disabled) {
 #summary-section.detached,
 #memo-section.detached,
 #settings-section.detached,
+#memos-section.detached,
 #chat-panel.detached {
   display: none !important;
 }
