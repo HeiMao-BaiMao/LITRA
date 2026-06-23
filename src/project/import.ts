@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createModel } from "../ai/provider.ts";
 import type { AiSettings } from "../settings.ts";
 
-export type ImportItemType = "character" | "world" | "episode" | "memo" | "projectMemo" | "ignore" | "unknown";
+export type ImportItemType = "character" | "world" | "episode" | "memo" | "projectMemo" | "relationship" | "ignore" | "unknown";
 
 export interface ImportCandidate {
   type: ImportItemType;
@@ -19,6 +19,14 @@ export interface AiImportCandidate extends ImportCandidate {
   reason?: string;
 }
 
+export interface ImportRelationship {
+  episodeTitle: string;
+  characterAName: string;
+  characterBName: string;
+  direction: "a-to-b" | "b-to-a" | "mutual";
+  description: string;
+}
+
 export interface ImportFileInput {
   path: string;
   filename: string;
@@ -27,6 +35,7 @@ export interface ImportFileInput {
   content: string;
   fields?: Record<string, string>;
   episodeTitle?: string;
+  relationships?: ImportRelationship[];
 }
 
 export interface ImportResult {
@@ -36,6 +45,8 @@ export interface ImportResult {
   memos: number;
   skippedMemos: number;
   projectMemos: number;
+  relationships: number;
+  skippedRelationships: number;
 }
 
 const SNIPPET_LENGTH = 2000;
@@ -46,6 +57,7 @@ const VALID_IMPORT_TYPES: ImportItemType[] = [
   "episode",
   "memo",
   "projectMemo",
+  "relationship",
   "ignore",
   "unknown",
 ];
@@ -70,6 +82,13 @@ function normalizeImportType(raw: string): ImportItemType {
     case "workmemo":
     case "novelmemo":
       return "projectMemo";
+    case "relationship":
+    case "relationships":
+    case "relation":
+    case "relations":
+    case "humanrelation":
+    case "characterrelation":
+      return "relationship";
     case "ignore":
     case "skip":
     case "other":
@@ -83,7 +102,7 @@ const classificationSchema = z.object({
   files: z.array(
     z.object({
       path: z.string().describe("ファイルの相対パス"),
-      type: z.string().describe("分類結果。character/world/episode/memo/projectMemo/ignore のいずれか"),
+      type: z.string().describe("分類結果。character/world/episode/memo/projectMemo/relationship/ignore のいずれか"),
       title: z.string().describe("推定したタイトルや名前"),
       fields: z.record(z.string(), z.string()).optional().describe("character/world の場合の各フィールド"),
       episodeTitle: z.string().optional().describe("memo の場合に紐づくエピソードのタイトル"),
@@ -125,6 +144,20 @@ const projectMemoTransformSchema = z.object({
   content: z.string().describe("整理済みのメモ本文"),
 });
 
+const relationshipTransformSchema = z.object({
+  relationships: z.array(
+    z.object({
+      episodeTitle: z.string().describe("関係が紐づくエピソードのタイトル。全体（全話共通）の場合は空文字"),
+      characterAName: z.string().describe("関係の一方のキャラクター名"),
+      characterBName: z.string().describe("関係のもう一方のキャラクター名"),
+      direction: z
+        .enum(["a-to-b", "b-to-a", "mutual"])
+        .describe("関係の向き。a-to-b=A→B, b-to-a=A←B, mutual=A↔B"),
+      description: z.string().describe("関係の説明（例：幼馴染で互いに信頼している）"),
+    }),
+  ),
+});
+
 function fileNameToTitle(filename: string): string {
   const base = filename.replace(/\\/g, "/").split("/").pop() ?? filename;
   return base.replace(/\.(md|txt|csv)$/i, "").trim();
@@ -153,6 +186,7 @@ function buildClassifyPrompt(files: { path: string; snippet: string }[]): string
 - episode: 小説の本文（話のプロットやシーン展開が主体）
 - memo: 特定のエピソードに紐づく覚え書きやメモ
 - projectMemo: プロジェクト全体の自由メモ・設定覚書き（エピソードに紐づかない雑多なメモ、全体方針、TODOなど）
+- relationship: キャラクター間の人間関係・相関図（「AとBは幼馴染」「CはDを憎んでいる」など）
 - ignore: 取り込みに不向きなファイル（索引、履歴、一時メモなど）
 
 分類例:
@@ -161,6 +195,7 @@ function buildClassifyPrompt(files: { path: string; snippet: string }[]): string
 - 「# 第一話\n\n　かつてこの地には——」→ episode
 - 「第一話の戦闘シーンで使う術の覚え書き」→ memo（episodeTitle は「第一話」）
 - 「全体の時間軸整理メモ。あとで改稿する」→ projectMemo
+- 「太郎と花子は幼馴染。三郎は太郎を尊敬している」→ relationship
 - 「ファイル一覧 / 更新履歴 / 仮メモの断片」→ ignore
 
 各ファイルの内容の先頭部分を参考に判断してください。
@@ -169,7 +204,7 @@ function buildClassifyPrompt(files: { path: string; snippet: string }[]): string
 キャラクター用フィールド名: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes
 世界観用フィールド名: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes
 
-出力は次の JSON 形式にしてください。type は必ず character/world/episode/memo/projectMemo/ignore のいずれかの文字列を使用してください。
+出力は次の JSON 形式にしてください。type は必ず character/world/episode/memo/projectMemo/relationship/ignore のいずれかの文字列を使用してください。
 
 \`\`\`json
 {
@@ -206,6 +241,12 @@ function buildClassifyPrompt(files: { path: string; snippet: string }[]): string
       "type": "projectMemo",
       "title": "全体方針",
       "reason": "エピソードに紐づかない全体メモ"
+    },
+    {
+      "path": "relations/main.md",
+      "type": "relationship",
+      "title": "キャラクター相関図",
+      "reason": "キャラクター間の関係が主体"
     },
     {
       "path": "draft/index.md",
@@ -343,11 +384,35 @@ ${content}
 - content: 整理済みのメモ本文`;
 }
 
+function buildRelationshipTransformPrompt(title: string, content: string): string {
+  return `あなたは創作支援アプリの編集アシスタントです。
+以下のテキストを読み込み、キャラクター間の人間関係として抽出・整理してください。
+
+元のファイルの推定タイトル: ${title}
+
+---
+${content}
+---
+
+出力は次の JSON 形式にしてください。
+- relationships: 関係の配列。各要素は次のフィールドを持ちます。
+  - episodeTitle: 関係が紐づくエピソードのタイトル。全体（全話共通）の場合は空文字
+  - characterAName: 関係の一方のキャラクター名
+  - characterBName: 関係のもう一方のキャラクター名
+  - direction: 関係の向き。a-to-b（A→B）/ b-to-a（A←B）/ mutual（A↔B）のいずれか
+  - description: 関係の説明`;
+}
+
 async function transformOne(
   candidate: AiImportCandidate,
   content: string,
   settings: AiSettings,
-): Promise<Partial<Pick<AiImportCandidate, "title" | "fields" | "episodeTitle">> & { content?: string }> {
+): Promise<
+  Partial<Pick<AiImportCandidate, "title" | "fields" | "episodeTitle">> & {
+    content?: string;
+    relationships?: ImportRelationship[];
+  }
+> {
   const system =
     "与えられた創作データを読み込み、アプリの項目に合わせて整理・書き換え、構造化された JSON を返してください。";
 
@@ -407,6 +472,17 @@ async function transformOne(
       });
       return { title: result.object.title, content: result.object.content };
     }
+    case "relationship": {
+      const result = await generateObject({
+        model: createModel(settings),
+        schema: relationshipTransformSchema,
+        system,
+        prompt: buildRelationshipTransformPrompt(candidate.title, content),
+        maxOutputTokens: 8192,
+        temperature: 0.3,
+      });
+      return { relationships: result.object.relationships };
+    }
     default:
       return {};
   }
@@ -452,6 +528,7 @@ export async function transformImportFilesWithAI(
 
 interface TransformableCandidate extends AiImportCandidate {
   transformedContent?: string;
+  relationships?: ImportRelationship[];
 }
 
 function toImportFileInput(
@@ -466,6 +543,7 @@ function toImportFileInput(
     content: candidate.transformedContent ?? content,
     fields: candidate.fields,
     episodeTitle: candidate.episodeTitle,
+    relationships: candidate.relationships,
   }));
 }
 

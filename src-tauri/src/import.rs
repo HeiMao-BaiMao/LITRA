@@ -6,6 +6,16 @@ use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportRelationshipInput {
+    pub episode_title: String,
+    pub character_a_name: String,
+    pub character_b_name: String,
+    pub direction: String,
+    pub description: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct ImportFileInput {
     pub path: String,
@@ -17,6 +27,8 @@ pub struct ImportFileInput {
     #[serde(default)]
     pub fields: HashMap<String, String>,
     pub episode_title: Option<String>,
+    #[serde(default)]
+    pub relationships: Vec<ImportRelationshipInput>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +40,8 @@ pub struct ImportResult {
     pub memos: usize,
     pub skipped_memos: usize,
     pub project_memos: usize,
+    pub relationships: usize,
+    pub skipped_relationships: usize,
 }
 
 fn documents_dir() -> Result<PathBuf, String> {
@@ -64,6 +78,10 @@ fn memos_path(project_id: &str) -> Result<PathBuf, String> {
 
 fn project_memos_path(project_id: &str) -> Result<PathBuf, String> {
     Ok(project_dir(project_id)?.join("project-memos.json"))
+}
+
+fn relationships_path(project_id: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(project_id)?.join("relationships.json"))
 }
 
 fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
@@ -303,6 +321,113 @@ fn find_episode_id_by_title(episodes: &Value, title: &str) -> Option<String> {
         })
 }
 
+fn load_relationships(project_id: &str) -> Result<Value, String> {
+    let path = relationships_path(project_id)?;
+    Ok(read_or_empty(&path, json!({ "groups": [] })))
+}
+
+fn save_relationships(project_id: &str, data: &Value) -> Result<(), String> {
+    write_json(&relationships_path(project_id)?, data)
+}
+
+fn build_character_name_to_id_map(characters: &Value) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    if let Some(arr) = characters["characters"].as_array() {
+        for character in arr {
+            let id = character["id"].as_str().unwrap_or_default().to_string();
+            let name = character["name"].as_str().unwrap_or_default().to_string();
+            if !id.is_empty() && !name.is_empty() {
+                map.insert(name.to_lowercase(), id);
+            }
+        }
+    }
+    map
+}
+
+fn normalize_direction(raw: &str) -> Option<&str> {
+    match raw.trim().to_lowercase().as_str() {
+        "a-to-b" | "atob" | "a→b" | "a->b" => Some("a-to-b"),
+        "b-to-a" | "btoa" | "b→a" | "b->a" => Some("b-to-a"),
+        "mutual" | "both" | "↔" | "<->" => Some("mutual"),
+        _ => None,
+    }
+}
+
+fn find_or_create_relationship_group<'a>(data: &'a mut Value, episode_id: &str) -> &'a mut Value {
+    let groups = data["groups"]
+        .as_array_mut()
+        .expect("relationships groups must be an array");
+    if let Some(index) = groups.iter().position(|g| g["episodeId"].as_str() == Some(episode_id)) {
+        &mut groups[index]
+    } else {
+        groups.push(json!({
+            "episodeId": episode_id,
+            "relationships": []
+        }));
+        groups.last_mut().unwrap()
+    }
+}
+
+fn import_relationships(
+    project_id: &str,
+    files: &[ImportFileInput],
+    character_map: &HashMap<String, String>,
+    episode_title_to_id: &HashMap<String, String>,
+    episodes: &Value,
+) -> Result<(usize, usize), String> {
+    let mut data = load_relationships(project_id)?;
+    let mut imported = 0;
+    let mut skipped = 0;
+
+    for file in files {
+        if file.file_type != "relationship" {
+            continue;
+        }
+        for rel in &file.relationships {
+            let a_id = character_map.get(&rel.character_a_name.to_lowercase()).cloned();
+            let b_id = character_map.get(&rel.character_b_name.to_lowercase()).cloned();
+            let Some(a_id) = a_id else {
+                skipped += 1;
+                continue;
+            };
+            let Some(b_id) = b_id else {
+                skipped += 1;
+                continue;
+            };
+            let Some(direction) = normalize_direction(&rel.direction) else {
+                skipped += 1;
+                continue;
+            };
+
+            let episode_id = if rel.episode_title.is_empty() {
+                "".to_string()
+            } else {
+                episode_title_to_id
+                    .get(&rel.episode_title)
+                    .cloned()
+                    .or_else(|| find_episode_id_by_title(episodes, &rel.episode_title))
+                    .unwrap_or_default()
+            };
+
+            let group = find_or_create_relationship_group(&mut data, &episode_id);
+            group["relationships"]
+                .as_array_mut()
+                .expect("relationships array must exist")
+                .push(json!({
+                    "id": uuid::Uuid::new_v4().to_string(),
+                    "characterAId": a_id,
+                    "characterBId": b_id,
+                    "direction": direction,
+                    "description": rel.description,
+                }));
+            imported += 1;
+        }
+    }
+
+    save_relationships(project_id, &data)?;
+    Ok((imported, skipped))
+}
+
 #[tauri::command]
 pub async fn import_files(project_id: String, files: Vec<ImportFileInput>) -> Result<ImportResult, String> {
     tauri::async_runtime::spawn_blocking(move || do_import(&project_id, &files)).await.map_err(|e| e.to_string())?
@@ -316,12 +441,21 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
         memos: 0,
         skipped_memos: 0,
         project_memos: 0,
+        relationships: 0,
+        skipped_relationships: 0,
     };
 
     let mut characters = load_characters(project_id)?;
     let mut world_entries = load_world_entries(project_id)?;
     let episodes = load_episodes(project_id)?;
     let mut episode_title_to_id: HashMap<String, String> = HashMap::new();
+    if let Some(arr) = episodes["episodes"].as_array() {
+        for ep in arr {
+            if let (Some(id), Some(title)) = (ep["id"].as_str(), ep["title"].as_str()) {
+                episode_title_to_id.insert(title.to_string(), id.to_string());
+            }
+        }
+    }
 
     // 1st pass: characters and world entries
     for file in files {
@@ -387,6 +521,18 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
         result.project_memos += 1;
     }
 
+    // 5th pass: relationships
+    let character_map = build_character_name_to_id_map(&characters);
+    let (imported_relationships, skipped_relationships) = import_relationships(
+        project_id,
+        files,
+        &character_map,
+        &episode_title_to_id,
+        &episodes,
+    )?;
+    result.relationships = imported_relationships;
+    result.skipped_relationships = skipped_relationships;
+
     Ok(result)
 }
 
@@ -423,6 +569,7 @@ mod tests {
                     map
                 },
                 episode_title: None,
+                relationships: Vec::new(),
             },
             ImportFileInput {
                 path: "episodes/01.md".to_string(),
@@ -432,6 +579,7 @@ mod tests {
                 content: "# 第一話\n\n本文".to_string(),
                 fields: HashMap::new(),
                 episode_title: None,
+                relationships: Vec::new(),
             },
             ImportFileInput {
                 path: "memos/01.md".to_string(),
@@ -441,6 +589,7 @@ mod tests {
                 content: "覚え書き".to_string(),
                 fields: HashMap::new(),
                 episode_title: Some("第一話".to_string()),
+                relationships: Vec::new(),
             },
         ];
 
@@ -474,6 +623,7 @@ mod tests {
             content: "この世界では魔法は日常である。".to_string(),
             fields: HashMap::new(),
             episode_title: None,
+            relationships: Vec::new(),
         }];
 
         let result = do_import(&project_id, &files).expect("import failed");
@@ -484,6 +634,74 @@ mod tests {
         assert_eq!(memo_array.len(), 1);
         assert_eq!(memo_array[0]["title"].as_str().unwrap(), "世界観覚書");
         assert_eq!(memo_array[0]["content"].as_str().unwrap(), "この世界では魔法は日常である。");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn import_creates_relationships() {
+        let project_id = test_project_id();
+
+        let files = vec![
+            ImportFileInput {
+                path: "chars/hero.md".to_string(),
+                filename: "hero.md".to_string(),
+                file_type: "character".to_string(),
+                title: "主人公".to_string(),
+                content: "名前: 太郎".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "太郎".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+            ImportFileInput {
+                path: "chars/heroine.md".to_string(),
+                filename: "heroine.md".to_string(),
+                file_type: "character".to_string(),
+                title: "ヒロイン".to_string(),
+                content: "名前: 花子".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "花子".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+            ImportFileInput {
+                path: "relations/main.md".to_string(),
+                filename: "main.md".to_string(),
+                file_type: "relationship".to_string(),
+                title: "相関図".to_string(),
+                content: "太郎と花子は幼馴染".to_string(),
+                fields: HashMap::new(),
+                episode_title: None,
+                relationships: vec![ImportRelationshipInput {
+                    episode_title: "".to_string(),
+                    character_a_name: "太郎".to_string(),
+                    character_b_name: "花子".to_string(),
+                    direction: "mutual".to_string(),
+                    description: "幼馴染".to_string(),
+                }],
+            },
+        ];
+
+        let result = do_import(&project_id, &files).expect("import failed");
+        assert_eq!(result.characters, 2);
+        assert_eq!(result.relationships, 1);
+        assert_eq!(result.skipped_relationships, 0);
+
+        let rels = load_relationships(&project_id).unwrap();
+        let groups = rels["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0]["episodeId"].as_str().unwrap(), "");
+        let relationships = groups[0]["relationships"].as_array().unwrap();
+        assert_eq!(relationships.len(), 1);
+        assert_eq!(relationships[0]["direction"].as_str().unwrap(), "mutual");
+        assert_eq!(relationships[0]["description"].as_str().unwrap(), "幼馴染");
 
         cleanup(&project_id);
     }

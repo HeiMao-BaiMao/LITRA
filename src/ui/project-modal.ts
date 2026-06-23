@@ -173,6 +173,7 @@ export function renderImportPreview(candidates: AiImportCandidate[]): void {
     episode: "エピソード",
     memo: "覚え書き",
     projectMemo: "作品メモ",
+    relationship: "人間関係",
     unknown: "対象外",
     ignore: "対象外",
   };
@@ -219,9 +220,13 @@ export function renderImportResult(result: ImportResult): void {
     `エピソード: ${result.episodes} 件`,
     `覚え書き: ${result.memos} 件`,
     `作品メモ: ${result.projectMemos} 件`,
+    `人間関係: ${result.relationships} 件`,
   ];
   if (result.skippedMemos > 0) {
     rows.push(`スキップされた覚え書き: ${result.skippedMemos} 件（紐づくエピソードが見つかりませんでした）`);
+  }
+  if (result.skippedRelationships > 0) {
+    rows.push(`スキップされた人間関係: ${result.skippedRelationships} 件（キャラクター名が一致しませんでした）`);
   }
 
   for (const text of rows) {
