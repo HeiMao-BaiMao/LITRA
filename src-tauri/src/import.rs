@@ -27,6 +27,7 @@ pub struct ImportResult {
     pub episodes: usize,
     pub memos: usize,
     pub skipped_memos: usize,
+    pub project_memos: usize,
 }
 
 fn documents_dir() -> Result<PathBuf, String> {
@@ -59,6 +60,10 @@ fn episodes_list_path(project_id: &str) -> Result<PathBuf, String> {
 
 fn memos_path(project_id: &str) -> Result<PathBuf, String> {
     Ok(project_dir(project_id)?.join("memos.json"))
+}
+
+fn project_memos_path(project_id: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(project_id)?.join("project-memos.json"))
 }
 
 fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
@@ -256,6 +261,31 @@ fn save_memos(project_id: &str, data: &Value) -> Result<(), String> {
     write_json(&memos_path(project_id)?, data)
 }
 
+fn load_project_memos(project_id: &str) -> Result<Value, String> {
+    let path = project_memos_path(project_id)?;
+    Ok(read_or_empty(&path, json!({ "memos": [] })))
+}
+
+fn save_project_memos(project_id: &str, data: &Value) -> Result<(), String> {
+    write_json(&project_memos_path(project_id)?, data)
+}
+
+fn create_project_memo_entry(project_id: &str, title: &str, content: &str) -> Result<(), String> {
+    let mut data = load_project_memos(project_id)?;
+    let memos = data["memos"]
+        .as_array_mut()
+        .ok_or_else(|| "Invalid project memos structure".to_string())?;
+
+    memos.push(json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "title": title,
+        "content": content,
+        "updatedAt": chrono::Utc::now().to_rfc3339(),
+    }));
+
+    save_project_memos(project_id, &data)
+}
+
 fn create_episode_entry(project_id: &str, title: &str, body: &str) -> Result<(String, String), String> {
     let mut episodes = load_episodes(project_id)?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -336,6 +366,7 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
         episodes: 0,
         memos: 0,
         skipped_memos: 0,
+        project_memos: 0,
     };
 
     let mut characters = load_characters(project_id)?;
@@ -403,6 +434,16 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
         } else {
             result.skipped_memos += 1;
         }
+    }
+
+    // 4th pass: project memos
+    for file in files {
+        if file.file_type != "projectMemo" {
+            continue;
+        }
+        let (_, body) = split_frontmatter(&file.content);
+        create_project_memo_entry(project_id, &file.title, &body)?;
+        result.project_memos += 1;
     }
 
     Ok(result)
@@ -476,6 +517,32 @@ mod tests {
         let eps = load_episodes(&project_id).unwrap();
         let ep_array = eps["episodes"].as_array().unwrap();
         assert_eq!(ep_array[0]["title"].as_str().unwrap(), "第一話");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn import_creates_project_memo() {
+        let project_id = test_project_id();
+
+        let files = vec![ImportFileInput {
+            path: "memos/project-memo.md".to_string(),
+            filename: "project-memo.md".to_string(),
+            file_type: "projectMemo".to_string(),
+            title: "世界観覚書".to_string(),
+            content: "この世界では魔法は日常である。".to_string(),
+            fields: HashMap::new(),
+            episode_title: None,
+        }];
+
+        let result = do_import(&project_id, &files).expect("import failed");
+        assert_eq!(result.project_memos, 1);
+
+        let memos = load_project_memos(&project_id).unwrap();
+        let memo_array = memos["memos"].as_array().unwrap();
+        assert_eq!(memo_array.len(), 1);
+        assert_eq!(memo_array[0]["title"].as_str().unwrap(), "世界観覚書");
+        assert_eq!(memo_array[0]["content"].as_str().unwrap(), "この世界では魔法は日常である。");
 
         cleanup(&project_id);
     }

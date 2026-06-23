@@ -172,6 +172,7 @@ export function renderImportPreview(candidates: AiImportCandidate[]): void {
     world: "世界観",
     episode: "エピソード",
     memo: "覚え書き",
+    projectMemo: "作品メモ",
     unknown: "対象外",
     ignore: "対象外",
   };
@@ -217,6 +218,7 @@ export function renderImportResult(result: ImportResult): void {
     `世界観: ${result.worldEntries} 件`,
     `エピソード: ${result.episodes} 件`,
     `覚え書き: ${result.memos} 件`,
+    `作品メモ: ${result.projectMemos} 件`,
   ];
   if (result.skippedMemos > 0) {
     rows.push(`スキップされた覚え書き: ${result.skippedMemos} 件（紐づくエピソードが見つかりませんでした）`);

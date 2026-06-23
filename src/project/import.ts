@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createModel } from "../ai/provider.ts";
 import type { AiSettings } from "../settings.ts";
 
-export type ImportItemType = "character" | "world" | "episode" | "memo" | "ignore" | "unknown";
+export type ImportItemType = "character" | "world" | "episode" | "memo" | "projectMemo" | "ignore" | "unknown";
 
 export interface ImportCandidate {
   type: ImportItemType;
@@ -35,6 +35,7 @@ export interface ImportResult {
   episodes: number;
   memos: number;
   skippedMemos: number;
+  projectMemos: number;
 }
 
 const SNIPPET_LENGTH = 2000;
@@ -43,7 +44,7 @@ const classificationSchema = z.object({
   files: z.array(
     z.object({
       path: z.string().describe("ファイルの相対パス"),
-      type: z.enum(["character", "world", "episode", "memo", "ignore"]).describe("分類結果"),
+      type: z.enum(["character", "world", "episode", "memo", "projectMemo", "ignore"]).describe("分類結果"),
       title: z.string().describe("推定したタイトルや名前"),
       fields: z.record(z.string(), z.string()).optional().describe("character/world の場合の各フィールド"),
       episodeTitle: z.string().optional().describe("memo の場合に紐づくエピソードのタイトル"),
@@ -78,8 +79,9 @@ function buildClassifyPrompt(files: { path: string; snippet: string }[]): string
 - character: キャラクター設定（名前、外見、性格、背景、能力などが主体）
 - world: 世界観設定（場所、組織、魔法体系、歴史、文化などが主体）
 - episode: 小説の本文（話のプロットやシーン展開が主体）
-- memo: エピソードに紐づく覚え書きやメモ
-- ignore: 取り込みに不向きなファイル（設定でも本文でもない雑多なメモ、索引、履歴など）
+- memo: 特定のエピソードに紐づく覚え書きやメモ
+- projectMemo: プロジェクト全体の自由メモ・設定覚書き（エピソードに紐づかない雑多なメモ、全体方針、TODOなど）
+- ignore: 取り込みに不向きなファイル（索引、履歴、一時メモなど）
 
 各ファイルの内容の先頭部分を参考に判断してください。
 ファイル名やフォルダ名もヒントとして使って構いません。
@@ -88,7 +90,8 @@ function buildClassifyPrompt(files: { path: string; snippet: string }[]): string
 世界観用フィールド名: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes
 
 エピソードの場合は title を抽出してください。
-メモの場合は episodeTitle に紐づくエピソードのタイトルを推定してください。紐づくエピソードが不明な場合は空文字にしてください。
+memo の場合は episodeTitle に紐づくエピソードのタイトルを推定してください。紐づくエピソードが不明な場合は空文字にしてください。
+projectMemo の場合は title をメモのタイトルとして抽出してください。
 分類理由を reason に簡潔に書いてください。
 
 ${lines.join("\n\n")}`;
