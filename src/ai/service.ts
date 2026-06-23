@@ -1,11 +1,13 @@
-import { isLoopFinished, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
+import { generateObject, isLoopFinished, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
 import { buildProviderOptions } from "./provider-options.ts";
 import {
   buildContinuationPrompt,
   buildFeedbackPrompt,
   buildRewritePrompt,
+  buildToolCallNeedPrompt,
   systemPrompt,
+  toolCallNeedSchema,
 } from "./prompts.ts";
 import type { AiSettings } from "../settings.ts";
 
@@ -244,6 +246,39 @@ export interface StreamFeedbackOptions {
   settingsContext?: string;
 }
 
+async function verifyToolCallNeed(
+  settings: AiSettings,
+  userRequest: string,
+  assistantResponse: string,
+): Promise<boolean> {
+  try {
+    const result = await generateObject({
+      model: createModel(settings),
+      schema: toolCallNeedSchema,
+      system:
+        "あなたはアシスタントの応答を審査し、ツール呼び出しが必要かどうかを判定する専門家です。",
+      prompt: buildToolCallNeedPrompt(userRequest, assistantResponse),
+      maxOutputTokens: 1024,
+      temperature: 0.1,
+    });
+    console.log("[phenex:ai] tool-call need check:", result.object);
+    return result.object.needsTools;
+  } catch (error) {
+    console.error("[phenex:ai] tool-call need verification failed:", error);
+    return false;
+  }
+}
+
+function getLastUserMessageContent(messages: ModelMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === "user") {
+      return typeof message.content === "string" ? message.content : JSON.stringify(message.content);
+    }
+  }
+  return "";
+}
+
 function normalizeSettings(settings: AiSettings): AiSettings {
   const normalized = { ...settings };
 
@@ -299,6 +334,12 @@ export async function streamChat({
   try {
     const s = normalizeSettings(settings);
     const toolsEnabled = tools != null && Object.keys(tools).length > 0;
+    let assistantText = "";
+    const wrappedOnChunk = (chunk: string) => {
+      assistantText += chunk;
+      onChunk(chunk);
+    };
+
     const result = streamText({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
@@ -312,7 +353,45 @@ export async function streamChat({
       ...buildAdvancedOptions(s, toolsEnabled),
     });
 
-    return await consumeStream(result, onChunk, onToolEvent);
+    const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent);
+
+    // ツールが有効なのにツール呼び出しがなく、かつ通常終了した場合は検証する
+    if (
+      toolsEnabled &&
+      runResult.toolCallCount === 0 &&
+      runResult.finishReason !== "tool-calls" &&
+      !abortSignal?.aborted
+    ) {
+      const userRequest = getLastUserMessageContent(messages);
+      const needsTools = await verifyToolCallNeed(s, userRequest, assistantText);
+      if (needsTools) {
+        console.log("[phenex:ai] retrying with tool-call requirement");
+        const retryMessages: ModelMessage[] = [
+          ...messages,
+          { role: "assistant", content: assistantText },
+          {
+            role: "user",
+            content:
+              "まだ必要なツールを呼び出していないようです。先にツールを呼び出してから、必要であれば説明を続けてください。",
+          },
+        ];
+        const retryResult = streamText({
+          model: createModel(s),
+          system: buildSystem(systemPrompt, settingsContext),
+          messages: retryMessages,
+          ...buildTemperatureOption(s, toolsEnabled),
+          maxOutputTokens: s.maxTokens,
+          abortSignal,
+          tools,
+          toolChoice: "required",
+          stopWhen: isLoopFinished(),
+          ...buildAdvancedOptions(s, toolsEnabled),
+        });
+        return await consumeStream(retryResult, onChunk, onToolEvent);
+      }
+    }
+
+    return runResult;
   } catch (error) {
     console.error("streamChat error:", error);
     throw error;

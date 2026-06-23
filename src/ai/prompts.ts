@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type PromptTrimMode = "head" | "tail" | "middle";
 
 export function limitPromptText(text: string, maxChars: number, mode: PromptTrimMode = "middle"): string {
@@ -162,6 +164,30 @@ ${sourceText}
 
 【一行要約】
 （一行要約文）`;
+}
+
+export const toolCallNeedSchema = z.object({
+  needsTools: z.boolean().describe("ツール呼び出しが必要なら true"),
+  missingTools: z
+    .array(z.string())
+    .optional()
+    .describe("不足していると思われるツール名のリスト"),
+  reason: z.string().describe("判定理由"),
+});
+
+export function buildToolCallNeedPrompt(userRequest: string, assistantResponse: string): string {
+  return `あなたはアシスタントの応答を審査する専門家です。
+ユーザーの依頼に対して、提供されているツールを使う必要があるのに、アシスタントがまだツールを呼んでいないかどうかを判定してください。
+
+【ユーザーの依頼】
+${userRequest}
+
+【アシスタントの直前の応答】
+${assistantResponse}
+
+判定してください。
+- 依頼が「設定確認」「エピソード取得・編集」「キャラクター/世界観/人間関係の変更」「要約保存」など、ツールを使うべき内容なのに、実際にツール呼び出しが行われていない場合は needsTools: true
+- 単なる雑談、挨拶、方針相談、すでにツールで実行済みの結果報告など、ツールが不要な場合は needsTools: false`;
 }
 
 export function parseSummaryOutput(output: string): {
