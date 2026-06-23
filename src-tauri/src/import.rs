@@ -101,44 +101,6 @@ fn write_text(path: &PathBuf, content: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
-fn normalize_newlines(text: &str) -> String {
-    text.replace("\r\n", "\n").replace('\r', "\n")
-}
-
-fn split_frontmatter(content: &str) -> (Option<HashMap<String, String>>, String) {
-    let normalized = normalize_newlines(content);
-    let lines: Vec<&str> = normalized.split('\n').collect();
-    if lines.first().map(|s| s.trim()) != Some("---") {
-        return (None, normalized);
-    }
-
-    let end_index = lines
-        .iter()
-        .enumerate()
-        .skip(1)
-        .find(|(_, line)| line.trim() == "---")
-        .map(|(index, _)| index);
-
-    let end_index = match end_index {
-        Some(index) => index,
-        None => return (None, normalized),
-    };
-
-    let mut frontmatter = HashMap::new();
-    for line in &lines[1..end_index] {
-        if let Some(colon) = line.find(':') {
-            let key = line[..colon].trim().to_string();
-            let value = line[colon + 1..].trim().to_string();
-            if !key.is_empty() {
-                frontmatter.insert(key, value);
-            }
-        }
-    }
-
-    let body = lines[end_index + 1..].join("\n").trim().to_string();
-    (Some(frontmatter), body)
-}
-
 fn extract_custom_fields(
     fields: &HashMap<String, String>,
     known_keys: &[&str],
@@ -324,19 +286,6 @@ fn save_episode_memo(project_id: &str, episode_id: &str, content: &str) -> Resul
         .insert(episode_id.to_string(), entry);
 
     save_memos(project_id, &memos)
-}
-
-fn merge_frontmatter_fields(
-    fields: &HashMap<String, String>,
-    frontmatter: &Option<HashMap<String, String>>,
-) -> HashMap<String, String> {
-    let mut merged = fields.clone();
-    if let Some(front) = frontmatter {
-        for (key, value) in front {
-            merged.entry(key.clone()).or_insert_with(|| value.clone());
-        }
-    }
-    merged
 }
 
 fn find_episode_id_by_title(episodes: &Value, title: &str) -> Option<String> {
