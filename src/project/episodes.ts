@@ -110,18 +110,30 @@ export async function updateEpisodeTitle(
 }
 
 async function reindexEpisodes(projectId: string, list: EpisodeList): Promise<void> {
+  // 書き換え前に全本文を読み込んでおく。逐次リネームすると、
+  // まだ処理していないエピソードのファイル名を上書きして本文が失われる恐れがある。
+  const texts = new Map<string, string>();
+  for (const ep of list.episodes) {
+    texts.set(ep.id, await loadEpisode(projectId, ep.fileName));
+  }
+
+  const oldFileNames = list.episodes.map((ep) => ep.fileName);
+
   for (let i = 0; i < list.episodes.length; i++) {
     const ep = list.episodes[i];
     const newFileName = padEpisodeNumber(i);
-    if (ep.fileName !== newFileName) {
-      const text = await loadEpisode(projectId, ep.fileName);
-      await saveEpisode(projectId, newFileName, text);
-      await remove(projectPath(projectId, EPISODES_DIR, ep.fileName), {
+    await saveEpisode(projectId, newFileName, texts.get(ep.id) ?? "");
+    ep.fileName = newFileName;
+    ep.order = i;
+  }
+
+  for (const oldFileName of oldFileNames) {
+    const stillUsed = list.episodes.some((ep) => ep.fileName === oldFileName);
+    if (!stillUsed) {
+      await remove(projectPath(projectId, EPISODES_DIR, oldFileName), {
         baseDir: BaseDirectory.Document,
       });
-      ep.fileName = newFileName;
     }
-    ep.order = i;
   }
 }
 

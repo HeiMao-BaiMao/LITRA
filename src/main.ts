@@ -1214,6 +1214,7 @@ async function handleUpdateEpisodeTitle(episodeId: string, title: string): Promi
 
 async function handleMoveEpisode(episodeId: string, direction: "up" | "down"): Promise<void> {
   if (!currentProject) return;
+  await saveCurrentEpisode();
   await moveEpisode(currentProject.id, episodeId, direction);
   episodes = (await loadEpisodeList(currentProject.id)).episodes;
 
@@ -1227,6 +1228,7 @@ async function handleMoveEpisode(episodeId: string, direction: "up" | "down"): P
 
 async function handleReorderEpisodes(orderedIds: string[]): Promise<void> {
   if (!currentProject) return;
+  await saveCurrentEpisode();
   await reorderEpisodes(currentProject.id, orderedIds);
   episodes = (await loadEpisodeList(currentProject.id)).episodes;
 
