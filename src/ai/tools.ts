@@ -15,6 +15,12 @@ import type {
   EpisodeMemoMap,
 } from "../project/schema.ts";
 import { loadMemos, saveEpisodeMemo } from "../project/memos.ts";
+import {
+  createProjectMemo,
+  listProjectMemos,
+  updateProjectMemo,
+  type ProjectMemo,
+} from "../project/project-memo.ts";
 
 interface ValidationResult<T> {
   success: true;
@@ -1017,6 +1023,110 @@ export function createSaveEpisodeMemoTool(deps: MemoToolDependencies) {
       const updated = await loadMemos(deps.projectId);
       deps.onUpdateMemos(updated);
       return { success: true, message: "覚え書きを保存しました。" };
+    }),
+  });
+}
+
+export interface ProjectMemoToolDependencies {
+  projectId: string;
+  onUpdateMemos: (memos: ProjectMemo[]) => void;
+}
+
+export function createListProjectMemosTool(deps: ProjectMemoToolDependencies) {
+  return tool({
+    description:
+      "登録されている作品メモ（プロジェクトメモ）の一覧を取得します。各メモのIDとタイトルを返します。",
+    inputSchema: z.object({}),
+    execute: wrapToolExecute("listProjectMemos", async () => {
+      const memos = await listProjectMemos(deps.projectId);
+      deps.onUpdateMemos(memos);
+      return {
+        count: memos.length,
+        memos: memos.map((memo) => ({ id: memo.id, title: memo.title || "（無題）" })),
+      };
+    }),
+  });
+}
+
+const getProjectMemoInputSchema = z.object({
+  memoId: z.string().describe("取得する作品メモのID"),
+});
+
+export function createGetProjectMemoTool(deps: ProjectMemoToolDependencies) {
+  return tool({
+    description: "指定した作品メモ（プロジェクトメモ）のタイトルと本文を取得します。",
+    inputSchema: getProjectMemoInputSchema,
+    execute: wrapToolExecute("getProjectMemo", async ({ memoId }) => {
+      const memos = await listProjectMemos(deps.projectId);
+      const memo = memos.find((m) => m.id === memoId);
+      if (!memo) {
+        return { error: `指定したメモが見つかりません: ${memoId}` };
+      }
+      return {
+        id: memo.id,
+        title: memo.title || "（無題）",
+        content: limitToolText(memo.content),
+      };
+    }),
+  });
+}
+
+const updateProjectMemoInputSchema = z.object({
+  memoId: z.string().describe("更新する作品メモのID"),
+  title: z.string().optional().describe("新しいタイトル"),
+  content: z.string().optional().describe("新しい本文"),
+});
+
+export function createUpdateProjectMemoTool(deps: ProjectMemoToolDependencies) {
+  return tool({
+    description:
+      "指定した作品メモ（プロジェクトメモ）のタイトルまたは本文を更新します。listProjectMemos でIDを確認してください。",
+    inputSchema: updateProjectMemoInputSchema,
+    execute: wrapToolExecute("updateProjectMemo", async ({ memoId, title, content }) => {
+      const updates: { title?: string; content?: string } = {};
+      if (title !== undefined) updates.title = title;
+      if (content !== undefined) updates.content = content;
+      if (Object.keys(updates).length === 0) {
+        return { error: "title または content のいずれかを指定してください。" };
+      }
+
+      await updateProjectMemo(deps.projectId, memoId, updates);
+      const memos = await listProjectMemos(deps.projectId);
+      deps.onUpdateMemos(memos);
+      const updated = memos.find((m) => m.id === memoId);
+      return {
+        success: true,
+        message: "作品メモを更新しました。",
+        memo: updated
+          ? { id: updated.id, title: updated.title || "（無題）", content: limitToolText(updated.content) }
+          : undefined,
+      };
+    }),
+  });
+}
+
+const createProjectMemoInputSchema = z.object({
+  title: z.string().describe("新しい作品メモのタイトル"),
+});
+
+export function createCreateProjectMemoTool(deps: ProjectMemoToolDependencies) {
+  return tool({
+    description: "新しい作品メモ（プロジェクトメモ）を作成します。",
+    inputSchema: createProjectMemoInputSchema,
+    execute: wrapToolExecute("createProjectMemo", async ({ title }) => {
+      const validation = validateStringField("title", title);
+      if (!validation.success) {
+        return { error: `createProjectMemo の入力が不正です: ${validation.error}` };
+      }
+
+      await createProjectMemo(deps.projectId, validation.data);
+      const memos = await listProjectMemos(deps.projectId);
+      deps.onUpdateMemos(memos);
+      return {
+        success: true,
+        message: `作品メモ「${validation.data}」を作成しました。`,
+        memo: memos[memos.length - 1],
+      };
     }),
   });
 }

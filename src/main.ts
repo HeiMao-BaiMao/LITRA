@@ -31,6 +31,7 @@ import {
 import { buildSummaryPrompt, limitPromptText, parseSummaryOutput } from "./ai/prompts.ts";
 import {
   createCreateCharacterTool,
+  createCreateProjectMemoTool,
   createCreateWorldEntryTool,
   createEditEpisodeBatchTool,
   createEditEpisodeTool,
@@ -39,9 +40,11 @@ import {
   createCreateRelationshipTool,
   createDeleteRelationshipTool,
   createGetEpisodeMemoTool,
+  createGetProjectMemoTool,
   createListCharactersTool,
   createListEpisodeMemosTool,
   createListEpisodesTool,
+  createListProjectMemosTool,
   createListRelationshipsTool,
   createListWorldEntriesTool,
   createRebuildSearchIndexTool,
@@ -52,6 +55,7 @@ import {
   createSaveEpisodeSummaryTool,
   createSearchEpisodesTool,
   createUpdateCharacterTool,
+  createUpdateProjectMemoTool,
   createUpdateRelationshipTool,
   createUpdateWorldEntryTool,
 } from "./ai/tools.ts";
@@ -432,6 +436,15 @@ function createAiTools(): ToolSet | undefined {
     },
   };
 
+  const projectMemoDeps = {
+    projectId: currentProject.id,
+    onUpdateMemos: (memos: ProjectMemo[]) => {
+      projectMemos = memos;
+      renderMemosView();
+      syncProjectMemosToWindow();
+    },
+  };
+
   const tools: ToolSet = {
     findEpisodeLines: createFindEpisodeLinesTool(searchDeps),
     getEpisodeLines: createGetEpisodeLinesTool(searchDeps),
@@ -454,6 +467,10 @@ function createAiTools(): ToolSet | undefined {
     listEpisodeMemos: createListEpisodeMemosTool(memoDeps),
     getEpisodeMemo: createGetEpisodeMemoTool(memoDeps),
     saveEpisodeMemo: createSaveEpisodeMemoTool(memoDeps),
+    listProjectMemos: createListProjectMemosTool(projectMemoDeps),
+    getProjectMemo: createGetProjectMemoTool(projectMemoDeps),
+    updateProjectMemo: createUpdateProjectMemoTool(projectMemoDeps),
+    createProjectMemo: createCreateProjectMemoTool(projectMemoDeps),
   };
 
   if (state.currentEpisodeId) {
