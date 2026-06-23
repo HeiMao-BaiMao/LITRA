@@ -1,5 +1,6 @@
 import { getElements } from "./layout.ts";
 import type { ProjectSummary } from "../project/repository.ts";
+import type { ImportCandidate, ImportResult } from "../project/import.ts";
 
 export interface ProjectModalActions {
   onCreate: () => void;
@@ -111,4 +112,102 @@ export function bindProjectModalClose(onClose: () => void): void {
 
   closeBtn.addEventListener("click", onClose);
   backdrop?.addEventListener("click", onClose);
+}
+
+export interface FolderImportActions {
+  onSelect: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+export function bindFolderImportActions(actions: FolderImportActions): void {
+  const { btnImportFolder, folderImportInput, btnConfirmImport, btnCancelImport } = getElements();
+
+  btnImportFolder.addEventListener("click", () => {
+    actions.onSelect();
+  });
+
+  folderImportInput.addEventListener("change", () => {
+    actions.onSelect();
+  });
+
+  btnConfirmImport.addEventListener("click", () => {
+    actions.onConfirm();
+  });
+
+  btnCancelImport.addEventListener("click", () => {
+    actions.onCancel();
+  });
+}
+
+export function showImportPreviewModal(): void {
+  getElements().importPreviewModal.classList.remove("hidden");
+}
+
+export function hideImportPreviewModal(): void {
+  getElements().importPreviewModal.classList.add("hidden");
+}
+
+export function renderImportPreview(candidates: ImportCandidate[]): void {
+  const list = getElements().importPreviewList;
+  list.innerHTML = "";
+
+  const counts: Record<string, number> = {};
+  for (const candidate of candidates) {
+    counts[candidate.type] = (counts[candidate.type] ?? 0) + 1;
+  }
+
+  const typeLabels: Record<string, string> = {
+    character: "キャラクター",
+    world: "世界観",
+    episode: "エピソード",
+    memo: "覚え書き",
+    unknown: "対象外",
+  };
+
+  const summary = document.createElement("div");
+  summary.className = "import-preview-summary";
+  summary.textContent = `検出されたファイル: ${candidates.length} 件`;
+  list.appendChild(summary);
+
+  for (const [type, count] of Object.entries(counts)) {
+    const row = document.createElement("div");
+    row.className = "import-preview-row";
+    row.textContent = `${typeLabels[type] ?? type}: ${count} 件`;
+    list.appendChild(row);
+  }
+
+  if (candidates.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "import-preview-empty";
+    empty.textContent = "取り込めるファイルが見つかりませんでした。";
+    list.appendChild(empty);
+  }
+}
+
+export function renderImportResult(result: ImportResult): void {
+  const list = getElements().importPreviewList;
+  list.innerHTML = "";
+
+  const summary = document.createElement("div");
+  summary.className = "import-preview-summary";
+  summary.textContent = "取り込みが完了しました。";
+  list.appendChild(summary);
+
+  const rows = [
+    `キャラクター: ${result.characters} 件`,
+    `世界観: ${result.worldEntries} 件`,
+    `エピソード: ${result.episodes} 件`,
+    `覚え書き: ${result.memos} 件`,
+  ];
+  if (result.skippedMemos > 0) {
+    rows.push(`スキップされた覚え書き: ${result.skippedMemos} 件（紐づくエピソードが見つかりませんでした）`);
+  }
+
+  for (const text of rows) {
+    const row = document.createElement("div");
+    row.className = "import-preview-row";
+    row.textContent = text;
+    list.appendChild(row);
+  }
 }

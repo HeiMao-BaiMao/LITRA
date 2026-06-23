@@ -18,6 +18,7 @@ import {
   resolveChatSettings,
   getProviderSpecificSettings,
 } from "./settings.ts";
+import { importFolder, scanImportFiles } from "./project/import.ts";
 import { state, type ProjectView } from "./state.ts";
 import {
   streamChat,
@@ -83,11 +84,16 @@ import {
   showSettingsModal,
 } from "./ui/settings-modal.ts";
 import {
+  bindFolderImportActions,
   bindProjectModalActions,
   bindProjectModalClose,
   clearNewProjectTitle,
   getNewProjectTitle,
+  hideImportPreviewModal,
   hideProjectModal,
+  renderImportPreview,
+  renderImportResult,
+  showImportPreviewModal,
   renderProjectList,
   showProjectModal,
 } from "./ui/project-modal.ts";
@@ -163,6 +169,8 @@ let worldEntries: WorldEntry[] = [];
 let relationshipsMap: CharacterRelationshipMap = { groups: [] };
 let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
+
+let pendingImportFiles: File[] = [];
 
 const DEFAULT_MAX_CONTEXT_TOKENS = 65536;
 const CONTEXT_CHAR_PER_TOKEN = 1.6;
@@ -2037,6 +2045,48 @@ async function handleInitializeSettings(): Promise<void> {
   hideSettingsModal();
 }
 
+async function handleSelectImportFolder(): Promise<void> {
+  const input = getElements().folderImportInput;
+  if (!input.files || input.files.length === 0) {
+    input.click();
+    return;
+  }
+
+  pendingImportFiles = Array.from(input.files);
+  input.value = "";
+
+  const candidates = await scanImportFiles(pendingImportFiles);
+  renderImportPreview(candidates);
+  showImportPreviewModal();
+}
+
+async function handleConfirmImport(): Promise<void> {
+  if (!currentProject) {
+    window.alert("プロジェクトを開いた状態で取り込んでください。");
+    return;
+  }
+  if (pendingImportFiles.length === 0) {
+    hideImportPreviewModal();
+    return;
+  }
+
+  const result = await importFolder(currentProject.id, pendingImportFiles);
+  renderImportResult(result);
+
+  pendingImportFiles = [];
+
+  // 3秒後にプロジェクトデータを再読み込みしてプレビューを閉じる
+  setTimeout(() => {
+    void loadProjectData(currentProject!);
+    hideImportPreviewModal();
+  }, 3000);
+}
+
+function handleCancelImport(): void {
+  pendingImportFiles = [];
+  hideImportPreviewModal();
+}
+
 function handleProviderChange(providerId: string) {
   return getProviderEntry(providerConfig, providerId);
 }
@@ -2129,6 +2179,11 @@ function bindUiEvents(): void {
 
   bindProjectModalActions(projectModalActions);
   bindProjectModalClose(closeProjectModal);
+  bindFolderImportActions({
+    onSelect: () => void handleSelectImportFolder(),
+    onConfirm: () => void handleConfirmImport(),
+    onCancel: () => void handleCancelImport(),
+  });
   bindProjectNavActions(projectNavActions);
 
   getElements().btnToggleMemo.addEventListener("click", toggleMemo);

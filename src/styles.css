@@ -1048,6 +1048,28 @@ button#btn-cancel:hover:not(:disabled) {
   background-color: rgba(255, 107, 107, 0.1);
 }
 
+.import-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.import-preview-summary {
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.import-preview-row {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.import-preview-empty {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
 .project-form {
   display: flex;
   gap: 0.5rem;

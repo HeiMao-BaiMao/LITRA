@@ -63,6 +63,12 @@ export interface AppElements {
   projectTitleInput: HTMLInputElement;
   btnCreateProject: HTMLButtonElement;
   btnCloseProjectModal: HTMLButtonElement;
+  btnImportFolder: HTMLButtonElement;
+  folderImportInput: HTMLInputElement;
+  importPreviewModal: HTMLElement;
+  importPreviewList: HTMLElement;
+  btnConfirmImport: HTMLButtonElement;
+  btnCancelImport: HTMLButtonElement;
 }
 
 let elements: AppElements | null = null;
@@ -136,6 +142,12 @@ export function getElements(): AppElements {
   const projectTitleInput = document.querySelector<HTMLInputElement>("#project-title-input");
   const btnCreateProject = document.querySelector<HTMLButtonElement>("#btn-create-project");
   const btnCloseProjectModal = document.querySelector<HTMLButtonElement>("#btn-close-project-modal");
+  const btnImportFolder = document.querySelector<HTMLButtonElement>("#btn-import-folder");
+  const folderImportInput = document.querySelector<HTMLInputElement>("#folder-import-input");
+  const importPreviewModal = document.querySelector<HTMLElement>("#import-preview-modal");
+  const importPreviewList = document.querySelector<HTMLElement>("#import-preview-list");
+  const btnConfirmImport = document.querySelector<HTMLButtonElement>("#btn-confirm-import");
+  const btnCancelImport = document.querySelector<HTMLButtonElement>("#btn-cancel-import");
 
   if (
     !editor ||
@@ -201,7 +213,13 @@ export function getElements(): AppElements {
     !projectList ||
     !projectTitleInput ||
     !btnCreateProject ||
-    !btnCloseProjectModal
+    !btnCloseProjectModal ||
+    !btnImportFolder ||
+    !folderImportInput ||
+    !importPreviewModal ||
+    !importPreviewList ||
+    !btnConfirmImport ||
+    !btnCancelImport
   ) {
     throw new Error("Required DOM elements are missing");
   }
@@ -271,6 +289,12 @@ export function getElements(): AppElements {
     projectTitleInput,
     btnCreateProject,
     btnCloseProjectModal,
+    btnImportFolder,
+    folderImportInput,
+    importPreviewModal,
+    importPreviewList,
+    btnConfirmImport,
+    btnCancelImport,
   };
 
   return elements;

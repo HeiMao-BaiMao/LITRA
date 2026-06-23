@@ -288,7 +288,27 @@
           </div>
           <div id="project-list" class="project-list"></div>
           <div class="modal-actions">
+            <input
+              type="file"
+              id="folder-import-input"
+              webkitdirectory
+              directory
+              style="display: none"
+            />
+            <button id="btn-import-folder" type="button">フォルダから取り込む</button>
             <button id="btn-close-project-modal" type="button">閉じる</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="import-preview-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-dialog">
+          <h2>フォルダ取り込みプレビュー</h2>
+          <div id="import-preview-list" class="import-preview-list"></div>
+          <div class="modal-actions">
+            <button id="btn-confirm-import" type="button">取り込む</button>
+            <button id="btn-cancel-import" type="button">キャンセル</button>
           </div>
         </div>
       </div>
