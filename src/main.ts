@@ -101,6 +101,7 @@ import {
   renderImportLoading,
   renderImportPreview,
   renderImportResult,
+  renderImportResultWithReview,
   showImportPreviewModal,
   renderProjectList,
   showProjectModal,
@@ -2281,11 +2282,30 @@ async function handleConfirmImport(): Promise<void> {
     return;
   }
 
-  renderImportLoading("取り込み中...");
+  const { chkImportDoubleCheck } = getElements();
+  const enableDoubleCheck = chkImportDoubleCheck.checked;
+
+  renderImportLoading(enableDoubleCheck ? "取り込み中...（整合性チェックあり）" : "取り込み中...");
 
   try {
     const result = await applyImport(currentProject.id, pendingImportCandidates, pendingImportFiles, currentSettings);
-    renderImportResult(result);
+
+    if (enableDoubleCheck) {
+      renderImportLoading("整合性チェック中...");
+      const { reviewAndFixImportedData } = await import("./project/import-review.ts");
+      const summary = [
+        `キャラクター: ${result.characters} 件`,
+        `世界観: ${result.worldEntries} 件`,
+        `エピソード: ${result.episodes} 件`,
+        `覚え書き: ${result.memos} 件`,
+        `作品メモ: ${result.projectMemos} 件`,
+        `人間関係: ${result.relationships} 件`,
+      ].join("\n");
+      const reviewResult = await reviewAndFixImportedData(currentProject.id, currentSettings, summary);
+      renderImportResultWithReview(result, reviewResult);
+    } else {
+      renderImportResult(result);
+    }
 
     pendingImportFiles = [];
     pendingImportCandidates = [];

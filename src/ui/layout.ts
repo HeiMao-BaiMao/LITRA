@@ -74,6 +74,7 @@ export interface AppElements {
   importPreviewList: HTMLElement;
   btnConfirmImport: HTMLButtonElement;
   btnCancelImport: HTMLButtonElement;
+  chkImportDoubleCheck: HTMLInputElement;
 }
 
 let elements: AppElements | null = null;
@@ -158,6 +159,7 @@ export function getElements(): AppElements {
   const importPreviewList = document.querySelector<HTMLElement>("#import-preview-list");
   const btnConfirmImport = document.querySelector<HTMLButtonElement>("#btn-confirm-import");
   const btnCancelImport = document.querySelector<HTMLButtonElement>("#btn-cancel-import");
+  const chkImportDoubleCheck = document.querySelector<HTMLInputElement>("#chk-import-double-check");
 
   if (
     !editor ||
@@ -234,7 +236,8 @@ export function getElements(): AppElements {
     !importPreviewModal ||
     !importPreviewList ||
     !btnConfirmImport ||
-    !btnCancelImport
+    !btnCancelImport ||
+    !chkImportDoubleCheck
   ) {
     throw new Error("Required DOM elements are missing");
   }
@@ -315,6 +318,7 @@ export function getElements(): AppElements {
     importPreviewList,
     btnConfirmImport,
     btnCancelImport,
+    chkImportDoubleCheck,
   };
 
   return elements;

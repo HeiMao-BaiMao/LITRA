@@ -1,6 +1,7 @@
 import { getElements } from "./layout.ts";
 import type { ProjectSummary } from "../project/repository.ts";
 import type { AiImportCandidate, ImportResult } from "../project/import.ts";
+import type { ImportReviewResult } from "../project/import-review.ts";
 
 export interface ProjectModalActions {
   onCreate: () => void;
@@ -230,6 +231,36 @@ export function renderImportResult(result: ImportResult): void {
   }
 
   for (const text of rows) {
+    const row = document.createElement("div");
+    row.className = "import-preview-row";
+    row.textContent = text;
+    list.appendChild(row);
+  }
+}
+
+export function renderImportResultWithReview(result: ImportResult, review: ImportReviewResult): void {
+  renderImportResult(result);
+  const list = getElements().importPreviewList;
+
+  const reviewSummary = document.createElement("div");
+  reviewSummary.className = "import-preview-summary";
+  reviewSummary.textContent = "整合性チェックによる修正:";
+  reviewSummary.style.marginTop = "1rem";
+  list.appendChild(reviewSummary);
+
+  const reviewRows = [
+    `更新されたキャラクター: ${review.updatedCharacters} 件`,
+    `更新された世界観: ${review.updatedWorldEntries} 件`,
+    `追加された人間関係: ${review.createdRelationships} 件`,
+    `追加された作品メモ: ${review.createdProjectMemos} 件`,
+    `更新された覚え書き: ${review.updatedEpisodeMemos} 件`,
+  ].filter((text) => !text.includes("0 件"));
+
+  if (reviewRows.length === 0) {
+    reviewRows.push("修正はありませんでした。");
+  }
+
+  for (const text of reviewRows) {
     const row = document.createElement("div");
     row.className = "import-preview-row";
     row.textContent = text;
