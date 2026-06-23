@@ -166,7 +166,7 @@ function wrapToolExecute<TInput, TOutput>(
 export interface EditToolDependencies {
   projectId: string;
   episodeId: string;
-  onApply: (newText: string) => void;
+  onApply: (newText: string, targetEpisodeId: string) => void;
 }
 
 export interface SearchDependencies {
@@ -225,6 +225,10 @@ interface BatchEditItemResponse {
 
 const editInputSchema = z
   .object({
+    episodeId: z
+      .string()
+      .optional()
+      .describe("編集対象のエピソードID。省略時は現在開いているエピソード。"),
     startLine: z.number().int().min(1).describe("置き換え開始行（1始まり）"),
     endLine: z.number().int().min(1).describe("置き換え終了行（1始まり）"),
     expectedText: z.string().describe("該当行範囲の現在の正確なテキスト"),
@@ -241,7 +245,8 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
       "指定した行範囲の内容が完全一致している場合に、その範囲を置き換えます。行番号は1始まりです。startLine/endLine は本文の総行数以内である必要があり、範囲が不明な場合は事前に getEpisodeLines で総行数と内容を確認してください。expectedText には該当行範囲の現在のテキストを改行・空白・全角半角まで含めて完全一致で指定してください。1文字でも違うと失敗します。replacementText には置き換え後の正確なテキストを指定してください。",
 
     inputSchema: editInputSchema,
-    execute: wrapToolExecute("editEpisode", async ({ startLine, endLine, expectedText, replacementText }) => {
+    execute: wrapToolExecute("editEpisode", async ({ episodeId, startLine, endLine, expectedText, replacementText }) => {
+      const targetEpisodeId = episodeId ?? deps.episodeId;
       const result = await invoke<{
         success: boolean;
         message: string;
@@ -251,7 +256,7 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
       }>("edit_episode_text", {
         req: {
           projectId: deps.projectId,
-          episodeId: deps.episodeId,
+          episodeId: targetEpisodeId,
           startLine,
           endLine,
           expectedText,
@@ -259,7 +264,7 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
         },
       });
       if (result.success && result.newText != null) {
-        deps.onApply(result.newText);
+        deps.onApply(result.newText, targetEpisodeId);
       }
       const searchIndexUpdated = result.success ? await rebuildSearchIndexQuietly(deps.projectId) : false;
       return {
@@ -277,6 +282,10 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
 }
 
 const batchEditInputSchema = z.object({
+  episodeId: z
+    .string()
+    .optional()
+    .describe("編集対象のエピソードID。省略時は現在開いているエピソード。"),
   edits: z
     .array(editInputSchema)
     .min(1)
@@ -289,7 +298,8 @@ export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
     description:
       "現在開いているエピソード本文の複数の非連続範囲を、1回のツール呼び出しでまとめて置き換えます。各 expectedText は対象行範囲の現在のテキストと改行・空白・全角半角まで含めて完全一致している必要があります。1文字でも違うと失敗します。startLine/endLine は本文の総行数以内である必要があり、範囲が不明な場合は事前に getEpisodeLines で確認してください。すべての expectedText が一致し、範囲が重複しない場合だけ一括適用されます。startLine/endLine はすべて編集前の本文に対する行番号です。",
     inputSchema: batchEditInputSchema,
-    execute: wrapToolExecute("editEpisodeBatch", async ({ edits }) => {
+    execute: wrapToolExecute("editEpisodeBatch", async ({ episodeId, edits }) => {
+      const targetEpisodeId = episodeId ?? deps.episodeId;
       const result = await invoke<{
         success: boolean;
         message: string;
@@ -300,12 +310,12 @@ export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
       }>("edit_episode_text_batch", {
         req: {
           projectId: deps.projectId,
-          episodeId: deps.episodeId,
+          episodeId: targetEpisodeId,
           edits,
         },
       });
       if (result.success && result.newText != null) {
-        deps.onApply(result.newText);
+        deps.onApply(result.newText, targetEpisodeId);
       }
       const searchIndexUpdated = result.success ? await rebuildSearchIndexQuietly(deps.projectId) : false;
       return {

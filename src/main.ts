@@ -478,7 +478,8 @@ function createAiTools(): ToolSet | undefined {
     tools.editEpisode = createEditEpisodeTool({
       projectId: currentProject.id,
       episodeId: state.currentEpisodeId,
-      onApply: (newText) => {
+      onApply: (newText, targetEpisodeId) => {
+        if (state.currentEpisodeId !== targetEpisodeId) return;
         const { editor } = getElements();
         editor.value = newText;
         state.editorText = newText;
@@ -487,7 +488,8 @@ function createAiTools(): ToolSet | undefined {
     tools.editEpisodeBatch = createEditEpisodeBatchTool({
       projectId: currentProject.id,
       episodeId: state.currentEpisodeId,
-      onApply: (newText) => {
+      onApply: (newText, targetEpisodeId) => {
+        if (state.currentEpisodeId !== targetEpisodeId) return;
         const { editor } = getElements();
         editor.value = newText;
         state.editorText = newText;
