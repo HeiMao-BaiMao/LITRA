@@ -2,7 +2,10 @@ import type { AiSettings } from "../settings.ts";
 
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
 
-export function buildProviderOptions(settings: AiSettings): Record<string, Record<string, JSONValue>> | undefined {
+export function buildProviderOptions(
+  settings: AiSettings,
+  toolsEnabled = false,
+): Record<string, Record<string, JSONValue>> | undefined {
   switch (settings.provider) {
     case "openai": {
       if (!settings.openaiReasoningEffort) return undefined;
@@ -24,9 +27,15 @@ export function buildProviderOptions(settings: AiSettings): Record<string, Recor
       };
     }
     case "deepseek": {
+      if (toolsEnabled) {
+        // DeepSeek の thinking モードはツール呼び出しに対応していない。
+        return {
+          deepseek: { thinking: { type: "disabled" } },
+        };
+      }
       const options: Record<string, JSONValue> = {
         // DeepSeek V4 系は thinking がデフォルトで有効。温度・top_p・ペナルティ類は
-        // thinking モードで無視されるため、ここでは常に有効にしておく。
+        // thinking モードで無視されるため、通常時はここで有効にしておく。
         thinking: { type: "enabled" },
       };
       if (settings.deepseekReasoningEffort) {

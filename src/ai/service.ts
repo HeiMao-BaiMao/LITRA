@@ -15,18 +15,20 @@ function buildSystem(basePrompt: string, settingsContext?: string): string {
   return `${basePrompt}\n\n以下は本作の設定資料です。本文やフィードバックに矛盾がないよう参照してください。\n\n${settingsContext}`;
 }
 
-function isDeepSeekSamplingIgnored(settings: AiSettings): boolean {
-  return settings.provider === "deepseek";
+function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean): boolean {
+  // DeepSeek の thinking モードはツール呼び出しと両立しない。
+  // ツールを使う場合は thinking を無効にし、サンプリングパラメータを有効にする。
+  return settings.provider === "deepseek" && !toolsEnabled;
 }
 
-function buildTemperatureOption(settings: AiSettings) {
+function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
   // DeepSeek の thinking モードでは temperature は無視される。
-  return isDeepSeekSamplingIgnored(settings) ? {} : { temperature: settings.temperature };
+  return isDeepSeekThinkingEnabled(settings, toolsEnabled) ? {} : { temperature: settings.temperature };
 }
 
-function buildAdvancedOptions(settings: AiSettings) {
-  const providerOptions = buildProviderOptions(settings);
-  const ignoreSampling = isDeepSeekSamplingIgnored(settings);
+function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
+  const providerOptions = buildProviderOptions(settings, toolsEnabled);
+  const ignoreSampling = isDeepSeekThinkingEnabled(settings, toolsEnabled);
   return {
     ...(!ignoreSampling && settings.topP !== undefined && { topP: settings.topP }),
     ...(!ignoreSampling && settings.topK !== undefined && { topK: settings.topK }),
@@ -296,17 +298,18 @@ export async function streamChat({
 }: StreamChatOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
+    const toolsEnabled = tools != null && Object.keys(tools).length > 0;
     const result = streamText({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       messages,
-      ...buildTemperatureOption(s),
+      ...buildTemperatureOption(s, toolsEnabled),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
       toolChoice,
-      stopWhen: stopWhen ?? (tools ? isLoopFinished() : undefined),
-      ...buildAdvancedOptions(s),
+      stopWhen: stopWhen ?? (toolsEnabled ? isLoopFinished() : undefined),
+      ...buildAdvancedOptions(s, toolsEnabled),
     });
 
     return await consumeStream(result, onChunk, onToolEvent);
@@ -327,16 +330,17 @@ export async function streamContinuation({
 }: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
+    const toolsEnabled = tools != null && Object.keys(tools).length > 0;
     const result = streamText({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildContinuationPrompt(context),
-      ...buildTemperatureOption(s),
+      ...buildTemperatureOption(s, toolsEnabled),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
-      stopWhen: tools ? isLoopFinished() : undefined,
-      ...buildAdvancedOptions(s),
+      stopWhen: toolsEnabled ? isLoopFinished() : undefined,
+      ...buildAdvancedOptions(s, toolsEnabled),
     });
 
     return await consumeStream(result, onChunk, onToolEvent);
@@ -360,10 +364,10 @@ export async function streamRewrite({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildRewritePrompt(selection, context),
-      ...buildTemperatureOption(s),
+      ...buildTemperatureOption(s, false),
       maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(s),
+      ...buildAdvancedOptions(s, false),
     });
 
     return await consumeStream(result, onChunk);
@@ -386,10 +390,10 @@ export async function streamFeedback({
       model: createModel(s),
       system: buildSystem(systemPrompt, settingsContext),
       prompt: buildFeedbackPrompt(selection),
-      ...buildTemperatureOption(s),
+      ...buildTemperatureOption(s, false),
       maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(s),
+      ...buildAdvancedOptions(s, false),
     });
 
     return await consumeStream(result, onChunk);
