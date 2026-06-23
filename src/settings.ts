@@ -5,11 +5,20 @@ export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacp
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
+export interface ProviderSpecificSettings {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
 export interface AiSettings {
   provider: Provider;
   apiKey: string;
   baseUrl: string;
   model: string;
+  providerConfigs: Record<Provider, ProviderSpecificSettings>;
+  chatProvider?: Provider;
+  chatModel?: string;
   temperature: number;
   maxTokens: number;
   maxContextTokens: number;
@@ -26,6 +35,8 @@ export interface AiSettings {
 const STORE_NAME = "phenex-settings.json";
 
 const DEFAULT_PROVIDER: Provider = "openai";
+
+const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura"];
 
 async function getStore(): Promise<Store> {
   return load(STORE_NAME, { defaults: {}, autoSave: true });
@@ -71,40 +82,80 @@ function isProvider(value: unknown): value is Provider {
   );
 }
 
+function migrateLegacyModel(provider: Provider, model: string): string {
+  if (provider === "deepseek" && model === "deepseek-chat") {
+    console.warn('[phenex:settings] migrating legacy DeepSeek model "deepseek-chat" to "deepseek-v4-flash"');
+    return "deepseek-v4-flash";
+  }
+  if (provider === "deepseek" && model === "deepseek-reasoner") {
+    console.warn(
+      '[phenex:settings] migrating legacy DeepSeek model "deepseek-reasoner" to "deepseek-v4-flash" with thinking enabled',
+    );
+    return "deepseek-v4-flash";
+  }
+  return model;
+}
+
 export async function loadSettings(): Promise<AiSettings> {
   const store = await getStore();
   const storedProvider = await store.get("provider");
   const provider = isProvider(storedProvider) ? storedProvider : DEFAULT_PROVIDER;
 
   const config = await loadProviderConfig();
-  const entry = getProviderEntry(config, provider);
 
   const legacyReasoningEffort = await store.get<string>("reasoningEffort");
   const legacyThinkingEnabled = await store.get<boolean>("thinkingEnabled");
   const legacyThinkingBudget = await store.get<number>("thinkingBudget");
 
-  let model = ((await store.get<string>("model")) ?? "").trim();
-  if (!model) {
-    model = entry?.defaultModel ?? "";
-  }
-  // DeepSeek の旧モデル名を v4 系に移行する。
-  // legacy: deepseek-chat    -> v4-flash + thinking disabled
-  // legacy: deepseek-reasoner -> v4-flash + thinking enabled
-  if (provider === "deepseek" && model === "deepseek-chat") {
-    console.warn('[phenex:settings] migrating legacy DeepSeek model "deepseek-chat" to "deepseek-v4-flash"');
-    model = "deepseek-v4-flash";
-  } else if (provider === "deepseek" && model === "deepseek-reasoner") {
-    console.warn('[phenex:settings] migrating legacy DeepSeek model "deepseek-reasoner" to "deepseek-v4-flash" with thinking enabled');
-    model = "deepseek-v4-flash";
+  const legacyApiKey = ((await store.get<string>("apiKey")) ?? "").trim();
+  const legacyBaseUrl = ((await store.get<string>("baseUrl")) ?? "").trim();
+  const legacyModel = ((await store.get<string>("model")) ?? "").trim();
+
+  const storedProviderConfigs = await store.get<unknown>("providerConfigs");
+  const previousConfigs: Partial<Record<Provider, Partial<ProviderSpecificSettings>>> =
+    typeof storedProviderConfigs === "object" && storedProviderConfigs !== null
+      ? (storedProviderConfigs as Partial<Record<Provider, Partial<ProviderSpecificSettings>>>)
+      : {};
+
+  const providerConfigs = {} as Record<Provider, ProviderSpecificSettings>;
+
+  for (const p of ALL_PROVIDERS) {
+    const entry = getProviderEntry(config, p);
+    const previous = previousConfigs[p] ?? {};
+
+    let model = (previous.model ?? "").trim();
+    let apiKey = (previous.apiKey ?? "").trim();
+    let baseUrl = (previous.baseUrl ?? "").trim();
+
+    if (p === provider) {
+      if (!model) model = legacyModel;
+      if (!apiKey) apiKey = legacyApiKey;
+      if (!baseUrl) baseUrl = legacyBaseUrl;
+    }
+
+    if (!model) model = entry?.defaultModel ?? "";
+    if (!baseUrl) baseUrl = entry?.defaultBaseUrl ?? "";
+
+    model = migrateLegacyModel(p, model);
+
+    providerConfigs[p] = { apiKey, baseUrl, model };
   }
 
-  const modelDefaults = getProviderModelDefaults(entry, model);
+  const activeConfig = providerConfigs[provider];
+  const model = activeConfig.model;
+  const modelDefaults = getProviderModelDefaults(getProviderEntry(config, provider), model);
+
+  const chatProvider = await store.get("chatProvider");
+  const chatModel = await store.get<string>("chatModel");
 
   const base: AiSettings = {
     provider,
-    apiKey: ((await store.get<string>("apiKey")) ?? "").trim(),
-    baseUrl: ((await store.get<string>("baseUrl")) ?? "").trim() || (entry?.defaultBaseUrl ?? ""),
+    apiKey: activeConfig.apiKey,
+    baseUrl: activeConfig.baseUrl,
     model,
+    providerConfigs,
+    chatProvider: isProvider(chatProvider) ? chatProvider : undefined,
+    chatModel: chatModel ?? undefined,
     temperature: optionalNumber(await store.get("temperature")) ?? modelDefaults?.temperature ?? 0.7,
     maxTokens: optionalNumber(await store.get("maxTokens")) ?? modelDefaults?.maxTokens ?? 8192,
     maxContextTokens: optionalNumber(await store.get("maxContextTokens")) ?? modelDefaults?.maxContextTokens ?? 65536,
@@ -151,6 +202,9 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("apiKey", settings.apiKey);
   await store.set("baseUrl", settings.baseUrl);
   await store.set("model", settings.model);
+  await store.set("providerConfigs", settings.providerConfigs);
+  await store.set("chatProvider", settings.chatProvider ?? null);
+  await store.set("chatModel", settings.chatModel ?? null);
   await store.set("temperature", settings.temperature);
   await store.set("maxTokens", settings.maxTokens);
   await store.set("maxContextTokens", settings.maxContextTokens);
@@ -163,4 +217,27 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
   await store.set("anthropicThinkingBudget", settings.anthropicThinkingBudget);
   await store.save();
+}
+
+export function getProviderSpecificSettings(
+  settings: AiSettings,
+  provider: Provider,
+): ProviderSpecificSettings {
+  return settings.providerConfigs[provider] ?? { apiKey: "", baseUrl: "", model: "" };
+}
+
+export function resolveChatSettings(settings: AiSettings): AiSettings {
+  const provider = settings.chatProvider ?? settings.provider;
+  const specific = getProviderSpecificSettings(settings, provider);
+  return {
+    ...settings,
+    provider,
+    apiKey: specific.apiKey,
+    baseUrl: specific.baseUrl,
+    model: settings.chatModel ?? specific.model,
+  };
+}
+
+export function getActiveProvider(settings: AiSettings): Provider {
+  return settings.chatProvider ?? settings.provider;
 }

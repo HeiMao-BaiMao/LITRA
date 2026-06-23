@@ -4,7 +4,9 @@ import type {
   DeepSeekReasoningEffort,
   OpenAIReasoningEffort,
   Provider,
+  ProviderSpecificSettings,
 } from "../settings.ts";
+import { getProviderEntry } from "../providers/config.ts";
 import {
   getProviderModelDefaults,
   getProviderModelIds,
@@ -12,6 +14,49 @@ import {
   type ProviderEntry,
 } from "../providers/config.ts";
 import { DEEPSEEK_FIXED_MODELS } from "../ai/model-list.ts";
+
+let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = null;
+let modalProviderConfig: ProviderConfig | null = null;
+let modalCurrentProvider: Provider = "openai";
+
+const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura"];
+
+function captureProviderConfig(provider: Provider): void {
+  if (!modalProviderConfigs) return;
+  const {
+    settingApiKey,
+    settingBaseUrl,
+    settingModel,
+    settingModelSelect,
+  } = getElements();
+  const model = provider === "deepseek" ? settingModelSelect.value.trim() : settingModel.value.trim();
+  modalProviderConfigs[provider] = {
+    apiKey: settingApiKey.value.trim(),
+    baseUrl: settingBaseUrl.value.trim(),
+    model,
+  };
+}
+
+function applyProviderConfig(provider: Provider): void {
+  if (!modalProviderConfigs || !modalProviderConfig) return;
+  const {
+    settingApiKey,
+    settingBaseUrl,
+    settingModel,
+    settingModelSelect,
+  } = getElements();
+  const entry = getProviderEntry(modalProviderConfig, provider);
+  const config = modalProviderConfigs[provider] ?? {
+    apiKey: "",
+    baseUrl: entry?.defaultBaseUrl ?? "",
+    model: entry?.defaultModel ?? "",
+  };
+
+  settingApiKey.value = config.apiKey;
+  settingBaseUrl.value = config.baseUrl || (entry?.defaultBaseUrl ?? "");
+  settingModel.value = config.model || (entry?.defaultModel ?? "");
+  settingModelSelect.value = config.model || (entry?.defaultModel ?? "");
+}
 
 export function renderProviderOptions(config: ProviderConfig): void {
   const { settingProvider } = getElements();
@@ -170,12 +215,22 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string): 
   settingAnthropicThinkingBudget.value = optionalNumberInput(defaults.anthropicThinkingBudget);
 }
 
-export function renderSettings(settings: AiSettings): void {
+export function renderSettings(settings: AiSettings, config: ProviderConfig): void {
+  modalProviderConfig = config;
+  modalProviderConfigs = { ...settings.providerConfigs } as Record<Provider, ProviderSpecificSettings>;
+  for (const p of ALL_PROVIDERS) {
+    if (!modalProviderConfigs[p]) {
+      const entry = getProviderEntry(config, p);
+      modalProviderConfigs[p] = {
+        apiKey: "",
+        baseUrl: entry?.defaultBaseUrl ?? "",
+        model: entry?.defaultModel ?? "",
+      };
+    }
+  }
+
   const {
     settingProvider,
-    settingApiKey,
-    settingBaseUrl,
-    settingModel,
     settingTemperature,
     settingMaxTokens,
     settingMaxContextTokens,
@@ -189,13 +244,8 @@ export function renderSettings(settings: AiSettings): void {
     settingAnthropicThinkingBudget,
   } = getElements();
 
-  const { settingModelSelect } = getElements();
-
   settingProvider.value = settings.provider;
-  settingApiKey.value = settings.apiKey;
-  settingBaseUrl.value = settings.baseUrl;
-  settingModel.value = settings.model;
-  settingModelSelect.value = settings.model;
+  modalCurrentProvider = settings.provider;
   settingTemperature.value = String(settings.temperature);
   settingMaxTokens.value = String(settings.maxTokens);
   settingMaxContextTokens.value = String(settings.maxContextTokens);
@@ -208,20 +258,18 @@ export function renderSettings(settings: AiSettings): void {
   settingAnthropicThinkingEnabled.checked = settings.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
 
+  applyProviderConfig(settings.provider);
   updateAdvancedVisibility(settings.provider);
   updateModelFetchState(settings.provider);
   updateModelInputMode(settings.provider);
   updateSamplingControlsVisibility(settings.provider);
-  populateDeepSeekModelSelect(settings.model);
+  populateDeepSeekModelSelect(modalProviderConfigs[settings.provider].model);
+  populateConfiguredModelList(getProviderEntry(config, settings.provider));
 }
 
 export function readSettingsFromModal(): AiSettings {
   const {
     settingProvider,
-    settingApiKey,
-    settingBaseUrl,
-    settingModel,
-    settingModelSelect,
     settingTemperature,
     settingMaxTokens,
     settingMaxContextTokens,
@@ -236,14 +284,20 @@ export function readSettingsFromModal(): AiSettings {
   } = getElements();
 
   const provider = settingProvider.value as Provider;
-  const model =
-    provider === "deepseek" ? settingModelSelect.value.trim() : settingModel.value.trim();
+  captureProviderConfig(provider);
+
+  if (!modalProviderConfigs) {
+    throw new Error("settings modal has not been rendered");
+  }
+
+  const activeConfig = modalProviderConfigs[provider];
 
   return {
     provider,
-    apiKey: settingApiKey.value.trim(),
-    baseUrl: settingBaseUrl.value.trim(),
-    model,
+    apiKey: activeConfig.apiKey,
+    baseUrl: activeConfig.baseUrl,
+    model: activeConfig.model,
+    providerConfigs: modalProviderConfigs,
     temperature: Number(settingTemperature.value),
     maxTokens: Number(settingMaxTokens.value),
     maxContextTokens: Number(settingMaxContextTokens.value),
@@ -295,33 +349,36 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
   const { settingProvider, settingModel, settingModelSelect } = getElements();
 
   settingProvider.addEventListener("change", () => {
-    const { provider } = readSettingsFromModal();
+    const previousProvider = modalCurrentProvider;
+    const provider = settingProvider.value as Provider;
+
+    captureProviderConfig(previousProvider);
+    modalCurrentProvider = provider;
+    applyProviderConfig(provider);
 
     const entry = actions.onChange(provider);
-    if (entry) {
-      const { settingBaseUrl } = getElements();
-      settingBaseUrl.value = entry.defaultBaseUrl;
-      settingModel.value = entry.defaultModel;
-      settingModelSelect.value = entry.defaultModel;
-    }
 
     updateAdvancedVisibility(provider);
     updateModelFetchState(provider);
     updateModelInputMode(provider);
     updateSamplingControlsVisibility(provider);
-    populateDeepSeekModelSelect(entry?.defaultModel ?? "");
+    populateDeepSeekModelSelect(modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
     populateConfiguredModelList(entry);
-    applyModelDefaults(entry, entry?.defaultModel ?? "");
+    applyModelDefaults(entry, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
   });
 
   settingModel.addEventListener("change", () => {
-    const { provider, model } = readSettingsFromModal();
-    applyModelDefaults(actions.onChange(provider), model);
+    if (!modalProviderConfig) return;
+    const provider = modalCurrentProvider;
+    captureProviderConfig(provider);
+    applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "");
   });
 
   settingModelSelect.addEventListener("change", () => {
-    const { provider, model } = readSettingsFromModal();
-    applyModelDefaults(actions.onChange(provider), model);
+    if (!modalProviderConfig) return;
+    const provider = modalCurrentProvider;
+    captureProviderConfig(provider);
+    applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "");
   });
 }
 

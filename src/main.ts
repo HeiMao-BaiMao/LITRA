@@ -9,7 +9,14 @@ import {
   saveWindowDetached,
   trackWindowBounds,
 } from "./window/bounds.ts";
-import { loadSettings, saveSettings, type AiSettings } from "./settings.ts";
+import {
+  loadSettings,
+  saveSettings,
+  type AiSettings,
+  type Provider,
+  resolveChatSettings,
+  getProviderSpecificSettings,
+} from "./settings.ts";
 import { state, type ProjectView } from "./state.ts";
 import {
   streamChat,
@@ -305,6 +312,22 @@ function validateSettings(): boolean {
     return false;
   }
   if (!currentSettings.model.trim()) {
+    window.alert("モデル名を設定してください。");
+    openSettings();
+    return false;
+  }
+  return true;
+}
+
+function validateChatSettings(): boolean {
+  const chatSettings = resolveChatSettings(currentSettings);
+  const entry = getProviderEntry(providerConfig, chatSettings.provider);
+  if (providerRequiresApiKey(entry) && !chatSettings.apiKey) {
+    window.alert(`${entry?.name ?? chatSettings.provider} の API キーを設定してください。`);
+    openSettings();
+    return false;
+  }
+  if (!chatSettings.model.trim()) {
     window.alert("モデル名を設定してください。");
     openSettings();
     return false;
@@ -663,9 +686,10 @@ async function streamChatOnce(
   messages: ModelMessage[],
   controller: AbortController,
   allowTools: boolean,
+  settings: AiSettings,
 ) {
   return await streamChat({
-    settings: currentSettings,
+    settings,
     messages,
     settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
     tools: allowTools ? createAiTools() : undefined,
@@ -680,10 +704,11 @@ async function streamChatOnce(
 async function streamChatWithAutoContinuation(
   initialMessages: ModelMessage[],
   controller: AbortController,
+  settings: AiSettings,
 ) {
   let messages = initialMessages;
   let toolCallRetryCount = 0;
-  let run = await streamChatOnce(messages, controller, true);
+  let run = await streamChatOnce(messages, controller, true, settings);
   finalizeToolRun(run);
 
   while (!controller.signal.aborted) {
@@ -707,7 +732,7 @@ async function streamChatWithAutoContinuation(
           content: `${CHAT_TOOL_CALL_RETRY_PROMPT}\n\n【直前に生成された未実行の説明文】\n${limitPromptText(missedText, 4000, "head")}`,
         },
       ];
-      run = await streamChatOnce(messages, controller, true);
+      run = await streamChatOnce(messages, controller, true, settings);
       finalizeToolRun(run);
       continue;
     }
@@ -721,7 +746,7 @@ async function streamChatWithAutoContinuation(
       ...buildChatMessagesForModel(),
       { role: "user", content: CHAT_LENGTH_CONTINUATION_PROMPT },
     ];
-    run = await streamChatOnce(messages, controller, false);
+    run = await streamChatOnce(messages, controller, false, settings);
     finalizeToolRun(run);
   }
 
@@ -894,7 +919,10 @@ async function openChatWindow(): Promise<void> {
   });
 
   webview.once("tauri://created", () => {
-    setTimeout(() => syncChatToWindow(), 500);
+    setTimeout(() => {
+      syncChatToWindow();
+      syncChatSettingsToWindow();
+    }, 500);
     void applyWindowBounds(webview, "chat");
     trackWindowBounds(webview, "chat");
   });
@@ -1831,7 +1859,8 @@ async function handleFeedback(): Promise<void> {
 }
 
 async function handleChatMessage(): Promise<void> {
-  console.log("[phenex] handleChatMessage start", { provider: currentSettings.provider, model: currentSettings.model, maxTokens: currentSettings.maxTokens });
+  const chatSettings = resolveChatSettings(currentSettings);
+  console.log("[phenex] handleChatMessage start", { provider: chatSettings.provider, model: chatSettings.model, maxTokens: chatSettings.maxTokens });
   const controller = startGeneration();
   try {
     // 空応答の場合でも UI に何か表示できるよう、事前に空のアシスタント返答枠を用意する
@@ -1843,7 +1872,7 @@ async function handleChatMessage(): Promise<void> {
     const messages = buildChatMessagesForModel();
     console.log("[phenex] streaming chat with messages:", messages.length);
 
-    const run = await streamChatWithAutoContinuation(messages, controller);
+    const run = await streamChatWithAutoContinuation(messages, controller, chatSettings);
     if (run.stoppedAfterToolActivity) {
       appendToolInterruptedFallback();
     }
@@ -1892,7 +1921,7 @@ async function handleChatCommand(message: string): Promise<boolean> {
 }
 
 async function handleChatSubmit(): Promise<void> {
-  if (!validateProject() || !validateSettings()) return;
+  if (!validateProject() || !validateChatSettings()) return;
 
   if (state.currentEpisodeId) {
     await saveCurrentEpisode();
@@ -1908,9 +1937,75 @@ async function handleChatSubmit(): Promise<void> {
   await handleChatMessage();
 }
 
+function renderChatProviderOptions(): void {
+  const { chatProviderSelect } = getElements();
+  chatProviderSelect.innerHTML = "";
+  for (const provider of providerConfig.providers) {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.name;
+    chatProviderSelect.appendChild(option);
+  }
+}
+
+function renderChatModelOptions(providerId: Provider): void {
+  const { chatModelSelect } = getElements();
+  const entry = getProviderEntry(providerConfig, providerId);
+  chatModelSelect.innerHTML = "";
+  for (const model of entry?.models ?? []) {
+    const option = document.createElement("option");
+    option.value = model.id;
+    option.textContent = model.label ?? model.id;
+    chatModelSelect.appendChild(option);
+  }
+}
+
+function updateChatSelectorsFromSettings(): void {
+  const { chatProviderSelect, chatModelSelect } = getElements();
+  const provider = currentSettings.chatProvider ?? currentSettings.provider;
+  const model = currentSettings.chatModel ?? getProviderSpecificSettings(currentSettings, provider).model;
+
+  if (chatProviderSelect.value !== provider) {
+    renderChatModelOptions(provider);
+  }
+  chatProviderSelect.value = provider;
+  chatModelSelect.value = model;
+}
+
+async function handleChatProviderChange(): Promise<void> {
+  const { chatProviderSelect, chatModelSelect } = getElements();
+  const provider = chatProviderSelect.value as Provider;
+  currentSettings.chatProvider = provider;
+  renderChatModelOptions(provider);
+  const model = getProviderSpecificSettings(currentSettings, provider).model;
+  currentSettings.chatModel = model;
+  chatModelSelect.value = model;
+  await saveSettings(currentSettings);
+  syncChatSettingsToWindow();
+}
+
+async function handleChatModelChange(): Promise<void> {
+  const { chatModelSelect } = getElements();
+  currentSettings.chatModel = chatModelSelect.value;
+  await saveSettings(currentSettings);
+  syncChatSettingsToWindow();
+}
+
+function bindChatSettingsSelectors(): void {
+  const { chatProviderSelect, chatModelSelect } = getElements();
+  chatProviderSelect.addEventListener("change", () => void handleChatProviderChange());
+  chatModelSelect.addEventListener("change", () => void handleChatModelChange());
+}
+
+function syncChatSettingsToWindow(): void {
+  const provider = currentSettings.chatProvider ?? currentSettings.provider;
+  const model = currentSettings.chatModel ?? getProviderSpecificSettings(currentSettings, provider).model;
+  void emit("chat-settings-sync", { provider, model });
+}
+
 function openSettings(): void {
   renderProviderOptions(providerConfig);
-  renderSettings(currentSettings);
+  renderSettings(currentSettings, providerConfig);
   populateModelList(getProviderModelIds(getProviderEntry(providerConfig, currentSettings.provider)));
   showSettingsModal();
 }
@@ -1918,6 +2013,8 @@ function openSettings(): void {
 async function saveAndCloseSettings(settings: AiSettings): Promise<void> {
   currentSettings = settings;
   await saveSettings(settings);
+  renderChatProviderOptions();
+  updateChatSelectorsFromSettings();
   hideSettingsModal();
 }
 
@@ -2012,6 +2109,7 @@ function bindUiEvents(): void {
   });
 
   bindAdvancedSettingsToggle();
+  bindChatSettingsSelectors();
 
   bindProjectModalActions(projectModalActions);
   bindProjectModalClose(closeProjectModal);
@@ -2062,11 +2160,22 @@ async function init(): Promise<void> {
       apiKey: "",
       baseUrl: "",
       model: "",
+      providerConfigs: {
+        openai: { apiKey: "", baseUrl: "", model: "" },
+        anthropic: { apiKey: "", baseUrl: "", model: "" },
+        deepseek: { apiKey: "", baseUrl: "", model: "" },
+        google: { apiKey: "", baseUrl: "", model: "" },
+        llamacpp: { apiKey: "", baseUrl: "", model: "" },
+        sakura: { apiKey: "", baseUrl: "", model: "" },
+      },
       temperature: 0.7,
       maxTokens: 8192,
       maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
     };
   }
+
+  renderChatProviderOptions();
+  updateChatSelectorsFromSettings();
 
   listen<{ episodeId: string; content: string }>("memo-update", (event) => {
     const { episodeId, content } = event.payload;
@@ -2086,7 +2195,7 @@ async function init(): Promise<void> {
   });
 
   listen<{ content: string }>("chat-send", async (event) => {
-    if (!validateProject() || !validateSettings()) return;
+    if (!validateProject() || !validateChatSettings()) return;
     const content = event.payload.content.trim();
     if (await handleChatCommand(content)) return;
     appendMessage("user", content);
@@ -2099,6 +2208,14 @@ async function init(): Promise<void> {
 
   listen("chat-ready", () => {
     syncChatToWindow();
+    syncChatSettingsToWindow();
+  });
+
+  listen<{ provider: Provider; model: string }>("chat-settings-change", (event) => {
+    currentSettings.chatProvider = event.payload.provider;
+    currentSettings.chatModel = event.payload.model;
+    void saveSettings(currentSettings);
+    updateChatSelectorsFromSettings();
   });
 
   listen<{ episodeId: string; content: string }>("summary-update", (event) => {

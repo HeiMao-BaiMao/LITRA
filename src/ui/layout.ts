@@ -27,6 +27,8 @@ export interface AppElements {
   btnPopoutMemo: HTMLButtonElement;
   episodeMemo: HTMLTextAreaElement;
   chatPanel: HTMLElement;
+  chatProviderSelect: HTMLSelectElement;
+  chatModelSelect: HTMLSelectElement;
   btnToggleChat: HTMLButtonElement;
   btnPopoutChat: HTMLButtonElement;
   settingsSection: HTMLElement;
@@ -97,6 +99,8 @@ export function getElements(): AppElements {
   const btnPopoutMemo = document.querySelector<HTMLButtonElement>("#btn-popout-memo");
   const episodeMemo = document.querySelector<HTMLTextAreaElement>("#episode-memo");
   const chatPanel = document.querySelector<HTMLElement>("#chat-panel");
+  const chatProviderSelect = document.querySelector<HTMLSelectElement>("#chat-provider");
+  const chatModelSelect = document.querySelector<HTMLSelectElement>("#chat-model");
   const btnToggleChat = document.querySelector<HTMLButtonElement>("#btn-toggle-chat");
   const btnPopoutChat = document.querySelector<HTMLButtonElement>("#btn-popout-chat");
   const settingsSection = document.querySelector<HTMLElement>("#settings-section");
@@ -183,6 +187,8 @@ export function getElements(): AppElements {
     !btnPopoutMemo ||
     !episodeMemo ||
     !chatPanel ||
+    !chatProviderSelect ||
+    !chatModelSelect ||
     !btnToggleChat ||
     !btnPopoutChat ||
     !settingsSection ||
@@ -226,6 +232,8 @@ export function getElements(): AppElements {
     btnPopoutMemo,
     episodeMemo,
     chatPanel,
+    chatProviderSelect,
+    chatModelSelect,
     btnToggleChat,
     btnPopoutChat,
     settingsSection,
