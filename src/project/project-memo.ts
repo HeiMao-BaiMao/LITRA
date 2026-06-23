@@ -12,7 +12,9 @@ export async function listProjectMemos(projectId: string): Promise<ProjectMemo[]
 }
 
 export async function createProjectMemo(projectId: string, title: string): Promise<ProjectMemo> {
-  return await invoke<ProjectMemo>("create_project_memo", { projectId, title });
+  return await invoke<ProjectMemo>("create_project_memo", {
+    req: { projectId, title },
+  });
 }
 
 export async function updateProjectMemo(
@@ -21,13 +23,10 @@ export async function updateProjectMemo(
   updates: { title?: string; content?: string },
 ): Promise<ProjectMemo> {
   return await invoke<ProjectMemo>("update_project_memo", {
-    projectId,
-    memoId,
-    title: updates.title,
-    content: updates.content,
+    req: { projectId, memoId, title: updates.title, content: updates.content },
   });
 }
 
 export async function deleteProjectMemo(projectId: string, memoId: string): Promise<void> {
-  await invoke("delete_project_memo", { projectId, memoId });
+  await invoke("delete_project_memo", { req: { projectId, memoId } });
 }
