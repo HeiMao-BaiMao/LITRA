@@ -120,6 +120,7 @@ import {
   loadEpisodeList,
   migrateFromManuscript,
   moveEpisode,
+  moveEpisodeToIndex,
   saveEpisode,
   updateEpisodeTitle,
 } from "./project/episodes.ts";
@@ -1043,6 +1044,7 @@ function renderProjectNavigation(): void {
     onDeleteEpisode: (id) => void handleDeleteEpisode(id),
     onUpdateEpisodeTitle: (id, title) => void handleUpdateEpisodeTitle(id, title),
     onMoveEpisode: (id, direction) => void handleMoveEpisode(id, direction),
+    onMoveEpisodeTo: (draggedId, targetId) => void handleMoveEpisodeTo(draggedId, targetId),
   });
   setActiveNav(state.currentView);
 }
@@ -1209,6 +1211,23 @@ async function handleUpdateEpisodeTitle(episodeId: string, title: string): Promi
 async function handleMoveEpisode(episodeId: string, direction: "up" | "down"): Promise<void> {
   if (!currentProject) return;
   await moveEpisode(currentProject.id, episodeId, direction);
+  episodes = (await loadEpisodeList(currentProject.id)).episodes;
+
+  const current = episodes.find((ep) => ep.id === state.currentEpisodeId);
+  if (current) {
+    await selectEpisode(current.id);
+  }
+
+  renderProjectNavigation();
+}
+
+async function handleMoveEpisodeTo(draggedEpisodeId: string, targetEpisodeId: string): Promise<void> {
+  if (!currentProject) return;
+  const fromIndex = episodes.findIndex((ep) => ep.id === draggedEpisodeId);
+  const toIndex = episodes.findIndex((ep) => ep.id === targetEpisodeId);
+  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+  await moveEpisodeToIndex(currentProject.id, fromIndex, toIndex);
   episodes = (await loadEpisodeList(currentProject.id)).episodes;
 
   const current = episodes.find((ep) => ep.id === state.currentEpisodeId);

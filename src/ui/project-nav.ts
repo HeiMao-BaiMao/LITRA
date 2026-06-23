@@ -8,6 +8,7 @@ export interface ProjectNavActions {
   onDeleteEpisode: (episodeId: string) => void;
   onUpdateEpisodeTitle: (episodeId: string, title: string) => void;
   onMoveEpisode: (episodeId: string, direction: "up" | "down") => void;
+  onMoveEpisodeTo?: (draggedEpisodeId: string, targetEpisodeId: string) => void;
   onSelectView: (view: ProjectView) => void;
   onUpdateSummary?: (episodeId: string, text: string) => void;
   onUpdateMemo?: (episodeId: string, text: string) => void;
@@ -62,13 +63,30 @@ function createEpisodeItem(
   index: number,
   total: number,
   isActive: boolean,
-  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode">,
+  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode" | "onMoveEpisodeTo">,
 ): HTMLElement {
   const item = document.createElement("div");
   item.className = "nav-episode-item";
+  item.dataset.episodeId = episode.id;
   if (isActive) {
     item.classList.add("active");
   }
+
+  const dragHandle = document.createElement("span");
+  dragHandle.className = "nav-episode-drag-handle";
+  dragHandle.textContent = "≡";
+  dragHandle.title = "ドラッグして並び替え";
+  dragHandle.draggable = true;
+  dragHandle.addEventListener("dragstart", (event) => {
+    event.dataTransfer?.setData("text/plain", episode.id);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+    }
+    item.classList.add("dragging");
+  });
+  dragHandle.addEventListener("dragend", () => {
+    item.classList.remove("dragging");
+  });
 
   const moveControls = document.createElement("div");
   moveControls.className = "nav-episode-move-controls";
@@ -155,6 +173,7 @@ function createEpisodeItem(
     }
   });
 
+  item.appendChild(dragHandle);
   item.appendChild(moveControls);
   item.appendChild(titleContainer);
   item.appendChild(editBtn);
@@ -169,7 +188,7 @@ function renderEpisodeTitleButton(button: HTMLButtonElement, title: string): voi
 export function renderEpisodeList(
   episodes: Episode[],
   currentEpisodeId: string | null,
-  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode">,
+  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode" | "onMoveEpisodeTo">,
 ): void {
   const list = getElements().episodeList;
   list.innerHTML = "";
@@ -185,6 +204,37 @@ export function renderEpisodeList(
     );
     list.appendChild(item);
   }
+
+  if (!actions.onMoveEpisodeTo) return;
+
+  list.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    const targetItem = (event.target as HTMLElement).closest<HTMLElement>(".nav-episode-item");
+    list.querySelectorAll<HTMLElement>(".nav-episode-item").forEach((el) => {
+      el.classList.remove("drag-over");
+    });
+    targetItem?.classList.add("drag-over");
+  });
+
+  list.addEventListener("dragleave", (event) => {
+    const targetItem = (event.target as HTMLElement).closest<HTMLElement>(".nav-episode-item");
+    if (targetItem && !list.contains(event.relatedTarget as Node)) {
+      targetItem.classList.remove("drag-over");
+    }
+  });
+
+  list.addEventListener("drop", (event) => {
+    event.preventDefault();
+    list.querySelectorAll<HTMLElement>(".nav-episode-item").forEach((el) => {
+      el.classList.remove("drag-over");
+    });
+    const draggedId = event.dataTransfer?.getData("text/plain");
+    if (!draggedId) return;
+    const targetItem = (event.target as HTMLElement).closest<HTMLElement>(".nav-episode-item");
+    const targetId = targetItem?.dataset.episodeId;
+    if (!targetId || draggedId === targetId) return;
+    actions.onMoveEpisodeTo?.(draggedId, targetId);
+  });
 }
 
 export function renderEpisodeSummary(

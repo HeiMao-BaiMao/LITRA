@@ -109,6 +109,22 @@ export async function updateEpisodeTitle(
   await saveEpisodeList(projectId, list);
 }
 
+async function reindexEpisodes(projectId: string, list: EpisodeList): Promise<void> {
+  for (let i = 0; i < list.episodes.length; i++) {
+    const ep = list.episodes[i];
+    const newFileName = padEpisodeNumber(i);
+    if (ep.fileName !== newFileName) {
+      const text = await loadEpisode(projectId, ep.fileName);
+      await saveEpisode(projectId, newFileName, text);
+      await remove(projectPath(projectId, EPISODES_DIR, ep.fileName), {
+        baseDir: BaseDirectory.Document,
+      });
+      ep.fileName = newFileName;
+    }
+    ep.order = i;
+  }
+}
+
 export async function moveEpisode(
   projectId: string,
   episodeId: string,
@@ -124,21 +140,30 @@ export async function moveEpisode(
   const [moved] = list.episodes.splice(index, 1);
   list.episodes.splice(targetIndex, 0, moved);
 
-  // order / fileName を振り直し、原稿ファイルもリネーム
-  for (let i = 0; i < list.episodes.length; i++) {
-    const ep = list.episodes[i];
-    const newFileName = padEpisodeNumber(i);
-    if (ep.fileName !== newFileName) {
-      const text = await loadEpisode(projectId, ep.fileName);
-      await saveEpisode(projectId, newFileName, text);
-      await remove(projectPath(projectId, EPISODES_DIR, ep.fileName), {
-        baseDir: BaseDirectory.Document,
-      });
-      ep.fileName = newFileName;
-    }
-    ep.order = i;
+  await reindexEpisodes(projectId, list);
+  await saveEpisodeList(projectId, list);
+}
+
+export async function moveEpisodeToIndex(
+  projectId: string,
+  fromIndex: number,
+  toIndex: number,
+): Promise<void> {
+  const list = await loadEpisodeList(projectId);
+  if (
+    fromIndex < 0 ||
+    fromIndex >= list.episodes.length ||
+    toIndex < 0 ||
+    toIndex >= list.episodes.length ||
+    fromIndex === toIndex
+  ) {
+    return;
   }
 
+  const [moved] = list.episodes.splice(fromIndex, 1);
+  list.episodes.splice(toIndex, 0, moved);
+
+  await reindexEpisodes(projectId, list);
   await saveEpisodeList(projectId, list);
 }
 

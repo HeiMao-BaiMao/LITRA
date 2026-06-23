@@ -737,6 +737,27 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
+.nav-episode-drag-handle {
+  flex-shrink: 0;
+  padding: 0.4rem 0.2rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  cursor: grab;
+  user-select: none;
+}
+
+.nav-episode-drag-handle:hover {
+  color: var(--text-primary);
+}
+
+.nav-episode-item.dragging {
+  opacity: 0.5;
+}
+
+.nav-episode-item.drag-over {
+  border-top: 2px solid var(--accent);
+}
+
 #btn-new-episode {
   width: 100%;
   padding: 0.4rem;
