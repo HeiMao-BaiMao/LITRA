@@ -2,10 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "child-windows",
   "description": "Capabilities for detached memo/chat windows",
-  "windows": ["memo", "chat", "summary", "settings", "projectPanel"],
+  "windows": ["memo", "chat", "summary", "settings"],
   "permissions": [
     "core:default",
-    "core:window:allow-set-focus",
-    "store:default"
+    "core:window:allow-set-focus"
   ]
 }

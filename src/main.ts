@@ -56,7 +56,6 @@ import {
   createUpdateWorldEntryTool,
 } from "./ai/tools.ts";
 import { getElements } from "./ui/layout.ts";
-import type { PanelNavView } from "./ui/panel-nav.ts";
 import {
   initEditor,
   setEditorInputCallback,
@@ -185,7 +184,6 @@ let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
 let projectMemos: ProjectMemo[] = [];
 let currentMemoId: string | null = null;
-let lastPanelView: PanelNavView = "characters";
 
 let pendingImportFiles: File[] = [];
 let pendingImportCandidates: AiImportCandidate[] = [];
@@ -396,12 +394,12 @@ function createAiTools(): ToolSet | undefined {
     onUpdateCharacters: (newCharacters: Character[]) => {
       characters = newCharacters;
       renderSettingsView();
-      syncProjectPanelToWindow();
+      syncSettingsToWindow();
     },
     onUpdateWorldEntries: (newEntries: WorldEntry[]) => {
       worldEntries = newEntries;
       renderSettingsView();
-      syncProjectPanelToWindow();
+      syncSettingsToWindow();
     },
   };
 
@@ -413,7 +411,7 @@ function createAiTools(): ToolSet | undefined {
     onUpdateRelationships: (map: CharacterRelationshipMap) => {
       relationshipsMap = map;
       renderSettingsView();
-      syncProjectPanelToWindow();
+      syncSettingsToWindow();
     },
   };
 
@@ -855,8 +853,8 @@ function applyPanelVisibility(): void {
   } = getElements();
   summarySection.classList.toggle("detached", state.summaryDetached);
   memoSection.classList.toggle("detached", state.memoDetached);
-  settingsSection.classList.toggle("detached", state.panelDetached);
-  memosSection.classList.toggle("detached", state.panelDetached);
+  settingsSection.classList.toggle("detached", state.settingsDetached);
+  memosSection.classList.toggle("detached", state.memosDetached);
   chatPanel.classList.toggle("detached", state.chatDetached);
   memoSection.classList.toggle("collapsed", state.memoCollapsed);
   btnToggleMemo.textContent = state.memoCollapsed ? "＋" : "−";
@@ -893,6 +891,18 @@ function syncSummaryToWindow(): void {
   emit("summary-sync", {
     episodeId,
     content: episodeId ? episodeSummaries.summaries[episodeId]?.content ?? "" : "",
+  });
+}
+
+function syncSettingsToWindow(): void {
+  emit("settings-sync", {
+    view: state.currentView === "episode" ? "characters" : state.currentView,
+    characters,
+    worldEntries,
+    episodes,
+    relationshipsMap,
+    currentCharacterId: state.currentCharacterId,
+    currentWorldEntryId: state.currentWorldEntryId,
   });
 }
 
@@ -1011,58 +1021,28 @@ async function openSummaryWindow(): Promise<void> {
   });
 }
 
-function isPanelView(view: ProjectView): view is PanelNavView {
-  return view === "characters" || view === "world" || view === "relationships" || view === "memos";
-}
-
-function currentPanelView(): PanelNavView {
-  return isPanelView(state.currentView) ? state.currentView : lastPanelView;
-}
-
-function syncProjectPanelToWindow(): void {
-  const view = currentPanelView();
-  emit("project-panel-sync", {
-    view,
-    characters,
-    worldEntries,
-    episodes,
-    relationshipsMap,
-    currentCharacterId: state.currentCharacterId,
-    currentWorldEntryId: state.currentWorldEntryId,
-    projectMemos,
-    currentMemoId,
-  });
-}
-
-async function openProjectPanelWindow(view?: PanelNavView): Promise<void> {
-  const existing = await WebviewWindow.getByLabel("projectPanel");
+async function openSettingsWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("settings");
   if (existing) {
     await existing.setFocus();
-    if (view) {
-      state.currentView = view;
-      lastPanelView = view;
-      setView(state.currentView);
-      syncProjectPanelToWindow();
-    }
     return;
   }
 
-  const targetView = view ?? currentPanelView();
-  lastPanelView = targetView;
-  if (state.currentView === "episode") {
-    state.currentView = targetView;
-  }
-
-  state.panelDetached = true;
+  state.settingsDetached = true;
   applyPanelVisibility();
-  setView(state.currentView);
-  renderPanelViews();
-  void saveWindowDetached("projectPanel", true);
+  void saveWindowDetached("settings", true);
 
-  const webview = new WebviewWindow("projectPanel", {
-    url: "project-panel-window.html",
-    title: "プロジェクトパネル - Phenex",
-    width: 720,
+  if (state.currentView === "episode") {
+    state.currentView = "characters";
+  }
+  setView(state.currentView);
+  renderSettingsView();
+  syncSettingsToWindow();
+
+  const webview = new WebviewWindow("settings", {
+    url: "settings-window.html",
+    title: "設定 - Phenex",
+    width: 640,
     height: 700,
     minWidth: 420,
     minHeight: 420,
@@ -1070,24 +1050,66 @@ async function openProjectPanelWindow(view?: PanelNavView): Promise<void> {
   });
 
   webview.once("tauri://created", () => {
-    setTimeout(() => syncProjectPanelToWindow(), 500);
-    void applyWindowBounds(webview, "projectPanel");
-    trackWindowBounds(webview, "projectPanel");
+    setTimeout(() => syncSettingsToWindow(), 500);
+    void applyWindowBounds(webview, "settings");
+    trackWindowBounds(webview, "settings");
   });
 
   webview.once("tauri://destroyed", () => {
     if (!isMainClosing) {
-      state.panelDetached = false;
+      state.settingsDetached = false;
       applyPanelVisibility();
       setView(state.currentView);
-      renderPanelViews();
-      void saveWindowDetached("projectPanel", false);
+      renderSettingsView();
+      void saveWindowDetached("settings", false);
+    }
+  });
+}
+
+function syncProjectMemosToWindow(): void {
+  emit("project-memos-sync", { memos: projectMemos, currentMemoId });
+}
+
+async function openProjectMemosWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("projectMemos");
+  if (existing) {
+    await existing.setFocus();
+    return;
+  }
+
+  state.memosDetached = true;
+  applyPanelVisibility();
+  renderMemosView();
+  void saveWindowDetached("projectMemos", true);
+
+  const webview = new WebviewWindow("projectMemos", {
+    url: "project-memo-window.html",
+    title: "メモ - Phenex",
+    width: 480,
+    height: 640,
+    minWidth: 280,
+    minHeight: 320,
+    dragDropEnabled: false,
+  });
+
+  webview.once("tauri://created", () => {
+    setTimeout(() => syncProjectMemosToWindow(), 500);
+    void applyWindowBounds(webview, "projectMemos");
+    trackWindowBounds(webview, "projectMemos");
+  });
+
+  webview.once("tauri://destroyed", () => {
+    if (!isMainClosing) {
+      state.memosDetached = false;
+      applyPanelVisibility();
+      renderMemosView();
+      void saveWindowDetached("projectMemos", false);
     }
   });
 }
 
 async function restoreDetachedWindows(): Promise<void> {
-  const labels = ["memo", "chat", "summary", "projectPanel"] as const;
+  const labels = ["memo", "chat", "summary", "settings", "projectMemos"] as const;
   for (const label of labels) {
     try {
       const detached = await loadWindowDetached(label);
@@ -1099,28 +1121,14 @@ async function restoreDetachedWindows(): Promise<void> {
         await openChatWindow();
       } else if (label === "summary") {
         await openSummaryWindow();
-      } else if (label === "projectPanel") {
-        await openProjectPanelWindow();
+      } else if (label === "settings") {
+        await openSettingsWindow();
+      } else if (label === "projectMemos") {
+        await openProjectMemosWindow();
       }
     } catch (error) {
       console.error(`[phenex] failed to restore ${label} window:`, error);
     }
-  }
-
-  // 旧 store 形式からの移行: settings / projectMemos が独立化されていた場合は
-  // 新しい projectPanel として復元する。
-  try {
-    const [oldSettings, oldMemos] = await Promise.all([
-      loadWindowDetached("settings"),
-      loadWindowDetached("projectMemos"),
-    ]);
-    if (oldSettings || oldMemos) {
-      await openProjectPanelWindow(oldMemos ? "memos" : undefined);
-      await saveWindowDetached("settings", false);
-      await saveWindowDetached("projectMemos", false);
-    }
-  } catch (error) {
-    console.error("[phenex] failed to migrate old detached windows:", error);
   }
 }
 
@@ -1145,16 +1153,10 @@ function setView(view: ProjectView): void {
     settingsPanel.classList.add("hidden");
     memosPanel.classList.add("hidden");
   } else if (view === "memos") {
-    if (state.panelDetached) {
-      editorSection.classList.remove("hidden");
-      settingsPanel.classList.add("hidden");
-      memosPanel.classList.add("hidden");
-    } else {
-      editorSection.classList.add("hidden");
-      settingsPanel.classList.add("hidden");
-      memosPanel.classList.remove("hidden");
-    }
-  } else if (state.panelDetached) {
+    editorSection.classList.add("hidden");
+    settingsPanel.classList.add("hidden");
+    memosPanel.classList.remove("hidden");
+  } else if (state.settingsDetached) {
     editorSection.classList.remove("hidden");
     settingsPanel.classList.add("hidden");
     memosPanel.classList.add("hidden");
@@ -1179,7 +1181,7 @@ function renderProjectNavigation(): void {
 }
 
 function renderSettingsView(): void {
-  if (state.currentView === "episode" || state.currentView === "memos" || state.panelDetached) return;
+  if (state.currentView === "episode" || state.currentView === "memos") return;
   renderSettingsEditor(
     state.currentView,
     characters,
@@ -1200,13 +1202,13 @@ const memosActions: MemosEditorActions = {
 };
 
 function renderMemosView(): void {
-  if (state.currentView !== "memos" || state.panelDetached) return;
-  renderMemosEditor(projectMemos, currentMemoId, memosActions, getElements().memosPanel);
-}
-
-function renderPanelViews(): void {
-  renderSettingsView();
-  renderMemosView();
+  if (state.currentView !== "memos") return;
+  const panel = getElements().memosPanel;
+  if (state.memosDetached) {
+    panel.innerHTML = `<div class="memos-detached-notice">メモは別ウィンドウで開いています</div>`;
+    return;
+  }
+  renderMemosEditor(projectMemos, currentMemoId, memosActions, panel);
 }
 
 async function saveCurrentEpisode(): Promise<void> {
@@ -1564,8 +1566,8 @@ async function loadProjectData(project: Project): Promise<void> {
   syncMemoToWindow();
   syncSummaryToWindow();
   syncChatToWindow();
-  syncProjectPanelToWindow();
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
+  syncProjectMemosToWindow();
   hideProjectModal();
 
   invoke("rebuild_search_index", { projectId: project.id }).catch((error) => {
@@ -1590,7 +1592,7 @@ async function handleCreateProjectMemo(title: string): Promise<void> {
     currentProject.updatedAt = new Date().toISOString();
     await saveProject(currentProject);
     renderMemosView();
-    syncProjectPanelToWindow();
+    syncProjectMemosToWindow();
   } catch (error) {
     console.error("[phenex] failed to create project memo:", error);
     window.alert(`メモの作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
@@ -1608,7 +1610,7 @@ async function handleUpdateProjectMemo(id: string, updates: { title?: string; co
     currentProject.updatedAt = new Date().toISOString();
     await saveProject(currentProject);
     renderMemosView();
-    syncProjectPanelToWindow();
+    syncProjectMemosToWindow();
   } catch (error) {
     console.error("[phenex] failed to update project memo:", error);
   }
@@ -1625,7 +1627,7 @@ async function handleDeleteProjectMemo(id: string): Promise<void> {
     currentProject.updatedAt = new Date().toISOString();
     await saveProject(currentProject);
     renderMemosView();
-    syncProjectPanelToWindow();
+    syncProjectMemosToWindow();
   } catch (error) {
     console.error("[phenex] failed to delete project memo:", error);
     window.alert(`メモの削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
@@ -1635,7 +1637,7 @@ async function handleDeleteProjectMemo(id: string): Promise<void> {
 function handleSelectProjectMemo(id: string | null): void {
   currentMemoId = id;
   renderMemosView();
-  syncProjectPanelToWindow();
+  syncProjectMemosToWindow();
 }
 
 function buildSettingsContext(currentEpisodeId?: string): string {
@@ -1845,18 +1847,16 @@ const projectNavActions: ProjectNavActions = {
   onMoveEpisode: (id, direction) => void handleMoveEpisode(id, direction),
   onSelectView: (view) => {
     state.currentView = view;
-    if (isPanelView(view)) {
-      lastPanelView = view;
-    }
     setView(view);
-    if (state.panelDetached && isPanelView(view)) {
-      void WebviewWindow.getByLabel("projectPanel").then((win) => win?.setFocus());
-      syncProjectPanelToWindow();
-    } else if (view === "memos") {
-      renderMemosView();
+    if (view === "memos") {
+      if (state.memosDetached) {
+        void WebviewWindow.getByLabel("projectMemos").then((win) => win?.setFocus());
+      } else {
+        renderMemosView();
+      }
     } else {
       renderSettingsView();
-      syncProjectPanelToWindow();
+      syncSettingsToWindow();
     }
   },
   onGenerateSummary: (id) => void handleGenerateSummary(id),
@@ -1880,14 +1880,14 @@ async function handleCreateCharacter(name: string): Promise<void> {
   characters = (await loadCharacters(currentProject.id)).characters;
   state.currentCharacterId = character.id;
   renderSettingsView();
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleUpdateCharacter(character: Character): Promise<void> {
   if (!currentProject) return;
   await updateCharacter(currentProject.id, character);
   characters = (await loadCharacters(currentProject.id)).characters;
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleDeleteCharacter(id: string): Promise<void> {
@@ -1900,13 +1900,13 @@ async function handleDeleteCharacter(id: string): Promise<void> {
     state.currentCharacterId = characters.length > 0 ? characters[0].id : null;
   }
   renderSettingsView();
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleSelectCharacter(id: string): Promise<void> {
   state.currentCharacterId = id;
   renderSettingsView();
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleUpdateRelationships(map: CharacterRelationshipMap): Promise<void> {
@@ -1921,14 +1921,14 @@ async function handleCreateWorldEntry(name: string, category: string): Promise<v
   worldEntries = (await loadWorldEntries(currentProject.id)).entries;
   state.currentWorldEntryId = entry.id;
   renderSettingsView();
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleUpdateWorldEntry(entry: WorldEntry): Promise<void> {
   if (!currentProject) return;
   await updateWorldEntry(currentProject.id, entry);
   worldEntries = (await loadWorldEntries(currentProject.id)).entries;
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleDeleteWorldEntry(id: string): Promise<void> {
@@ -1939,13 +1939,13 @@ async function handleDeleteWorldEntry(id: string): Promise<void> {
     state.currentWorldEntryId = worldEntries.length > 0 ? worldEntries[0].id : null;
   }
   renderSettingsView();
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleSelectWorldEntry(id: string): Promise<void> {
   state.currentWorldEntryId = id;
   renderSettingsView();
-  syncProjectPanelToWindow();
+  syncSettingsToWindow();
 }
 
 async function handleContinue(): Promise<void> {
@@ -2396,8 +2396,8 @@ function bindUiEvents(): void {
   getElements().btnPopoutMemo.addEventListener("click", () => void openMemoWindow());
   getElements().btnPopoutChat.addEventListener("click", () => void openChatWindow());
   getElements().btnPopoutSummary.addEventListener("click", () => void openSummaryWindow());
-  getElements().btnPopoutSettings.addEventListener("click", () => void openProjectPanelWindow(currentPanelView()));
-  getElements().btnPopoutMemos.addEventListener("click", () => void openProjectPanelWindow("memos"));
+  getElements().btnPopoutSettings.addEventListener("click", () => void openSettingsWindow());
+  getElements().btnPopoutMemos.addEventListener("click", () => void openProjectMemosWindow());
   applyPanelVisibility();
 
   setChatSyncCallback((messages, isGenerating) => {
@@ -2516,16 +2516,8 @@ async function init(): Promise<void> {
     syncSummaryToWindow();
   });
 
-  listen("project-panel-ready", () => {
-    syncProjectPanelToWindow();
-  });
-
-  listen<{ view: PanelNavView }>("project-panel-select-view", (event) => {
-    state.currentView = event.payload.view;
-    lastPanelView = event.payload.view;
-    setView(state.currentView);
-    renderPanelViews();
-    syncProjectPanelToWindow();
+  listen("project-memos-ready", () => {
+    syncProjectMemosToWindow();
   });
 
   listen<{ id: string; title?: string; content?: string }>("project-memos-update", (event) => {
@@ -2553,6 +2545,17 @@ async function init(): Promise<void> {
   listen<{ episodeId: string }>("summary-generate", (event) => {
     if (!currentProject) return;
     void handleGenerateSummary(event.payload.episodeId);
+  });
+
+  listen("settings-ready", () => {
+    syncSettingsToWindow();
+  });
+
+  listen<{ view: "characters" | "world" | "relationships" }>("settings-select-view", (event) => {
+    state.currentView = event.payload.view;
+    setView(state.currentView);
+    renderSettingsView();
+    syncSettingsToWindow();
   });
 
   listen<{ name: string }>("settings-create-character", (event) => {

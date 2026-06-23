@@ -23,7 +23,8 @@ export interface AppState {
   memoDetached: boolean;
   chatDetached: boolean;
   summaryDetached: boolean;
-  panelDetached: boolean;
+  settingsDetached: boolean;
+  memosDetached: boolean;
 }
 
 export const state: AppState = {
@@ -43,5 +44,6 @@ export const state: AppState = {
   memoDetached: false,
   chatDetached: false,
   summaryDetached: false,
-  panelDetached: false,
+  settingsDetached: false,
+  memosDetached: false,
 };
