@@ -8,7 +8,7 @@ export interface ProjectNavActions {
   onDeleteEpisode: (episodeId: string) => void;
   onUpdateEpisodeTitle: (episodeId: string, title: string) => void;
   onMoveEpisode: (episodeId: string, direction: "up" | "down") => void;
-  onMoveEpisodeTo?: (draggedEpisodeId: string, targetEpisodeId: string, insertAfter?: boolean) => void;
+  onReorderEpisodes?: (orderedEpisodeIds: string[]) => void;
   onSelectView: (view: ProjectView) => void;
   onUpdateSummary?: (episodeId: string, text: string) => void;
   onUpdateMemo?: (episodeId: string, text: string) => void;
@@ -20,6 +20,10 @@ let summaryUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 let currentGenerateSummaryCallback: (() => void) | null = null;
 let currentMemoCallback: ((text: string) => void) | null = null;
 let memoUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
+
+let dndEpisodes: Episode[] = [];
+let dndActions: Pick<ProjectNavActions, "onReorderEpisodes"> | null = null;
+let dndAttached = false;
 
 function createInlineTitleEditor(
   initialTitle: string,
@@ -63,7 +67,7 @@ function createEpisodeItem(
   index: number,
   total: number,
   isActive: boolean,
-  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode" | "onMoveEpisodeTo">,
+  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode" | "onReorderEpisodes">,
 ): HTMLElement {
   const item = document.createElement("div");
   item.className = "nav-episode-item";
@@ -194,7 +198,7 @@ function renderEpisodeTitleButton(button: HTMLButtonElement, title: string): voi
 export function renderEpisodeList(
   episodes: Episode[],
   currentEpisodeId: string | null,
-  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode" | "onMoveEpisodeTo">,
+  actions: Pick<ProjectNavActions, "onSelectEpisode" | "onDeleteEpisode" | "onUpdateEpisodeTitle" | "onMoveEpisode" | "onReorderEpisodes">,
 ): void {
   const list = getElements().episodeList;
   list.innerHTML = "";
@@ -211,18 +215,22 @@ export function renderEpisodeList(
     list.appendChild(item);
   }
 
-  if (!actions.onMoveEpisodeTo) return;
+  dndEpisodes = episodes;
+  dndActions = actions;
+  if (dndAttached) return;
+  dndAttached = true;
+  if (!dndActions.onReorderEpisodes) return;
 
   function getDragAfterElement(y: number): HTMLElement | null {
     const items = [...list.querySelectorAll<HTMLElement>(".nav-episode-item:not(.dragging)")];
-    return items.reduce<HTMLElement | null>((closest, child) => {
+    return items.reduce<{ element: HTMLElement; offset: number } | null>((closest, child) => {
       const box = child.getBoundingClientRect();
       const offset = y - box.top - box.height / 2;
-      if (offset < 0 && (closest === null || offset > closest.getBoundingClientRect().top + closest.getBoundingClientRect().height / 2 - y)) {
-        return child;
+      if (offset < 0 && (closest === null || offset > closest.offset)) {
+        return { element: child, offset };
       }
       return closest;
-    }, null);
+    }, null)?.element ?? null;
   }
 
   list.addEventListener("dragover", (event) => {
@@ -251,15 +259,21 @@ export function renderEpisodeList(
     if (!draggedId) return;
 
     const afterElement = getDragAfterElement(event.clientY);
+    const currentOrder = dndEpisodes.map((ep) => ep.id);
+    const fromIndex = currentOrder.indexOf(draggedId);
+    if (fromIndex === -1) return;
+
+    currentOrder.splice(fromIndex, 1);
+    let toIndex: number;
     if (afterElement) {
       const targetId = afterElement.dataset.episodeId;
-      if (!targetId || draggedId === targetId) return;
-      actions.onMoveEpisodeTo?.(draggedId, targetId, false);
-    } else if (episodes.length > 0) {
-      const targetId = episodes[episodes.length - 1].id;
-      if (draggedId === targetId) return;
-      actions.onMoveEpisodeTo?.(draggedId, targetId, true);
+      toIndex = targetId ? currentOrder.indexOf(targetId) : currentOrder.length;
+      if (toIndex === -1) toIndex = currentOrder.length;
+    } else {
+      toIndex = currentOrder.length;
     }
+    currentOrder.splice(toIndex, 0, draggedId);
+    dndActions?.onReorderEpisodes?.(currentOrder);
   });
 }
 

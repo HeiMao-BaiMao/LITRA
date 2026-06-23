@@ -167,6 +167,28 @@ export async function moveEpisodeToIndex(
   await saveEpisodeList(projectId, list);
 }
 
+export async function reorderEpisodes(
+  projectId: string,
+  orderedIds: string[],
+): Promise<void> {
+  const list = await loadEpisodeList(projectId);
+  const newEpisodes: Episode[] = [];
+  for (const id of orderedIds) {
+    const episode = list.episodes.find((ep) => ep.id === id);
+    if (episode) {
+      newEpisodes.push(episode);
+    }
+  }
+  if (newEpisodes.length !== list.episodes.length) {
+    console.warn("[phenex] reorderEpisodes: some episode IDs were missing, ignoring reorder");
+    return;
+  }
+  list.episodes = newEpisodes;
+
+  await reindexEpisodes(projectId, list);
+  await saveEpisodeList(projectId, list);
+}
+
 export async function migrateFromManuscript(projectId: string): Promise<void> {
   const manuscriptPath = projectPath(projectId, MANUSCRIPT_FILE);
   const hasManuscript = await exists(manuscriptPath, { baseDir: BaseDirectory.Document });
