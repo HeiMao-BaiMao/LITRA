@@ -5,6 +5,7 @@
   "windows": ["memo", "chat", "summary", "settings", "projectPanel"],
   "permissions": [
     "core:default",
-    "core:window:allow-set-focus"
+    "core:window:allow-set-focus",
+    "store:default"
   ]
 }
