@@ -19,6 +19,7 @@ export interface AppElements {
   navCharacters: HTMLButtonElement;
   navWorld: HTMLButtonElement;
   navRelationships: HTMLButtonElement;
+  navProjectMemo: HTMLButtonElement;
   episodeSummary: HTMLTextAreaElement;
   btnGenerateSummary: HTMLButtonElement;
   summarySection: HTMLElement;
@@ -99,6 +100,7 @@ export function getElements(): AppElements {
   const navCharacters = document.querySelector<HTMLButtonElement>("#nav-characters");
   const navWorld = document.querySelector<HTMLButtonElement>("#nav-world");
   const navRelationships = document.querySelector<HTMLButtonElement>("#nav-relationships");
+  const navProjectMemo = document.querySelector<HTMLButtonElement>("#nav-project-memo");
   const episodeSummary = document.querySelector<HTMLTextAreaElement>("#episode-summary");
   const btnGenerateSummary = document.querySelector<HTMLButtonElement>("#btn-generate-summary");
   const summarySection = document.querySelector<HTMLElement>("#summary-section");
@@ -196,6 +198,7 @@ export function getElements(): AppElements {
     !navCharacters ||
     !navWorld ||
     !navRelationships ||
+    !navProjectMemo ||
     !episodeSummary ||
     !btnGenerateSummary ||
     !summarySection ||
@@ -248,6 +251,7 @@ export function getElements(): AppElements {
     navCharacters,
     navWorld,
     navRelationships,
+    navProjectMemo,
     episodeSummary,
     btnGenerateSummary,
     summarySection,

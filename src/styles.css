@@ -886,6 +886,57 @@ button#btn-cancel:hover:not(:disabled) {
   overflow-y: auto;
 }
 
+.project-memo-detail {
+  padding: 0;
+}
+
+.project-memo-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.project-memo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.project-memo-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.project-memo-textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 1rem;
+  border: none;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+
+.project-memo-textarea:focus {
+  background-color: var(--bg-secondary);
+}
+
+.project-memo-detached-notice {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
 .settings-detail-form {
   display: flex;
   flex-direction: column;
@@ -1418,6 +1469,14 @@ button.danger:hover:not(:disabled) {
   flex: 1;
   min-height: 0;
   resize: none;
+}
+
+.detachable-body .project-memo-textarea {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  padding: 0;
+  background-color: transparent;
 }
 
 .chat-panel.detached {

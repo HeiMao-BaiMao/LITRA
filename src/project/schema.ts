@@ -101,7 +101,7 @@ export interface WorldEntryList {
   entries: WorldEntry[];
 }
 
-export type ProjectView = "episode" | "characters" | "world";
+export type ProjectView = "episode" | "characters" | "world" | "projectMemo";
 
 function isString(value: unknown): value is string {
   return typeof value === "string";

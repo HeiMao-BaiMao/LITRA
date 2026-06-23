@@ -159,6 +159,7 @@ import {
 import { loadChat, saveChat } from "./project/documents.ts";
 import { loadSummaries, saveEpisodeSummary, saveEpisodeOneLiner } from "./project/summaries.ts";
 import { loadMemos, saveEpisodeMemo } from "./project/memos.ts";
+import { loadProjectMemo, saveProjectMemo } from "./project/project-memo.ts";
 import type { Character, Episode, EpisodeMemoMap, EpisodeSummaryMap, WorldEntry } from "./project/schema.ts";
 import { hasToolCall, type ModelMessage, type ToolSet } from "ai";
 
@@ -171,6 +172,7 @@ let worldEntries: WorldEntry[] = [];
 let relationshipsMap: CharacterRelationshipMap = { groups: [] };
 let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
+let projectMemoContent = "";
 
 let pendingImportFiles: File[] = [];
 let pendingImportCandidates: AiImportCandidate[] = [];
@@ -868,6 +870,8 @@ function syncSettingsToWindow(): void {
     relationshipsMap,
     currentCharacterId: state.currentCharacterId,
     currentWorldEntryId: state.currentWorldEntryId,
+    projectMemo: projectMemoContent,
+    isProjectMemoDetached: state.projectMemoDetached,
   });
 }
 
@@ -1031,6 +1035,46 @@ async function openSettingsWindow(): Promise<void> {
   });
 }
 
+function syncProjectMemoToWindow(): void {
+  emit("project-memo-sync", { content: projectMemoContent });
+}
+
+async function openProjectMemoWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("projectMemo");
+  if (existing) {
+    await existing.setFocus();
+    return;
+  }
+
+  state.projectMemoDetached = true;
+  renderSettingsView();
+  void saveWindowDetached("projectMemo", true);
+
+  const webview = new WebviewWindow("projectMemo", {
+    url: "project-memo-window.html",
+    title: "作品メモ - Phenex",
+    width: 480,
+    height: 640,
+    minWidth: 280,
+    minHeight: 320,
+    dragDropEnabled: false,
+  });
+
+  webview.once("tauri://created", () => {
+    setTimeout(() => syncProjectMemoToWindow(), 500);
+    void applyWindowBounds(webview, "projectMemo");
+    trackWindowBounds(webview, "projectMemo");
+  });
+
+  webview.once("tauri://destroyed", () => {
+    if (!isMainClosing) {
+      state.projectMemoDetached = false;
+      renderSettingsView();
+      void saveWindowDetached("projectMemo", false);
+    }
+  });
+}
+
 async function restoreDetachedWindows(): Promise<void> {
   const labels = ["memo", "chat", "summary", "settings"] as const;
   for (const label of labels) {
@@ -1096,6 +1140,8 @@ function renderProjectNavigation(): void {
 
 function renderSettingsView(): void {
   if (state.currentView === "episode") return;
+  settingsActions.projectMemo = projectMemoContent;
+  settingsActions.isProjectMemoDetached = state.projectMemoDetached;
   renderSettingsEditor(
     state.currentView,
     characters,
@@ -1409,7 +1455,7 @@ async function loadProjectData(project: Project): Promise<void> {
 
   await migrateFromManuscript(project.id);
 
-  const [episodeList, characterList, worldList, relationshipData, messages, summaries, memos] = await Promise.all([
+  const [episodeList, characterList, worldList, relationshipData, messages, summaries, memos, projectMemo] = await Promise.all([
     loadEpisodeList(project.id),
     loadCharacters(project.id),
     loadWorldEntries(project.id),
@@ -1417,6 +1463,7 @@ async function loadProjectData(project: Project): Promise<void> {
     loadChat(project.id),
     loadSummaries(project.id),
     loadMemos(project.id),
+    loadProjectMemo(project.id),
   ]);
 
   episodes = episodeList.episodes;
@@ -1425,6 +1472,7 @@ async function loadProjectData(project: Project): Promise<void> {
   relationshipsMap = relationshipData;
   episodeSummaries = summaries;
   episodeMemos = memos;
+  projectMemoContent = projectMemo;
 
   await ensureEpisodeExists();
 
@@ -1461,6 +1509,7 @@ async function loadProjectData(project: Project): Promise<void> {
   syncSummaryToWindow();
   syncChatToWindow();
   syncSettingsToWindow();
+  syncProjectMemoToWindow();
   hideProjectModal();
 
   invoke("rebuild_search_index", { projectId: project.id }).catch((error) => {
@@ -1471,6 +1520,15 @@ async function loadProjectData(project: Project): Promise<void> {
 async function saveCurrentChat(): Promise<void> {
   if (!currentProject) return;
   await saveChat(currentProject.id, state.chatMessages);
+}
+
+async function handleUpdateProjectMemo(content: string): Promise<void> {
+  if (!currentProject) return;
+  projectMemoContent = content;
+  await saveProjectMemo(currentProject.id, content);
+  currentProject.updatedAt = new Date().toISOString();
+  await saveProject(currentProject);
+  syncProjectMemoToWindow();
 }
 
 function buildSettingsContext(currentEpisodeId?: string): string {
@@ -1697,6 +1755,9 @@ const settingsActions: SettingsEditorActions = {
   onDeleteWorldEntry: (id) => void handleDeleteWorldEntry(id),
   onSelectWorldEntry: (id) => void handleSelectWorldEntry(id),
   onUpdateRelationships: (map) => void handleUpdateRelationships(map),
+  onUpdateProjectMemo: (content) => void handleUpdateProjectMemo(content),
+  onPopoutProjectMemo: () => void openProjectMemoWindow(),
+  projectMemo: projectMemoContent,
 };
 
 async function handleCreateCharacter(name: string): Promise<void> {
@@ -2340,6 +2401,15 @@ async function init(): Promise<void> {
     syncSummaryToWindow();
   });
 
+  listen("project-memo-ready", () => {
+    syncProjectMemoToWindow();
+  });
+
+  listen<{ content: string }>("project-memo-update", (event) => {
+    if (!currentProject) return;
+    void handleUpdateProjectMemo(event.payload.content);
+  });
+
   listen<{ episodeId: string }>("summary-generate", (event) => {
     if (!currentProject) return;
     void handleGenerateSummary(event.payload.episodeId);
@@ -2390,6 +2460,14 @@ async function init(): Promise<void> {
 
   listen<{ map: CharacterRelationshipMap }>("settings-update-relationships", (event) => {
     void handleUpdateRelationships(event.payload.map);
+  });
+
+  listen<{ content: string }>("settings-update-project-memo", (event) => {
+    void handleUpdateProjectMemo(event.payload.content);
+  });
+
+  listen("settings-popout-project-memo", () => {
+    void openProjectMemoWindow();
   });
 
   const mainWindow = getCurrentWindow();

@@ -18,6 +18,10 @@ export interface SettingsEditorActions {
   onDeleteWorldEntry: (id: string) => void;
   onSelectWorldEntry: (id: string) => void;
   onUpdateRelationships?: (map: CharacterRelationshipMap) => void;
+  onUpdateProjectMemo?: (content: string) => void;
+  onPopoutProjectMemo?: () => void;
+  projectMemo?: string;
+  isProjectMemoDetached?: boolean;
 }
 
 let currentCharacter: Character | null = null;
@@ -512,8 +516,60 @@ function createAddButton(label: string, onClick: () => void): HTMLButtonElement 
   return btn;
 }
 
+function renderProjectMemoEditor(
+  content: string,
+  onUpdate: (content: string) => void,
+  onPopout: (() => void) | undefined,
+  isDetached: boolean,
+): HTMLElement {
+  currentCharacter = null;
+  currentWorldEntry = null;
+
+  const container = document.createElement("div");
+  container.className = "project-memo-editor";
+
+  const header = document.createElement("div");
+  header.className = "project-memo-header";
+
+  const title = document.createElement("h3");
+  title.textContent = "作品メモ";
+  header.appendChild(title);
+
+  if (onPopout) {
+    const popoutBtn = document.createElement("button");
+    popoutBtn.type = "button";
+    popoutBtn.className = "btn-popout";
+    popoutBtn.title = "別ウィンドウで開く";
+    popoutBtn.textContent = "↗";
+    popoutBtn.addEventListener("click", onPopout);
+    header.appendChild(popoutBtn);
+  }
+
+  container.appendChild(header);
+
+  if (isDetached) {
+    const notice = document.createElement("div");
+    notice.className = "project-memo-detached-notice";
+    notice.textContent = "別ウィンドウで表示中です。";
+    container.appendChild(notice);
+    return container;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "project-memo-textarea";
+  textarea.placeholder = "作品全体に関するメモを自由に書いてください...";
+  textarea.value = content;
+  textarea.spellcheck = false;
+  textarea.addEventListener("input", () => {
+    debounceUpdate(() => onUpdate(textarea.value));
+  });
+
+  container.appendChild(textarea);
+  return container;
+}
+
 export async function renderSettingsEditor(
-  view: "characters" | "world" | "relationships",
+  view: "characters" | "world" | "relationships" | "projectMemo",
   characters: Character[],
   worldEntries: WorldEntry[],
   episodes: Episode[],
@@ -590,7 +646,7 @@ export async function renderSettingsEditor(
     } else {
       detail.innerHTML = '<div class="settings-empty">世界観を選択または作成してください</div>';
     }
-  } else {
+  } else if (view === "relationships") {
     sidebar.classList.add("hidden");
     detail.classList.add("relationships-detail");
     detail.appendChild(
@@ -602,13 +658,30 @@ export async function renderSettingsEditor(
         });
       }),
     );
+  } else {
+    sidebar.classList.add("hidden");
+    detail.classList.add("project-memo-detail");
+    detail.appendChild(
+      renderProjectMemoEditor(
+        actions.projectMemo ?? "",
+        (content) => {
+          debounceUpdate(() => {
+            if (actions.onUpdateProjectMemo) {
+              actions.onUpdateProjectMemo(content);
+            }
+          });
+        },
+        actions.onPopoutProjectMemo,
+        actions.isProjectMemoDetached ?? false,
+      ),
+    );
   }
 
   wrapper.appendChild(sidebar);
   wrapper.appendChild(detail);
   panel.appendChild(wrapper);
 
-  if (view !== "relationships") {
+  if (view !== "relationships" && view !== "projectMemo") {
     createVerticalResizer({
       container: wrapper,
       propertyName: "--settings-sidebar-width",
