@@ -1585,40 +1585,57 @@ async function saveCurrentChat(): Promise<void> {
 }
 
 async function handleCreateProjectMemo(title: string): Promise<void> {
-  if (!currentProject) return;
-  const memo = await createProjectMemo(currentProject.id, title);
-  projectMemos.push(memo);
-  currentMemoId = memo.id;
-  currentProject.updatedAt = new Date().toISOString();
-  await saveProject(currentProject);
-  renderMemosView();
-  syncProjectMemosToWindow();
+  if (!currentProject) {
+    window.alert("プロジェクトが選択されていません");
+    return;
+  }
+  try {
+    const memo = await createProjectMemo(currentProject.id, title);
+    projectMemos.push(memo);
+    currentMemoId = memo.id;
+    currentProject.updatedAt = new Date().toISOString();
+    await saveProject(currentProject);
+    renderMemosView();
+    syncProjectMemosToWindow();
+  } catch (error) {
+    console.error("[phenex] failed to create project memo:", error);
+    window.alert(`メモの作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function handleUpdateProjectMemo(id: string, updates: { title?: string; content?: string }): Promise<void> {
   if (!currentProject) return;
-  const memo = await updateProjectMemo(currentProject.id, id, updates);
-  const index = projectMemos.findIndex((m) => m.id === id);
-  if (index !== -1) {
-    projectMemos[index] = memo;
+  try {
+    const memo = await updateProjectMemo(currentProject.id, id, updates);
+    const index = projectMemos.findIndex((m) => m.id === id);
+    if (index !== -1) {
+      projectMemos[index] = memo;
+    }
+    currentProject.updatedAt = new Date().toISOString();
+    await saveProject(currentProject);
+    renderMemosView();
+    syncProjectMemosToWindow();
+  } catch (error) {
+    console.error("[phenex] failed to update project memo:", error);
   }
-  currentProject.updatedAt = new Date().toISOString();
-  await saveProject(currentProject);
-  renderMemosView();
-  syncProjectMemosToWindow();
 }
 
 async function handleDeleteProjectMemo(id: string): Promise<void> {
   if (!currentProject) return;
-  await deleteProjectMemo(currentProject.id, id);
-  projectMemos = projectMemos.filter((m) => m.id !== id);
-  if (currentMemoId === id) {
-    currentMemoId = projectMemos[0]?.id ?? null;
+  try {
+    await deleteProjectMemo(currentProject.id, id);
+    projectMemos = projectMemos.filter((m) => m.id !== id);
+    if (currentMemoId === id) {
+      currentMemoId = projectMemos[0]?.id ?? null;
+    }
+    currentProject.updatedAt = new Date().toISOString();
+    await saveProject(currentProject);
+    renderMemosView();
+    syncProjectMemosToWindow();
+  } catch (error) {
+    console.error("[phenex] failed to delete project memo:", error);
+    window.alert(`メモの削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
   }
-  currentProject.updatedAt = new Date().toISOString();
-  await saveProject(currentProject);
-  renderMemosView();
-  syncProjectMemosToWindow();
 }
 
 function handleSelectProjectMemo(id: string | null): void {

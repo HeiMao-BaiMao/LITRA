@@ -115,9 +115,13 @@ function buildEditor(
   addBtn.textContent = "＋ 新しいメモ";
   addBtn.addEventListener("click", () => {
     const title = window.prompt("メモのタイトルを入力してください");
-    if (title) {
-      actions.onCreate(title);
+    if (title === null) return;
+    const trimmed = title.trim();
+    if (!trimmed) {
+      window.alert("タイトルを入力してください");
+      return;
     }
+    actions.onCreate(trimmed);
   });
 
   sidebar.appendChild(addBtn);

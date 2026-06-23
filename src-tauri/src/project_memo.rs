@@ -49,6 +49,15 @@ fn save_memos_value(project_id: &str, value: &Value) -> Result<(), String> {
     write_json(&project_memos_path(project_id)?, value)
 }
 
+fn ensure_memos_array(data: &mut Value) -> &mut Vec<Value> {
+    if !data.get("memos").map(|v| v.is_array()).unwrap_or(false) {
+        data["memos"] = json!([]);
+    }
+    data["memos"]
+        .as_array_mut()
+        .expect("memos must be an array after ensure")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectMemo {
@@ -61,9 +70,7 @@ pub struct ProjectMemo {
 #[tauri::command]
 pub fn list_project_memos(project_id: String) -> Result<Vec<ProjectMemo>, String> {
     let data = load_memos_value(&project_id)?;
-    let memos = data["memos"]
-        .as_array()
-        .ok_or_else(|| "Invalid memos structure".to_string())?;
+    let memos = data["memos"].as_array().cloned().unwrap_or_default();
 
     let mut result = Vec::new();
     for memo in memos {
@@ -90,9 +97,7 @@ pub struct CreateProjectMemoRequest {
 #[tauri::command]
 pub fn create_project_memo(req: CreateProjectMemoRequest) -> Result<ProjectMemo, String> {
     let mut data = load_memos_value(&req.project_id)?;
-    let memos = data["memos"]
-        .as_array_mut()
-        .ok_or_else(|| "Invalid memos structure".to_string())?;
+    let memos = ensure_memos_array(&mut data);
 
     let memo = ProjectMemo {
         id: uuid::Uuid::new_v4().to_string(),
@@ -124,9 +129,7 @@ pub struct UpdateProjectMemoRequest {
 #[tauri::command]
 pub fn update_project_memo(req: UpdateProjectMemoRequest) -> Result<ProjectMemo, String> {
     let mut data = load_memos_value(&req.project_id)?;
-    let memos = data["memos"]
-        .as_array_mut()
-        .ok_or_else(|| "Invalid memos structure".to_string())?;
+    let memos = ensure_memos_array(&mut data);
 
     let result = {
         let target = memos
@@ -165,9 +168,7 @@ pub struct DeleteProjectMemoRequest {
 #[tauri::command]
 pub fn delete_project_memo(req: DeleteProjectMemoRequest) -> Result<(), String> {
     let mut data = load_memos_value(&req.project_id)?;
-    let memos = data["memos"]
-        .as_array_mut()
-        .ok_or_else(|| "Invalid memos structure".to_string())?;
+    let memos = ensure_memos_array(&mut data);
 
     memos.retain(|m| m["id"].as_str() != Some(&req.memo_id));
 
