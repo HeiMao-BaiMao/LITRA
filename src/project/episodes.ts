@@ -10,10 +10,6 @@ function projectPath(projectId: string, ...parts: string[]): string {
   return `phenex/projects/${projectId}/${parts.join("/")}`;
 }
 
-function padEpisodeNumber(index: number): string {
-  return String(index + 1).padStart(3, "0") + ".md";
-}
-
 export async function episodeFileExists(projectId: string): Promise<boolean> {
   return exists(projectPath(projectId, EPISODES_FILE), { baseDir: BaseDirectory.Document });
 }
@@ -59,11 +55,15 @@ export async function saveEpisode(
   });
 }
 
+function episodeFileName(episodeId: string): string {
+  return `${episodeId}.md`;
+}
+
 export async function createEpisode(projectId: string, title: string): Promise<Episode> {
   const list = await loadEpisodeList(projectId);
   const order = list.episodes.length;
-  const fileName = padEpisodeNumber(order);
   const id = crypto.randomUUID();
+  const fileName = episodeFileName(id);
   const episode: Episode = { id, title, order, fileName };
 
   const dir = projectPath(projectId, EPISODES_DIR);
@@ -121,9 +121,11 @@ async function reindexEpisodes(projectId: string, list: EpisodeList): Promise<vo
 
   for (let i = 0; i < list.episodes.length; i++) {
     const ep = list.episodes[i];
-    const newFileName = padEpisodeNumber(i);
-    await saveEpisode(projectId, newFileName, texts.get(ep.id) ?? "");
-    ep.fileName = newFileName;
+    const newFileName = episodeFileName(ep.id);
+    if (ep.fileName !== newFileName) {
+      await saveEpisode(projectId, newFileName, texts.get(ep.id) ?? "");
+      ep.fileName = newFileName;
+    }
     ep.order = i;
   }
 
@@ -211,9 +213,10 @@ export async function migrateFromManuscript(projectId: string): Promise<void> {
   const dir = projectPath(projectId, EPISODES_DIR);
   await mkdir(dir, { baseDir: BaseDirectory.Document, recursive: true });
 
-  const fileName = padEpisodeNumber(0);
+  const id = crypto.randomUUID();
+  const fileName = episodeFileName(id);
   const episode: Episode = {
-    id: crypto.randomUUID(),
+    id,
     title: "第1話",
     order: 0,
     fileName,
