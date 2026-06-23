@@ -40,11 +40,50 @@ export interface ImportResult {
 
 const SNIPPET_LENGTH = 2000;
 
+const VALID_IMPORT_TYPES: ImportItemType[] = [
+  "character",
+  "world",
+  "episode",
+  "memo",
+  "projectMemo",
+  "ignore",
+  "unknown",
+];
+
+function normalizeImportType(raw: string): ImportItemType {
+  const normalized = raw.trim().toLowerCase().replace(/[-_\s]/g, "");
+  switch (normalized) {
+    case "character":
+    case "char":
+      return "character";
+    case "world":
+      return "world";
+    case "episode":
+    case "chapter":
+    case "scene":
+      return "episode";
+    case "memo":
+    case "episodememo":
+      return "memo";
+    case "projectmemo":
+    case "projectmemos":
+    case "workmemo":
+    case "novelmemo":
+      return "projectMemo";
+    case "ignore":
+    case "skip":
+    case "other":
+      return "ignore";
+    default:
+      return "unknown";
+  }
+}
+
 const classificationSchema = z.object({
   files: z.array(
     z.object({
       path: z.string().describe("ファイルの相対パス"),
-      type: z.enum(["character", "world", "episode", "memo", "projectMemo", "ignore"]).describe("分類結果"),
+      type: z.string().describe("分類結果。character/world/episode/memo/projectMemo/ignore のいずれか"),
       title: z.string().describe("推定したタイトルや名前"),
       fields: z.record(z.string(), z.string()).optional().describe("character/world の場合の各フィールド"),
       episodeTitle: z.string().optional().describe("memo の場合に紐づくエピソードのタイトル"),
@@ -128,8 +167,10 @@ export async function classifyFilesWithAI(
     .map((item): AiImportCandidate | null => {
       const file = pathToFile.get(item.path);
       if (!file) return null;
+      const type = normalizeImportType(item.type);
+      if (!VALID_IMPORT_TYPES.includes(type)) return null;
       return {
-        type: item.type as ImportItemType,
+        type,
         filename: file.name,
         title: item.title || fileNameToTitle(file.name),
         path: item.path,
