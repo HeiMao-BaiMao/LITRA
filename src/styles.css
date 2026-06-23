@@ -1070,6 +1070,19 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
+.import-preview-loading {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  padding: 1rem 0;
+  text-align: center;
+}
+
+.import-preview-detail {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding-left: 0.5rem;
+}
+
 .project-form {
   display: flex;
   gap: 0.5rem;

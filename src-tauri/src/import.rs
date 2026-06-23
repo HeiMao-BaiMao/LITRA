@@ -1,0 +1,482 @@
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub struct ImportFileInput {
+    pub path: String,
+    pub filename: String,
+    #[serde(rename = "type")]
+    pub file_type: String,
+    pub title: String,
+    pub content: String,
+    #[serde(default)]
+    pub fields: HashMap<String, String>,
+    pub episode_title: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    pub characters: usize,
+    pub world_entries: usize,
+    pub episodes: usize,
+    pub memos: usize,
+    pub skipped_memos: usize,
+}
+
+fn documents_dir() -> Result<PathBuf, String> {
+    dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
+}
+
+fn project_dir(project_id: &str) -> Result<PathBuf, String> {
+    Ok(documents_dir()?.join("phenex/projects").join(project_id))
+}
+
+fn settings_dir(project_id: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(project_id)?.join("settings"))
+}
+
+fn episodes_dir(project_id: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(project_id)?.join("episodes"))
+}
+
+fn characters_path(project_id: &str) -> Result<PathBuf, String> {
+    Ok(settings_dir(project_id)?.join("characters.json"))
+}
+
+fn world_path(project_id: &str) -> Result<PathBuf, String> {
+    Ok(settings_dir(project_id)?.join("world.json"))
+}
+
+fn episodes_list_path(project_id: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(project_id)?.join("episodes.json"))
+}
+
+fn memos_path(project_id: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(project_id)?.join("memos.json"))
+}
+
+fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
+    }
+    Ok(())
+}
+
+fn read_json(path: &PathBuf) -> Result<Value, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+    serde_json::from_str(&text)
+        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+}
+
+fn read_or_empty(path: &PathBuf, empty: Value) -> Value {
+    if path.exists() {
+        read_json(path).unwrap_or(empty)
+    } else {
+        empty
+    }
+}
+
+fn write_json(path: &PathBuf, value: &Value) -> Result<(), String> {
+    ensure_parent_dir(path).map_err(|e| format!("Failed to prepare {}: {}", path.display(), e))?;
+    fs::write(path, serde_json::to_string_pretty(value).unwrap())
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
+fn write_text(path: &PathBuf, content: &str) -> Result<(), String> {
+    ensure_parent_dir(path).map_err(|e| format!("Failed to prepare {}: {}", path.display(), e))?;
+    fs::write(path, content)
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
+fn normalize_newlines(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn split_frontmatter(content: &str) -> (Option<HashMap<String, String>>, String) {
+    let normalized = normalize_newlines(content);
+    let lines: Vec<&str> = normalized.split('\n').collect();
+    if lines.first().map(|s| s.trim()) != Some("---") {
+        return (None, normalized);
+    }
+
+    let end_index = lines
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, line)| line.trim() == "---")
+        .map(|(index, _)| index);
+
+    let end_index = match end_index {
+        Some(index) => index,
+        None => return (None, normalized),
+    };
+
+    let mut frontmatter = HashMap::new();
+    for line in &lines[1..end_index] {
+        if let Some(colon) = line.find(':') {
+            let key = line[..colon].trim().to_string();
+            let value = line[colon + 1..].trim().to_string();
+            if !key.is_empty() {
+                frontmatter.insert(key, value);
+            }
+        }
+    }
+
+    let body = lines[end_index + 1..].join("\n").trim().to_string();
+    (Some(frontmatter), body)
+}
+
+fn extract_custom_fields(
+    fields: &HashMap<String, String>,
+    known_keys: &[&str],
+) -> Vec<Value> {
+    let known_lower: Vec<String> = known_keys.iter().map(|k| k.to_lowercase()).collect();
+    fields
+        .iter()
+        .filter(|(key, _)| !known_lower.contains(&key.to_lowercase()))
+        .map(|(label, value)| json!({ "label": label, "value": value }))
+        .collect()
+}
+
+fn build_character(fields: &HashMap<String, String>, body: &str, title: &str) -> Value {
+    let known_keys = [
+        "name", "alias", "role", "gender", "age", "birthday", "bloodtype", "height", "weight",
+        "appearance", "personality", "individuality", "skills", "specialskills", "upbringing",
+        "background", "notes",
+    ];
+
+    let get = |key: &str| -> String {
+        fields
+            .get(key)
+            .cloned()
+            .or_else(|| fields.get(&key.to_lowercase()).cloned())
+            .unwrap_or_default()
+    };
+
+    json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "name": get("name").is_empty().then(|| title.to_string()).unwrap_or_else(|| get("name")),
+        "alias": get("alias"),
+        "role": get("role"),
+        "gender": get("gender"),
+        "age": get("age"),
+        "birthday": get("birthday"),
+        "bloodType": get("bloodtype"),
+        "height": get("height"),
+        "weight": get("weight"),
+        "appearance": get("appearance"),
+        "personality": get("personality"),
+        "individuality": get("individuality"),
+        "skills": get("skills"),
+        "specialSkills": get("specialskills"),
+        "upbringing": get("upbringing"),
+        "background": get("background"),
+        "notes": get("notes").is_empty().then(|| body.to_string()).unwrap_or_else(|| get("notes")),
+        "customFields": extract_custom_fields(fields, &known_keys),
+    })
+}
+
+fn build_world_entry(fields: &HashMap<String, String>, body: &str, title: &str) -> Value {
+    let known_keys = [
+        "name", "category", "era", "geography", "climate", "population", "politics", "laws",
+        "economy", "military", "religion", "language", "culture", "history", "technology", "notes",
+    ];
+
+    let get = |key: &str| -> String {
+        fields
+            .get(key)
+            .cloned()
+            .or_else(|| fields.get(&key.to_lowercase()).cloned())
+            .unwrap_or_default()
+    };
+
+    json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "name": get("name").is_empty().then(|| title.to_string()).unwrap_or_else(|| get("name")),
+        "category": get("category"),
+        "era": get("era"),
+        "geography": get("geography"),
+        "climate": get("climate"),
+        "population": get("population"),
+        "politics": get("politics"),
+        "laws": get("laws"),
+        "economy": get("economy"),
+        "military": get("military"),
+        "religion": get("religion"),
+        "language": get("language"),
+        "culture": get("culture"),
+        "history": get("history"),
+        "technology": get("technology"),
+        "notes": get("notes").is_empty().then(|| body.to_string()).unwrap_or_else(|| get("notes")),
+        "customFields": extract_custom_fields(fields, &known_keys),
+    })
+}
+
+fn load_characters(project_id: &str) -> Result<Value, String> {
+    let path = characters_path(project_id)?;
+    Ok(read_or_empty(&path, json!({ "characters": [] })))
+}
+
+fn save_characters(project_id: &str, data: &Value) -> Result<(), String> {
+    write_json(&characters_path(project_id)?, data)
+}
+
+fn load_world_entries(project_id: &str) -> Result<Value, String> {
+    let path = world_path(project_id)?;
+    Ok(read_or_empty(&path, json!({ "entries": [] })))
+}
+
+fn save_world_entries(project_id: &str, data: &Value) -> Result<(), String> {
+    write_json(&world_path(project_id)?, data)
+}
+
+fn load_episodes(project_id: &str) -> Result<Value, String> {
+    let path = episodes_list_path(project_id)?;
+    Ok(read_or_empty(&path, json!({ "episodes": [] })))
+}
+
+fn save_episodes(project_id: &str, data: &Value) -> Result<(), String> {
+    write_json(&episodes_list_path(project_id)?, data)
+}
+
+fn load_memos(project_id: &str) -> Result<Value, String> {
+    let path = memos_path(project_id)?;
+    Ok(read_or_empty(&path, json!({ "memos": {} })))
+}
+
+fn save_memos(project_id: &str, data: &Value) -> Result<(), String> {
+    write_json(&memos_path(project_id)?, data)
+}
+
+fn create_episode_entry(project_id: &str, title: &str, body: &str) -> Result<(String, String), String> {
+    let mut episodes = load_episodes(project_id)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let order = episodes["episodes"].as_array().map(|arr| arr.len() as i64).unwrap_or(0);
+    let file_name = format!("{}.md", id);
+
+    let episode = json!({
+        "id": id.clone(),
+        "title": title,
+        "order": order,
+        "fileName": file_name,
+    });
+
+    episodes["episodes"]
+        .as_array_mut()
+        .ok_or_else(|| "Invalid episodes structure".to_string())?
+        .push(episode);
+
+    let file_path = episodes_dir(project_id)?.join(&file_name);
+    write_text(&file_path, body)?;
+    save_episodes(project_id, &episodes)?;
+
+    Ok((id, title.to_string()))
+}
+
+fn save_episode_memo(project_id: &str, episode_id: &str, content: &str) -> Result<(), String> {
+    let mut memos = load_memos(project_id)?;
+    let entry = json!({
+        "content": content,
+        "updatedAt": chrono::Utc::now().to_rfc3339(),
+    });
+
+    memos["memos"]
+        .as_object_mut()
+        .ok_or_else(|| "Invalid memos structure".to_string())?
+        .insert(episode_id.to_string(), entry);
+
+    save_memos(project_id, &memos)
+}
+
+fn merge_frontmatter_fields(
+    fields: &HashMap<String, String>,
+    frontmatter: &Option<HashMap<String, String>>,
+) -> HashMap<String, String> {
+    let mut merged = fields.clone();
+    if let Some(front) = frontmatter {
+        for (key, value) in front {
+            merged.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    merged
+}
+
+fn find_episode_id_by_title(episodes: &Value, title: &str) -> Option<String> {
+    episodes["episodes"]
+        .as_array()
+        .and_then(|arr| {
+            arr.iter().find_map(|ep| {
+                let ep_title = ep["title"].as_str().unwrap_or_default();
+                if ep_title == title {
+                    ep["id"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+        })
+}
+
+#[tauri::command]
+pub async fn import_files(project_id: String, files: Vec<ImportFileInput>) -> Result<ImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || do_import(&project_id, &files)).await.map_err(|e| e.to_string())?
+}
+
+fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult, String> {
+    let mut result = ImportResult {
+        characters: 0,
+        world_entries: 0,
+        episodes: 0,
+        memos: 0,
+        skipped_memos: 0,
+    };
+
+    let mut characters = load_characters(project_id)?;
+    let mut world_entries = load_world_entries(project_id)?;
+    let episodes = load_episodes(project_id)?;
+    let mut episode_title_to_id: HashMap<String, String> = HashMap::new();
+
+    // 1st pass: characters and world entries
+    for file in files {
+        match file.file_type.as_str() {
+            "character" => {
+                let (frontmatter, body) = split_frontmatter(&file.content);
+                let merged = merge_frontmatter_fields(&file.fields, &frontmatter);
+                let character = build_character(&merged, &body, &file.title);
+                characters["characters"]
+                    .as_array_mut()
+                    .ok_or_else(|| "Invalid characters structure".to_string())?
+                    .push(character);
+                result.characters += 1;
+            }
+            "world" => {
+                let (frontmatter, body) = split_frontmatter(&file.content);
+                let merged = merge_frontmatter_fields(&file.fields, &frontmatter);
+                let entry = build_world_entry(&merged, &body, &file.title);
+                world_entries["entries"]
+                    .as_array_mut()
+                    .ok_or_else(|| "Invalid world entries structure".to_string())?
+                    .push(entry);
+                result.world_entries += 1;
+            }
+            _ => {}
+        }
+    }
+
+    save_characters(project_id, &characters)?;
+    save_world_entries(project_id, &world_entries)?;
+
+    // 2nd pass: episodes
+    for file in files {
+        if file.file_type != "episode" {
+            continue;
+        }
+        let (_, body) = split_frontmatter(&file.content);
+        let title = file.title.clone();
+        let (id, created_title) = create_episode_entry(project_id, &title, &body)?;
+        episode_title_to_id.insert(created_title, id);
+        result.episodes += 1;
+    }
+
+    // 3rd pass: memos
+    for file in files {
+        if file.file_type != "memo" {
+            continue;
+        }
+        let target_title = file.episode_title.as_ref().unwrap_or(&file.title);
+        let episode_id = episode_title_to_id
+            .get(target_title)
+            .cloned()
+            .or_else(|| find_episode_id_by_title(&episodes, target_title));
+
+        if let Some(episode_id) = episode_id {
+            let (_, body) = split_frontmatter(&file.content);
+            save_episode_memo(project_id, &episode_id, &body)?;
+            result.memos += 1;
+        } else {
+            result.skipped_memos += 1;
+        }
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_project_id() -> String {
+        format!("test-import-{}", uuid::Uuid::new_v4())
+    }
+
+    fn cleanup(project_id: &str) {
+        if let Ok(path) = project_dir(project_id) {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+
+    #[test]
+    fn import_creates_character_and_episode() {
+        let project_id = test_project_id();
+
+        let files = vec![
+            ImportFileInput {
+                path: "chars/hero.md".to_string(),
+                filename: "hero.md".to_string(),
+                file_type: "character".to_string(),
+                title: "主人公".to_string(),
+                content: "名前: 太郎\n年齢: 20\n\n性格は明るい。".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "太郎".to_string());
+                    map.insert("age".to_string(), "20".to_string());
+                    map.insert("personality".to_string(), "明るい".to_string());
+                    map
+                },
+                episode_title: None,
+            },
+            ImportFileInput {
+                path: "episodes/01.md".to_string(),
+                filename: "01.md".to_string(),
+                file_type: "episode".to_string(),
+                title: "第一話".to_string(),
+                content: "# 第一話\n\n本文".to_string(),
+                fields: HashMap::new(),
+                episode_title: None,
+            },
+            ImportFileInput {
+                path: "memos/01.md".to_string(),
+                filename: "01.md".to_string(),
+                file_type: "memo".to_string(),
+                title: "第一話".to_string(),
+                content: "覚え書き".to_string(),
+                fields: HashMap::new(),
+                episode_title: Some("第一話".to_string()),
+            },
+        ];
+
+        let result = do_import(&project_id, &files).expect("import failed");
+        assert_eq!(result.characters, 1);
+        assert_eq!(result.episodes, 1);
+        assert_eq!(result.memos, 1);
+        assert_eq!(result.skipped_memos, 0);
+
+        let chars = load_characters(&project_id).unwrap();
+        let char_array = chars["characters"].as_array().unwrap();
+        assert_eq!(char_array[0]["name"].as_str().unwrap(), "太郎");
+        assert_eq!(char_array[0]["age"].as_str().unwrap(), "20");
+
+        let eps = load_episodes(&project_id).unwrap();
+        let ep_array = eps["episodes"].as_array().unwrap();
+        assert_eq!(ep_array[0]["title"].as_str().unwrap(), "第一話");
+
+        cleanup(&project_id);
+    }
+}

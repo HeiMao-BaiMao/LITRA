@@ -1,6 +1,6 @@
 import { getElements } from "./layout.ts";
 import type { ProjectSummary } from "../project/repository.ts";
-import type { ImportCandidate, ImportResult } from "../project/import.ts";
+import type { AiImportCandidate, ImportResult } from "../project/import.ts";
 
 export interface ProjectModalActions {
   onCreate: () => void;
@@ -148,7 +148,17 @@ export function hideImportPreviewModal(): void {
   getElements().importPreviewModal.classList.add("hidden");
 }
 
-export function renderImportPreview(candidates: ImportCandidate[]): void {
+export function renderImportLoading(message = "AI でファイルを分類中..."): void {
+  const list = getElements().importPreviewList;
+  list.innerHTML = "";
+
+  const row = document.createElement("div");
+  row.className = "import-preview-loading";
+  row.textContent = message;
+  list.appendChild(row);
+}
+
+export function renderImportPreview(candidates: AiImportCandidate[]): void {
   const list = getElements().importPreviewList;
   list.innerHTML = "";
 
@@ -163,6 +173,7 @@ export function renderImportPreview(candidates: ImportCandidate[]): void {
     episode: "エピソード",
     memo: "覚え書き",
     unknown: "対象外",
+    ignore: "対象外",
   };
 
   const summary = document.createElement("div");
@@ -175,6 +186,13 @@ export function renderImportPreview(candidates: ImportCandidate[]): void {
     row.className = "import-preview-row";
     row.textContent = `${typeLabels[type] ?? type}: ${count} 件`;
     list.appendChild(row);
+  }
+
+  for (const candidate of candidates) {
+    const detail = document.createElement("div");
+    detail.className = "import-preview-detail";
+    detail.textContent = `[${typeLabels[candidate.type] ?? candidate.type}] ${candidate.filename} → ${candidate.title}`;
+    list.appendChild(detail);
   }
 
   if (candidates.length === 0) {

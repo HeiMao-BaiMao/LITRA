@@ -18,7 +18,7 @@ import {
   resolveChatSettings,
   getProviderSpecificSettings,
 } from "./settings.ts";
-import { importFolder, scanImportFiles } from "./project/import.ts";
+import { applyImport, classifyFilesWithAI, type AiImportCandidate } from "./project/import.ts";
 import { state, type ProjectView } from "./state.ts";
 import {
   streamChat,
@@ -91,6 +91,7 @@ import {
   getNewProjectTitle,
   hideImportPreviewModal,
   hideProjectModal,
+  renderImportLoading,
   renderImportPreview,
   renderImportResult,
   showImportPreviewModal,
@@ -171,6 +172,7 @@ let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
 
 let pendingImportFiles: File[] = [];
+let pendingImportCandidates: AiImportCandidate[] = [];
 
 const DEFAULT_MAX_CONTEXT_TOKENS = 65536;
 const CONTEXT_CHAR_PER_TOKEN = 1.6;
@@ -2052,12 +2054,26 @@ async function handleSelectImportFolder(): Promise<void> {
     return;
   }
 
+  if (!validateSettings()) {
+    return;
+  }
+
   pendingImportFiles = Array.from(input.files);
   input.value = "";
+  pendingImportCandidates = [];
 
-  const candidates = await scanImportFiles(pendingImportFiles);
-  renderImportPreview(candidates);
+  renderImportLoading();
   showImportPreviewModal();
+
+  try {
+    const candidates = await classifyFilesWithAI(pendingImportFiles, currentSettings);
+    pendingImportCandidates = candidates;
+    renderImportPreview(candidates);
+  } catch (error) {
+    console.error("[phenex:import] classification failed", error);
+    window.alert(`ファイル分類に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+    hideImportPreviewModal();
+  }
 }
 
 async function handleConfirmImport(): Promise<void> {
@@ -2065,25 +2081,35 @@ async function handleConfirmImport(): Promise<void> {
     window.alert("プロジェクトを開いた状態で取り込んでください。");
     return;
   }
-  if (pendingImportFiles.length === 0) {
+  if (pendingImportFiles.length === 0 || pendingImportCandidates.length === 0) {
     hideImportPreviewModal();
     return;
   }
 
-  const result = await importFolder(currentProject.id, pendingImportFiles);
-  renderImportResult(result);
+  renderImportLoading("取り込み中...");
 
-  pendingImportFiles = [];
+  try {
+    const result = await applyImport(currentProject.id, pendingImportCandidates, pendingImportFiles);
+    renderImportResult(result);
 
-  // 3秒後にプロジェクトデータを再読み込みしてプレビューを閉じる
-  setTimeout(() => {
-    void loadProjectData(currentProject!);
+    pendingImportFiles = [];
+    pendingImportCandidates = [];
+
+    // 3秒後にプロジェクトデータを再読み込みしてプレビューを閉じる
+    setTimeout(() => {
+      void loadProjectData(currentProject!);
+      hideImportPreviewModal();
+    }, 3000);
+  } catch (error) {
+    console.error("[phenex:import] import failed", error);
+    window.alert(`取り込みに失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     hideImportPreviewModal();
-  }, 3000);
+  }
 }
 
 function handleCancelImport(): void {
   pendingImportFiles = [];
+  pendingImportCandidates = [];
   hideImportPreviewModal();
 }
 
