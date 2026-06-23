@@ -38,12 +38,15 @@ import {
   createGetEpisodeLinesTool,
   createCreateRelationshipTool,
   createDeleteRelationshipTool,
+  createGetEpisodeMemoTool,
   createListCharactersTool,
+  createListEpisodeMemosTool,
   createListEpisodesTool,
   createListRelationshipsTool,
   createListWorldEntriesTool,
   createRebuildSearchIndexTool,
   createRetrieveEpisodeTool,
+  createSaveEpisodeMemoTool,
   createSaveEpisodeOneLinerTool,
   createSaveEpisodeSummaryAndOneLinerTool,
   createSaveEpisodeSummaryTool,
@@ -404,6 +407,23 @@ function createAiTools(): ToolSet | undefined {
     },
   };
 
+  const memoDeps = {
+    projectId: currentProject.id,
+    episodes,
+    episodeMemos,
+    onUpdateMemos: (memos: EpisodeMemoMap) => {
+      episodeMemos = memos;
+      if (state.currentEpisodeId) {
+        renderEpisodeMemo(
+          state.currentEpisodeId,
+          episodeMemos.memos[state.currentEpisodeId]?.content,
+          handleUpdateMemo,
+        );
+      }
+      syncMemoToWindow();
+    },
+  };
+
   const tools: ToolSet = {
     findEpisodeLines: createFindEpisodeLinesTool(searchDeps),
     getEpisodeLines: createGetEpisodeLinesTool(searchDeps),
@@ -423,6 +443,9 @@ function createAiTools(): ToolSet | undefined {
     createRelationship: createCreateRelationshipTool(relationshipDeps),
     updateRelationship: createUpdateRelationshipTool(relationshipDeps),
     deleteRelationship: createDeleteRelationshipTool(relationshipDeps),
+    listEpisodeMemos: createListEpisodeMemosTool(memoDeps),
+    getEpisodeMemo: createGetEpisodeMemoTool(memoDeps),
+    saveEpisodeMemo: createSaveEpisodeMemoTool(memoDeps),
   };
 
   if (state.currentEpisodeId) {

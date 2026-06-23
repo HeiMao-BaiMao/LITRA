@@ -12,7 +12,9 @@ import type {
   Episode,
   CharacterRelationshipMap,
   CharacterRelationship,
+  EpisodeMemoMap,
 } from "../project/schema.ts";
+import { loadMemos, saveEpisodeMemo } from "../project/memos.ts";
 
 interface ValidationResult<T> {
   success: true;
@@ -943,6 +945,78 @@ export function createDeleteRelationshipTool(deps: RelationshipToolDependencies)
       await saveRelationships(deps.projectId, map);
       deps.onUpdateRelationships(map);
       return { success: true, message: "人間関係を削除しました。" };
+    }),
+  });
+}
+
+export interface MemoToolDependencies {
+  projectId: string;
+  episodes: Episode[];
+  episodeMemos: EpisodeMemoMap;
+  onUpdateMemos: (memos: EpisodeMemoMap) => void;
+}
+
+export function createListEpisodeMemosTool(deps: MemoToolDependencies) {
+  return tool({
+    description:
+      "登録されているエピソードごとの覚え書き（メモ）の一覧を取得します。メモがあるエピソードのID、タイトル、内容の先頭部分を返します。",
+    inputSchema: z.object({}),
+    execute: wrapToolExecute("listEpisodeMemos", async () => {
+      const memos = deps.episodeMemos.memos;
+      const items = deps.episodes
+        .filter((episode) => memos[episode.id]?.content)
+        .map((episode) => {
+          const content = memos[episode.id]?.content ?? "";
+          return {
+            episodeId: episode.id,
+            title: episode.title || "（無題）",
+            preview: limitToolText(content, 240),
+          };
+        });
+      return { count: items.length, memos: items };
+    }),
+  });
+}
+
+const getEpisodeMemoInputSchema = z.object({
+  episodeId: z.string().describe("取得するメモの紐づくエピソードのID"),
+});
+
+export function createGetEpisodeMemoTool(deps: MemoToolDependencies) {
+  return tool({
+    description: "指定したエピソードに紐づく覚え書き（メモ）の全文を取得します。",
+    inputSchema: getEpisodeMemoInputSchema,
+    execute: wrapToolExecute("getEpisodeMemo", async ({ episodeId }) => {
+      const content = deps.episodeMemos.memos[episodeId]?.content ?? "";
+      const episode = deps.episodes.find((e) => e.id === episodeId);
+      return {
+        episodeId,
+        title: episode?.title || "（無題）",
+        content: limitToolText(content),
+      };
+    }),
+  });
+}
+
+const saveEpisodeMemoInputSchema = z.object({
+  episodeId: z.string().describe("保存するメモの紐づくエピソードのID"),
+  content: z.string().describe("保存するメモの内容。長文や改行を含んでも構いません。"),
+});
+
+export function createSaveEpisodeMemoTool(deps: MemoToolDependencies) {
+  return tool({
+    description: "指定したエピソードに紐づく覚え書き（メモ）を保存または更新します。",
+    inputSchema: saveEpisodeMemoInputSchema,
+    execute: wrapToolExecute("saveEpisodeMemo", async ({ episodeId, content }) => {
+      const validation = validateStringField("content", content);
+      if (!validation.success) {
+        return { error: `saveEpisodeMemo の入力が不正です: ${validation.error}` };
+      }
+
+      await saveEpisodeMemo(deps.projectId, episodeId, validation.data);
+      const updated = await loadMemos(deps.projectId);
+      deps.onUpdateMemos(updated);
+      return { success: true, message: "覚え書きを保存しました。" };
     }),
   });
 }
