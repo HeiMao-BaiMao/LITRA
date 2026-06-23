@@ -1,4 +1,5 @@
 import { emit, listen } from "@tauri-apps/api/event";
+import { listenDpiZoom } from "./window/dpi-scale.ts";
 
 interface MemoSyncPayload {
   episodeId: string | null;
@@ -9,6 +10,8 @@ let currentEpisodeId: string | null = null;
 let updateTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function init(): void {
+  void listenDpiZoom();
+
   const textarea = document.querySelector<HTMLTextAreaElement>("#memo-textarea");
   if (!textarea) return;
 

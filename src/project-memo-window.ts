@@ -1,6 +1,9 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { renderMemosEditor, type MemosEditorActions } from "./ui/memos-editor.ts";
+import { listenDpiZoom } from "./window/dpi-scale.ts";
 import type { ProjectMemo } from "./project/project-memo.ts";
+
+void listenDpiZoom();
 
 interface ProjectMemosSyncPayload {
   memos: ProjectMemo[];

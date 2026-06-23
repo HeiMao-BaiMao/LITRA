@@ -1,5 +1,6 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { renderSettingsEditor, type SettingsEditorActions } from "./ui/settings-editor.ts";
+import { listenDpiZoom } from "./window/dpi-scale.ts";
 import type { Character, WorldEntry, Episode, CharacterRelationshipMap } from "./project/schema.ts";
 
 interface SettingsSyncPayload {
@@ -13,6 +14,8 @@ interface SettingsSyncPayload {
 }
 
 function init(): void {
+  void listenDpiZoom();
+
   const container = document.querySelector<HTMLElement>("#settings-container");
   const tabCharacters = document.querySelector<HTMLButtonElement>("#tab-characters");
   const tabWorld = document.querySelector<HTMLButtonElement>("#tab-world");

@@ -4,6 +4,7 @@ import type { Provider } from "./settings.ts";
 import { renderChatMessageHtml } from "./markdown.ts";
 import { loadProviderConfig, getProviderEntry } from "./providers/config.ts";
 import { bindAutoResize } from "./ui/auto-resize.ts";
+import { listenDpiZoom } from "./window/dpi-scale.ts";
 import type { ProviderConfig } from "./providers/config.ts";
 
 interface ChatSyncPayload {
@@ -67,6 +68,8 @@ function populateModelOptions(modelSelect: HTMLSelectElement, providerId: Provid
 }
 
 async function init(): Promise<void> {
+  void listenDpiZoom();
+
   const messagesContainer = document.querySelector<HTMLElement>("#chat-messages");
   const form = document.querySelector<HTMLFormElement>("#chat-form");
   const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
