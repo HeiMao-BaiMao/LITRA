@@ -852,6 +852,7 @@ async function openMemoWindow(): Promise<void> {
     height: 640,
     minWidth: 280,
     minHeight: 320,
+    dragDropEnabled: false,
   });
 
   webview.once("tauri://created", () => {
@@ -889,6 +890,7 @@ async function openChatWindow(): Promise<void> {
     height: 640,
     minWidth: 200,
     minHeight: 320,
+    dragDropEnabled: false,
   });
 
   webview.once("tauri://created", () => {
@@ -925,6 +927,7 @@ async function openSummaryWindow(): Promise<void> {
     height: 640,
     minWidth: 280,
     minHeight: 320,
+    dragDropEnabled: false,
   });
 
   webview.once("tauri://created", () => {
@@ -967,6 +970,7 @@ async function openSettingsWindow(): Promise<void> {
     height: 700,
     minWidth: 420,
     minHeight: 420,
+    dragDropEnabled: false,
   });
 
   webview.once("tauri://created", () => {
