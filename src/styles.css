@@ -1322,6 +1322,7 @@ button.danger:hover:not(:disabled) {
   min-width: 0;
   height: 100vh;
   border: none;
+  flex: 1 1 auto;
 }
 
 .relationships-detail {
