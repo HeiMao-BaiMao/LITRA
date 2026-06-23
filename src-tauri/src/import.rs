@@ -330,6 +330,61 @@ fn save_relationships(project_id: &str, data: &Value) -> Result<(), String> {
     write_json(&relationships_path(project_id)?, data)
 }
 
+fn ensure_relationship_characters(
+    project_id: &str,
+    files: &[ImportFileInput],
+    characters: &mut Value,
+    character_map: &mut HashMap<String, String>,
+) -> Result<(), String> {
+    let character_array = characters["characters"]
+        .as_array_mut()
+        .ok_or_else(|| "Invalid characters structure".to_string())?;
+
+    let mut added = false;
+    for file in files {
+        if file.file_type != "relationship" {
+            continue;
+        }
+        for rel in &file.relationships {
+            for name in [&rel.character_a_name, &rel.character_b_name] {
+                let key = name.to_lowercase();
+                if key.is_empty() || character_map.contains_key(&key) {
+                    continue;
+                }
+                let id = uuid::Uuid::new_v4().to_string();
+                character_array.push(json!({
+                    "id": id,
+                    "name": name,
+                    "alias": "",
+                    "role": "",
+                    "gender": "",
+                    "age": "",
+                    "birthday": "",
+                    "bloodType": "",
+                    "height": "",
+                    "weight": "",
+                    "appearance": "",
+                    "personality": "",
+                    "individuality": "",
+                    "skills": "",
+                    "specialSkills": "",
+                    "upbringing": "",
+                    "background": "",
+                    "notes": "",
+                    "customFields": [],
+                }));
+                character_map.insert(key, id);
+                added = true;
+            }
+        }
+    }
+
+    if added {
+        save_characters(project_id, characters)?;
+    }
+    Ok(())
+}
+
 fn build_character_name_to_id_map(characters: &Value) -> HashMap<String, String> {
     let mut map = HashMap::new();
     if let Some(arr) = characters["characters"].as_array() {
@@ -540,7 +595,8 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
     }
 
     // 5th pass: relationships
-    let character_map = build_character_name_to_id_map(&characters);
+    let mut character_map = build_character_name_to_id_map(&characters);
+    ensure_relationship_characters(project_id, files, &mut characters, &mut character_map)?;
     let (imported_relationships, skipped_relationships) = import_relationships(
         project_id,
         files,

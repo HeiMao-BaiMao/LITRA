@@ -404,11 +404,11 @@ ${content}
 function buildRelationshipTransformPrompt(
   title: string,
   content: string,
-  characterNames: string[],
-  episodeTitles: string[],
+  characterNames: Set<string>,
+  episodeTitles: Set<string>,
 ): string {
-  const characterList = characterNames.length > 0 ? characterNames.join(", ") : "（なし）";
-  const episodeList = episodeTitles.length > 0 ? episodeTitles.join(", ") : "（なし）";
+  const characterList = characterNames.size > 0 ? Array.from(characterNames).join(", ") : "（なし）";
+  const episodeList = episodeTitles.size > 0 ? Array.from(episodeTitles).join(", ") : "（なし）";
 
   return `あなたは創作支援アプリの編集アシスタントです。
 以下のテキストを読み込み、キャラクター間の人間関係を **すべて** 抽出・整理してください。
@@ -480,8 +480,8 @@ ${content}
 }
 
 interface TransformContext {
-  characterNames: string[];
-  episodeTitles: string[];
+  characterNames: Set<string>;
+  episodeTitles: Set<string>;
 }
 
 async function transformOne(
@@ -600,49 +600,73 @@ export async function transformImportFilesWithAI(
   const pathToFile = new Map(files.map((file) => [getFilePath(file), file]));
   const pathToContent = new Map<string, string>();
 
-  const characterNames = new Set<string>();
-  const episodeTitles = new Set<string>();
-  for (const candidate of candidates) {
-    if (candidate.type === "character") {
-      if (candidate.title) characterNames.add(candidate.title);
-      if (candidate.fields?.name) characterNames.add(candidate.fields.name);
-      if (candidate.fields?.alias) characterNames.add(candidate.fields.alias);
-    } else if (candidate.type === "episode") {
-      if (candidate.title) episodeTitles.add(candidate.title);
-    }
-  }
   const context: TransformContext = {
-    characterNames: Array.from(characterNames),
-    episodeTitles: Array.from(episodeTitles),
+    characterNames: new Set(),
+    episodeTitles: new Set(),
   };
 
-  const results = await Promise.all(
-    candidates.map(async (candidate) => {
-      if (candidate.type === "ignore" || candidate.type === "unknown") {
-        return candidate;
-      }
-      const file = pathToFile.get(candidate.path);
-      if (!file) return candidate;
+  // 分類結果から初期コンテキストを構築
+  for (const candidate of candidates) {
+    if (candidate.type === "character") {
+      if (candidate.title) context.characterNames.add(candidate.title);
+      if (candidate.fields?.name) context.characterNames.add(candidate.fields.name);
+      if (candidate.fields?.alias) context.characterNames.add(candidate.fields.alias);
+    } else if (candidate.type === "episode") {
+      if (candidate.title) context.episodeTitles.add(candidate.title);
+    }
+  }
 
-      const content = await file.text();
-      pathToContent.set(candidate.path, content);
+  const results = candidates.map((candidate) => ({ ...candidate })) as TransformableCandidate[];
+  const typeOrder: ImportItemType[] = ["world", "episode", "memo", "character", "relationship"];
 
-      try {
-        const transformed = await transformOne(candidate, content, settings, context);
-        return {
-          ...candidate,
-          title: transformed.title ?? candidate.title,
-          fields: transformed.fields ?? candidate.fields,
-          episodeTitle: transformed.episodeTitle ?? candidate.episodeTitle,
-          transformedContent: transformed.content,
-          relationships: transformed.relationships,
-        };
-      } catch (error) {
-        console.error(`[phenex:import:transform] failed for ${candidate.path}`, error);
-        return candidate;
+  for (const type of typeOrder) {
+    const typeCandidates = results.filter((candidate) => candidate.type === type);
+    const transformed = await Promise.all(
+      typeCandidates.map(async (candidate) => {
+        const file = pathToFile.get(candidate.path);
+        if (!file) return candidate;
+
+        let content = pathToContent.get(candidate.path);
+        if (content === undefined) {
+          content = await file.text();
+          pathToContent.set(candidate.path, content);
+        }
+
+        try {
+          const transformed = await transformOne(candidate, content, settings, context);
+          const updated: TransformableCandidate = {
+            ...candidate,
+            title: transformed.title ?? candidate.title,
+            fields: transformed.fields ?? candidate.fields,
+            episodeTitle: transformed.episodeTitle ?? candidate.episodeTitle,
+            transformedContent: transformed.content,
+            relationships: transformed.relationships,
+          };
+
+          // フェーズ完了後にコンテキストを更新
+          if (type === "character") {
+            if (updated.title) context.characterNames.add(updated.title);
+            if (updated.fields?.name) context.characterNames.add(updated.fields.name);
+            if (updated.fields?.alias) context.characterNames.add(updated.fields.alias);
+          } else if (type === "episode") {
+            if (updated.title) context.episodeTitles.add(updated.title);
+          }
+
+          return updated;
+        } catch (error) {
+          console.error(`[phenex:import:transform] failed for ${candidate.path}`, error);
+          return candidate;
+        }
+      }),
+    );
+
+    for (let i = 0; i < typeCandidates.length; i++) {
+      const index = results.findIndex((c) => c.path === typeCandidates[i].path);
+      if (index !== -1) {
+        results[index] = transformed[i];
       }
-    }),
-  );
+    }
+  }
 
   return results;
 }
