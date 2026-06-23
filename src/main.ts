@@ -19,7 +19,7 @@ import {
   type StreamRunResult,
   type StreamToolEvent,
 } from "./ai/service.ts";
-import { buildSummaryPrompt, limitPromptText } from "./ai/prompts.ts";
+import { buildSummaryPrompt, limitPromptText, parseSummaryOutput } from "./ai/prompts.ts";
 import {
   createCreateCharacterTool,
   createCreateWorldEntryTool,
@@ -140,7 +140,7 @@ import {
   updateWorldEntry,
 } from "./project/settings.ts";
 import { loadChat, saveChat } from "./project/documents.ts";
-import { loadSummaries, saveEpisodeSummary } from "./project/summaries.ts";
+import { loadSummaries, saveEpisodeSummary, saveEpisodeOneLiner } from "./project/summaries.ts";
 import { loadMemos, saveEpisodeMemo } from "./project/memos.ts";
 import type { Character, Episode, EpisodeMemoMap, EpisodeSummaryMap, WorldEntry } from "./project/schema.ts";
 import { hasToolCall, type ModelMessage, type ToolSet } from "ai";
@@ -1270,12 +1270,13 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
   try {
     const messages: ModelMessage[] = [{ role: "user", content: prompt }];
 
+    const isDeepSeek = currentSettings.provider === "deepseek";
     const run = await streamChat({
       settings: currentSettings,
       messages,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       tools: summaryTools,
-      toolChoice: "required",
+      toolChoice: isDeepSeek ? "auto" : "required",
       stopWhen: hasToolCall("saveEpisodeSummaryAndOneLiner"),
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
@@ -1284,6 +1285,37 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       abortSignal: controller.signal,
     });
     finalizeToolRun(run);
+
+    if (run.toolCallCount === 0) {
+      const plainText = getLastAssistantPlainText();
+      const { summary, oneLiner } = parseSummaryOutput(plainText);
+      if (summary) {
+        await saveEpisodeSummary(currentProject.id, episode.id, summary);
+        episodeSummaries.summaries[episode.id] = {
+          ...(episodeSummaries.summaries[episode.id] ?? { oneLiner: "" }),
+          content: summary,
+          updatedAt: new Date().toISOString(),
+        };
+        if (episode.id === state.currentEpisodeId) {
+          renderEpisodeSummary(episode.id, summary, handleUpdateSummary, handleGenerateSummary);
+        }
+      }
+      if (oneLiner) {
+        await saveEpisodeOneLiner(currentProject.id, episode.id, oneLiner);
+        const existing = episodeSummaries.summaries[episode.id];
+        episodeSummaries.summaries[episode.id] = {
+          content: existing?.content ?? "",
+          oneLiner,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      if (summary || oneLiner) {
+        syncSummaryToWindow();
+        invoke("rebuild_search_index", { projectId: currentProject.id }).catch((error) => {
+          console.warn("[phenex] failed to rebuild search index after summary update:", error);
+        });
+      }
+    }
 
     const plainText = getLastAssistantPlainText();
     const saved = episodeSummaries.summaries[episode.id];

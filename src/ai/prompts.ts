@@ -162,3 +162,23 @@ ${sourceText}
 【一行要約】
 （一行要約文）`;
 }
+
+export function parseSummaryOutput(output: string): {
+  summary: string | undefined;
+  oneLiner: string | undefined;
+} {
+  const normalized = output.replace(/\r\n/g, "\n");
+  const summaryMatch = normalized.match(/【要約】\n?([\s\S]*?)(?=\n?【一行要約】|$)/);
+  const oneLinerMatch = normalized.match(/【一行要約】\n?([\s\S]*?)$/);
+
+  const trim = (value: string | undefined): string | undefined => {
+    if (!value) return undefined;
+    const trimmed = value.replace(/^[\n\s]+|[\n\s]+$/g, "");
+    return trimmed || undefined;
+  };
+
+  return {
+    summary: summaryMatch ? trim(summaryMatch[1]) : undefined,
+    oneLiner: oneLinerMatch ? trim(oneLinerMatch[1]) : undefined,
+  };
+}
