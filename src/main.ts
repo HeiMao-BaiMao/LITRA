@@ -2284,7 +2284,7 @@ async function handleConfirmImport(): Promise<void> {
   renderImportLoading("取り込み中...");
 
   try {
-    const result = await applyImport(currentProject.id, pendingImportCandidates, pendingImportFiles);
+    const result = await applyImport(currentProject.id, pendingImportCandidates, pendingImportFiles, currentSettings);
     renderImportResult(result);
 
     pendingImportFiles = [];

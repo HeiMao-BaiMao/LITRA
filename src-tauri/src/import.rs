@@ -378,9 +378,7 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
     for file in files {
         match file.file_type.as_str() {
             "character" => {
-                let (frontmatter, body) = split_frontmatter(&file.content);
-                let merged = merge_frontmatter_fields(&file.fields, &frontmatter);
-                let character = build_character(&merged, &body, &file.title);
+                let character = build_character(&file.fields, &file.content, &file.title);
                 characters["characters"]
                     .as_array_mut()
                     .ok_or_else(|| "Invalid characters structure".to_string())?
@@ -388,9 +386,7 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
                 result.characters += 1;
             }
             "world" => {
-                let (frontmatter, body) = split_frontmatter(&file.content);
-                let merged = merge_frontmatter_fields(&file.fields, &frontmatter);
-                let entry = build_world_entry(&merged, &body, &file.title);
+                let entry = build_world_entry(&file.fields, &file.content, &file.title);
                 world_entries["entries"]
                     .as_array_mut()
                     .ok_or_else(|| "Invalid world entries structure".to_string())?
@@ -409,9 +405,7 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
         if file.file_type != "episode" {
             continue;
         }
-        let (_, body) = split_frontmatter(&file.content);
-        let title = file.title.clone();
-        let (id, created_title) = create_episode_entry(project_id, &title, &body)?;
+        let (id, created_title) = create_episode_entry(project_id, &file.title, &file.content)?;
         episode_title_to_id.insert(created_title, id);
         result.episodes += 1;
     }
@@ -428,8 +422,7 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
             .or_else(|| find_episode_id_by_title(&episodes, target_title));
 
         if let Some(episode_id) = episode_id {
-            let (_, body) = split_frontmatter(&file.content);
-            save_episode_memo(project_id, &episode_id, &body)?;
+            save_episode_memo(project_id, &episode_id, &file.content)?;
             result.memos += 1;
         } else {
             result.skipped_memos += 1;
@@ -441,8 +434,7 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
         if file.file_type != "projectMemo" {
             continue;
         }
-        let (_, body) = split_frontmatter(&file.content);
-        create_project_memo_entry(project_id, &file.title, &body)?;
+        create_project_memo_entry(project_id, &file.title, &file.content)?;
         result.project_memos += 1;
     }
 

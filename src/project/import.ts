@@ -92,6 +92,39 @@ const classificationSchema = z.object({
   ),
 });
 
+const characterTransformSchema = z.object({
+  title: z.string().describe("キャラクターの名前。ファイル名や内容から最も適切な呼称を選んでください"),
+  fields: z
+    .record(z.string(), z.string())
+    .describe(
+      "name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes など。取得できない項目は空文字にしてください。",
+    ),
+});
+
+const worldTransformSchema = z.object({
+  title: z.string().describe("項目の名前。ファイル名や内容から最も適切な呼称を選んでください"),
+  fields: z
+    .record(z.string(), z.string())
+    .describe(
+      "name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes など。取得できない項目は空文字にしてください。",
+    ),
+});
+
+const episodeTransformSchema = z.object({
+  title: z.string().describe("エピソードのタイトル"),
+  content: z.string().describe("不要なメタ情報やYAMLフロントマターを除いた、整理済みの小説本文"),
+});
+
+const memoTransformSchema = z.object({
+  episodeTitle: z.string().describe("紐づくエピソードのタイトル。不明な場合は空文字"),
+  content: z.string().describe("整理済みのメモ本文"),
+});
+
+const projectMemoTransformSchema = z.object({
+  title: z.string().describe("メモのタイトル"),
+  content: z.string().describe("整理済みのメモ本文"),
+});
+
 function fileNameToTitle(filename: string): string {
   const base = filename.replace(/\\/g, "/").split("/").pop() ?? filename;
   return base.replace(/\.(md|txt|csv)$/i, "").trim();
@@ -235,8 +268,194 @@ export async function classifyFilesWithAI(
     .filter((item): item is AiImportCandidate => item != null);
 }
 
-function toImportFileInput(
+function buildCharacterTransformPrompt(title: string, content: string): string {
+  return `あなたは創作支援アプリの編集アシスタントです。
+以下のテキストを読み込み、キャラクター設定として整理・書き換えてください。
+
+元のファイルの推定タイトル: ${title}
+
+---
+${content}
+---
+
+出力は次の JSON 形式にしてください。
+- title: キャラクターの名前（最も適切な呼称）
+- fields: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes などを含むオブジェクト。取得できない項目は空文字にしてください。`;
+}
+
+function buildWorldTransformPrompt(title: string, content: string): string {
+  return `あなたは創作支援アプリの編集アシスタントです。
+以下のテキストを読み込み、世界観設定項目として整理・書き換えてください。
+
+元のファイルの推定タイトル: ${title}
+
+---
+${content}
+---
+
+出力は次の JSON 形式にしてください。
+- title: 項目の名前（最も適切な呼称）
+- fields: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes などを含むオブジェクト。取得できない項目は空文字にしてください。`;
+}
+
+function buildEpisodeTransformPrompt(title: string, content: string): string {
+  return `あなたは創作支援アプリの編集アシスタントです。
+以下のテキストを読み込み、小説のエピソード本文として整理・書き換えてください。
+
+元のファイルの推定タイトル: ${title}
+
+---
+${content}
+---
+
+出力は次の JSON 形式にしてください。
+- title: エピソードのタイトル
+- content: 不要なメタ情報やYAMLフロントマターを除いた、整理済みの小説本文`;
+}
+
+function buildMemoTransformPrompt(title: string, content: string): string {
+  return `あなたは創作支援アプリの編集アシスタントです。
+以下のテキストを読み込み、エピソードに紐づく覚え書きとして整理・書き換えてください。
+
+元のファイルの推定タイトル: ${title}
+
+---
+${content}
+---
+
+出力は次の JSON 形式にしてください。
+- episodeTitle: 紐づくエピソードのタイトル。不明な場合は空文字
+- content: 整理済みのメモ本文`;
+}
+
+function buildProjectMemoTransformPrompt(title: string, content: string): string {
+  return `あなたは創作支援アプリの編集アシスタントです。
+以下のテキストを読み込み、作品全体の自由メモとして整理・書き換えてください。
+
+元のファイルの推定タイトル: ${title}
+
+---
+${content}
+---
+
+出力は次の JSON 形式にしてください。
+- title: メモのタイトル
+- content: 整理済みのメモ本文`;
+}
+
+async function transformOne(
   candidate: AiImportCandidate,
+  content: string,
+  settings: AiSettings,
+): Promise<Partial<Pick<AiImportCandidate, "title" | "fields" | "episodeTitle">> & { content?: string }> {
+  const system =
+    "与えられた創作データを読み込み、アプリの項目に合わせて整理・書き換え、構造化された JSON を返してください。";
+
+  switch (candidate.type) {
+    case "character": {
+      const result = await generateObject({
+        model: createModel(settings),
+        schema: characterTransformSchema,
+        system,
+        prompt: buildCharacterTransformPrompt(candidate.title, content),
+        maxOutputTokens: 8192,
+        temperature: 0.3,
+      });
+      return { title: result.object.title, fields: result.object.fields };
+    }
+    case "world": {
+      const result = await generateObject({
+        model: createModel(settings),
+        schema: worldTransformSchema,
+        system,
+        prompt: buildWorldTransformPrompt(candidate.title, content),
+        maxOutputTokens: 8192,
+        temperature: 0.3,
+      });
+      return { title: result.object.title, fields: result.object.fields };
+    }
+    case "episode": {
+      const result = await generateObject({
+        model: createModel(settings),
+        schema: episodeTransformSchema,
+        system,
+        prompt: buildEpisodeTransformPrompt(candidate.title, content),
+        maxOutputTokens: 16384,
+        temperature: 0.3,
+      });
+      return { title: result.object.title, content: result.object.content };
+    }
+    case "memo": {
+      const result = await generateObject({
+        model: createModel(settings),
+        schema: memoTransformSchema,
+        system,
+        prompt: buildMemoTransformPrompt(candidate.title, content),
+        maxOutputTokens: 8192,
+        temperature: 0.3,
+      });
+      return { episodeTitle: result.object.episodeTitle, content: result.object.content };
+    }
+    case "projectMemo": {
+      const result = await generateObject({
+        model: createModel(settings),
+        schema: projectMemoTransformSchema,
+        system,
+        prompt: buildProjectMemoTransformPrompt(candidate.title, content),
+        maxOutputTokens: 8192,
+        temperature: 0.3,
+      });
+      return { title: result.object.title, content: result.object.content };
+    }
+    default:
+      return {};
+  }
+}
+
+export async function transformImportFilesWithAI(
+  candidates: AiImportCandidate[],
+  files: File[],
+  settings: AiSettings,
+): Promise<AiImportCandidate[]> {
+  const pathToFile = new Map(files.map((file) => [getFilePath(file), file]));
+  const pathToContent = new Map<string, string>();
+
+  const results = await Promise.all(
+    candidates.map(async (candidate) => {
+      if (candidate.type === "ignore" || candidate.type === "unknown") {
+        return candidate;
+      }
+      const file = pathToFile.get(candidate.path);
+      if (!file) return candidate;
+
+      const content = await file.text();
+      pathToContent.set(candidate.path, content);
+
+      try {
+        const transformed = await transformOne(candidate, content, settings);
+        return {
+          ...candidate,
+          title: transformed.title ?? candidate.title,
+          fields: transformed.fields ?? candidate.fields,
+          episodeTitle: transformed.episodeTitle ?? candidate.episodeTitle,
+          transformedContent: transformed.content,
+        };
+      } catch (error) {
+        console.error(`[phenex:import:transform] failed for ${candidate.path}`, error);
+        return candidate;
+      }
+    }),
+  );
+
+  return results;
+}
+
+interface TransformableCandidate extends AiImportCandidate {
+  transformedContent?: string;
+}
+
+function toImportFileInput(
+  candidate: TransformableCandidate,
   file: File,
 ): Promise<ImportFileInput> {
   return file.text().then((content) => ({
@@ -244,7 +463,7 @@ function toImportFileInput(
     filename: candidate.filename,
     type: candidate.type,
     title: candidate.title,
-    content,
+    content: candidate.transformedContent ?? content,
     fields: candidate.fields,
     episodeTitle: candidate.episodeTitle,
   }));
@@ -254,11 +473,14 @@ export async function applyImport(
   projectId: string,
   candidates: AiImportCandidate[],
   files: File[],
+  settings: AiSettings,
 ): Promise<ImportResult> {
   const pathToFile = new Map(files.map((file) => [getFilePath(file), file]));
 
+  const transformed = await transformImportFilesWithAI(candidates, files, settings);
+
   const inputs: ImportFileInput[] = [];
-  for (const candidate of candidates) {
+  for (const candidate of transformed) {
     if (candidate.type === "ignore" || candidate.type === "unknown") continue;
     const file = pathToFile.get(candidate.path);
     if (!file) continue;
