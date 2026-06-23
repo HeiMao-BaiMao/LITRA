@@ -6,7 +6,6 @@ export interface MemosEditorActions {
   onUpdate: (id: string, updates: { title?: string; content?: string }) => void;
   onDelete: (id: string) => void;
   onSelect: (id: string | null) => void;
-  onPopout?: () => void;
 }
 
 let updateTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -101,7 +100,6 @@ function buildEditor(
   memos: ProjectMemo[],
   activeId: string | null,
   actions: MemosEditorActions,
-  isDetached: boolean,
 ): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.className = "memos-editor";
@@ -143,16 +141,6 @@ function buildEditor(
   const title = document.createElement("h3");
   title.textContent = "メモ";
   header.appendChild(title);
-
-  if (actions.onPopout && !isDetached) {
-    const popoutBtn = document.createElement("button");
-    popoutBtn.type = "button";
-    popoutBtn.className = "btn-popout";
-    popoutBtn.title = "別ウィンドウで開く";
-    popoutBtn.textContent = "↗";
-    popoutBtn.addEventListener("click", () => actions.onPopout?.());
-    header.appendChild(popoutBtn);
-  }
 
   detail.appendChild(header);
 
@@ -240,13 +228,12 @@ export function renderMemosEditor(
   activeId: string | null,
   actions: MemosEditorActions,
   container: HTMLElement,
-  isDetached = false,
 ): void {
   const existing = container.querySelector<HTMLElement>(":scope > .memos-editor");
 
   if (!existing) {
     container.innerHTML = "";
-    container.appendChild(buildEditor(memos, activeId, actions, isDetached));
+    container.appendChild(buildEditor(memos, activeId, actions));
     return;
   }
 

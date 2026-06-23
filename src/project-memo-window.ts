@@ -24,7 +24,7 @@ const actions: MemosEditorActions = {
 };
 
 function render(): void {
-  renderMemosEditor(currentMemos, currentMemoId, actions, container!, true);
+  renderMemosEditor(currentMemos, currentMemoId, actions, container!);
 }
 
 listen<ProjectMemosSyncPayload>("project-memos-sync", (event) => {

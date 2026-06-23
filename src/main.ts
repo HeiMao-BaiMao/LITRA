@@ -1201,18 +1201,11 @@ const memosActions: MemosEditorActions = {
   onUpdate: (id, updates) => void handleUpdateProjectMemo(id, updates),
   onDelete: (id) => void handleDeleteProjectMemo(id),
   onSelect: (id) => void handleSelectProjectMemo(id),
-  onPopout: () => void openProjectMemosWindow(),
 };
 
 function renderMemosView(): void {
   if (state.currentView !== "memos") return;
-  renderMemosEditor(
-    projectMemos,
-    currentMemoId,
-    memosActions,
-    getElements().memosPanel,
-    state.memosDetached,
-  );
+  renderMemosEditor(projectMemos, currentMemoId, memosActions, getElements().memosPanel);
 }
 
 async function saveCurrentEpisode(): Promise<void> {
