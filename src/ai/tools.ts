@@ -238,7 +238,8 @@ const editInputSchema = z
 export function createEditEpisodeTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "指定した行範囲の内容が一致している場合に、その範囲を置き換えます。行番号は1始まりです。expectedText には該当行範囲の正確なテキスト、replacementText には置き換え後の正確なテキストを指定してください。",
+      "指定した行範囲の内容が完全一致している場合に、その範囲を置き換えます。行番号は1始まりです。expectedText には該当行範囲の現在のテキストを改行・空白・全角半角まで含めて完全一致で指定してください。1文字でも違うと失敗します。replacementText には置き換え後の正確なテキストを指定してください。",
+
     inputSchema: editInputSchema,
     execute: wrapToolExecute("editEpisode", async ({ startLine, endLine, expectedText, replacementText }) => {
       const result = await invoke<{
@@ -286,7 +287,7 @@ const batchEditInputSchema = z.object({
 export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "現在開いているエピソード本文の複数の非連続範囲を、1回のツール呼び出しでまとめて置き換えます。すべての expectedText が一致し、範囲が重複しない場合だけ一括適用されます。startLine/endLine はすべて編集前の本文に対する行番号です。",
+      "現在開いているエピソード本文の複数の非連続範囲を、1回のツール呼び出しでまとめて置き換えます。各 expectedText は対象行範囲の現在のテキストと改行・空白・全角半角まで含めて完全一致している必要があります。1文字でも違うと失敗します。すべての expectedText が一致し、範囲が重複しない場合だけ一括適用されます。startLine/endLine はすべて編集前の本文に対する行番号です。",
     inputSchema: batchEditInputSchema,
     execute: wrapToolExecute("editEpisodeBatch", async ({ edits }) => {
       const result = await invoke<{
