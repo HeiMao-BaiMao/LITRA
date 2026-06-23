@@ -1109,7 +1109,7 @@ async function openProjectMemosWindow(): Promise<void> {
 }
 
 async function restoreDetachedWindows(): Promise<void> {
-  const labels = ["memo", "chat", "summary", "settings"] as const;
+  const labels = ["memo", "chat", "summary", "settings", "projectMemos"] as const;
   for (const label of labels) {
     try {
       const detached = await loadWindowDetached(label);
@@ -1123,6 +1123,8 @@ async function restoreDetachedWindows(): Promise<void> {
         await openSummaryWindow();
       } else if (label === "settings") {
         await openSettingsWindow();
+      } else if (label === "projectMemos") {
+        await openProjectMemosWindow();
       }
     } catch (error) {
       console.error(`[phenex] failed to restore ${label} window:`, error);
@@ -1153,11 +1155,7 @@ function setView(view: ProjectView): void {
   } else if (view === "memos") {
     editorSection.classList.add("hidden");
     settingsPanel.classList.add("hidden");
-    if (state.memosDetached) {
-      memosPanel.classList.add("hidden");
-    } else {
-      memosPanel.classList.remove("hidden");
-    }
+    memosPanel.classList.remove("hidden");
   } else if (state.settingsDetached) {
     editorSection.classList.remove("hidden");
     settingsPanel.classList.add("hidden");
@@ -1205,7 +1203,12 @@ const memosActions: MemosEditorActions = {
 
 function renderMemosView(): void {
   if (state.currentView !== "memos") return;
-  renderMemosEditor(projectMemos, currentMemoId, memosActions, getElements().memosPanel);
+  const panel = getElements().memosPanel;
+  if (state.memosDetached) {
+    panel.innerHTML = `<div class="memos-detached-notice">メモは別ウィンドウで開いています</div>`;
+    return;
+  }
+  renderMemosEditor(projectMemos, currentMemoId, memosActions, panel);
 }
 
 async function saveCurrentEpisode(): Promise<void> {
@@ -1846,7 +1849,11 @@ const projectNavActions: ProjectNavActions = {
     state.currentView = view;
     setView(view);
     if (view === "memos") {
-      renderMemosView();
+      if (state.memosDetached) {
+        void WebviewWindow.getByLabel("projectMemos").then((win) => win?.setFocus());
+      } else {
+        renderMemosView();
+      }
     } else {
       renderSettingsView();
       syncSettingsToWindow();
