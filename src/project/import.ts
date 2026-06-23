@@ -401,7 +401,15 @@ ${content}
 - content: 整理済みのメモ本文`;
 }
 
-function buildRelationshipTransformPrompt(title: string, content: string): string {
+function buildRelationshipTransformPrompt(
+  title: string,
+  content: string,
+  characterNames: string[],
+  episodeTitles: string[],
+): string {
+  const characterList = characterNames.length > 0 ? characterNames.join(", ") : "（なし）";
+  const episodeList = episodeTitles.length > 0 ? episodeTitles.join(", ") : "（なし）";
+
   return `あなたは創作支援アプリの編集アシスタントです。
 以下のテキストを読み込み、キャラクター間の人間関係を **すべて** 抽出・整理してください。
 
@@ -411,11 +419,17 @@ function buildRelationshipTransformPrompt(title: string, content: string): strin
 ${content}
 ---
 
+この取り込みバッチで検出されているキャラクター名: ${characterList}
+検出されているエピソードタイトル: ${episodeList}
+
+上記の名前を優先的に使って関係を記述してください。
+ファイル内の呼び方が異なる場合（愛称・姓・役割名など）は、検出されているキャラクター名に置き換えて出力してください。
+
 出力は次の JSON 形式にしてください。
 - relationships: 関係の配列。各要素は次のフィールドを持ちます。
-  - episodeTitle: 関係が紐づくエピソードのタイトル。全体（全話共通）の場合は空文字
-  - characterAName: 関係の一方のキャラクター名
-  - characterBName: 関係のもう一方のキャラクター名
+  - episodeTitle: 関係が紐づくエピソードのタイトル。全体（全話共通）の場合は空文字。検出されているエピソードタイトルから選んでください。
+  - characterAName: 関係の一方のキャラクター名。検出されているキャラクター名から選んでください。
+  - characterBName: 関係のもう一方のキャラクター名。検出されているキャラクター名から選んでください。
   - direction: 関係の向き。a-to-b（A→B）/ b-to-a（A←B）/ mutual（A↔B）のいずれか
   - description: 関係の説明
 
@@ -445,10 +459,16 @@ ${content}
 関係が見つからない場合は空の配列 [] を返してください。`;
 }
 
+interface TransformContext {
+  characterNames: string[];
+  episodeTitles: string[];
+}
+
 async function transformOne(
   candidate: AiImportCandidate,
   content: string,
   settings: AiSettings,
+  context: TransformContext,
 ): Promise<
   Partial<Pick<AiImportCandidate, "title" | "fields" | "episodeTitle">> & {
     content?: string;
@@ -519,7 +539,12 @@ async function transformOne(
         model: createModel(settings),
         schema: relationshipTransformSchema,
         system,
-        prompt: buildRelationshipTransformPrompt(candidate.title, content),
+        prompt: buildRelationshipTransformPrompt(
+          candidate.title,
+          content,
+          context.characterNames,
+          context.episodeTitles,
+        ),
         maxOutputTokens: 8192,
         temperature: 0.3,
       });
@@ -555,6 +580,22 @@ export async function transformImportFilesWithAI(
   const pathToFile = new Map(files.map((file) => [getFilePath(file), file]));
   const pathToContent = new Map<string, string>();
 
+  const characterNames = new Set<string>();
+  const episodeTitles = new Set<string>();
+  for (const candidate of candidates) {
+    if (candidate.type === "character") {
+      if (candidate.title) characterNames.add(candidate.title);
+      if (candidate.fields?.name) characterNames.add(candidate.fields.name);
+      if (candidate.fields?.alias) characterNames.add(candidate.fields.alias);
+    } else if (candidate.type === "episode") {
+      if (candidate.title) episodeTitles.add(candidate.title);
+    }
+  }
+  const context: TransformContext = {
+    characterNames: Array.from(characterNames),
+    episodeTitles: Array.from(episodeTitles),
+  };
+
   const results = await Promise.all(
     candidates.map(async (candidate) => {
       if (candidate.type === "ignore" || candidate.type === "unknown") {
@@ -567,13 +608,14 @@ export async function transformImportFilesWithAI(
       pathToContent.set(candidate.path, content);
 
       try {
-        const transformed = await transformOne(candidate, content, settings);
+        const transformed = await transformOne(candidate, content, settings, context);
         return {
           ...candidate,
           title: transformed.title ?? candidate.title,
           fields: transformed.fields ?? candidate.fields,
           episodeTitle: transformed.episodeTitle ?? candidate.episodeTitle,
           transformedContent: transformed.content,
+          relationships: transformed.relationships,
         };
       } catch (error) {
         console.error(`[phenex:import:transform] failed for ${candidate.path}`, error);
