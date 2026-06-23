@@ -111,6 +111,7 @@ import {
   type SettingsEditorActions,
 } from "./ui/settings-editor.ts";
 import { applyStoredRatio, createVerticalResizer } from "./ui/resizable.ts";
+import { bindAutoResize } from "./ui/auto-resize.ts";
 import { fetchAvailableModels } from "./ai/model-list.ts";
 import {
   getProviderEntry,
@@ -173,6 +174,7 @@ let episodeMemos: EpisodeMemoMap = { memos: {} };
 
 let pendingImportFiles: File[] = [];
 let pendingImportCandidates: AiImportCandidate[] = [];
+let resetChatInputHeight: (() => void) | undefined;
 
 const DEFAULT_MAX_CONTEXT_TOKENS = 65536;
 const CONTEXT_CHAR_PER_TOKEN = 1.6;
@@ -1943,6 +1945,7 @@ async function handleChatSubmit(): Promise<void> {
   if (!message) return;
 
   chatInput.value = "";
+  resetChatInputHeight?.();
   if (await handleChatCommand(message)) return;
   appendMessage("user", message);
   await handleChatMessage();
@@ -2229,6 +2232,7 @@ function bindUiEvents(): void {
 async function init(): Promise<void> {
   console.log("[phenex] init started");
   bindUiEvents();
+  resetChatInputHeight = bindAutoResize(getElements().chatInput, 15);
   console.log("[phenex] UI events bound");
 
   try {

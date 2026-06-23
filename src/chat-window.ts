@@ -3,6 +3,7 @@ import type { ChatMessage } from "./state.ts";
 import type { Provider } from "./settings.ts";
 import { renderChatMessageHtml } from "./markdown.ts";
 import { loadProviderConfig, getProviderEntry } from "./providers/config.ts";
+import { bindAutoResize } from "./ui/auto-resize.ts";
 import type { ProviderConfig } from "./providers/config.ts";
 
 interface ChatSyncPayload {
@@ -17,6 +18,7 @@ interface ChatSettingsSyncPayload {
 
 let providerConfig: ProviderConfig | null = null;
 let isSyncing = false;
+let resetInputHeight: (() => void) | undefined;
 
 function renderMessages(container: HTMLElement, messages: ChatMessage[]): void {
   container.innerHTML = "";
@@ -75,6 +77,8 @@ async function init(): Promise<void> {
 
   if (!messagesContainer || !form || !input || !btnSend || !btnCancel || !providerSelect || !modelSelect) return;
 
+  resetInputHeight = bindAutoResize(input, 15);
+
   try {
     providerConfig = await loadProviderConfig();
     populateProviderOptions(providerSelect);
@@ -125,6 +129,7 @@ async function init(): Promise<void> {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
+    resetInputHeight?.();
     emit("chat-send", { content: text });
   });
 
