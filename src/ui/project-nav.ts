@@ -72,31 +72,29 @@ function createEpisodeItem(
   const item = document.createElement("div");
   item.className = "nav-episode-item";
   item.dataset.episodeId = episode.id;
-  item.draggable = true;
   if (isActive) {
     item.classList.add("active");
   }
 
-  item.addEventListener("dragstart", (event) => {
-    const handle = (event.target as HTMLElement).closest(".nav-episode-drag-handle");
-    if (!handle) {
-      event.preventDefault();
-      return;
-    }
+  const dragHandle = document.createElement("span");
+  dragHandle.className = "nav-episode-drag-handle";
+  dragHandle.draggable = true;
+  dragHandle.textContent = "≡";
+  dragHandle.title = "ドラッグして並び替え";
+
+  dragHandle.addEventListener("dragstart", (event) => {
+    const draggedItem = dragHandle.closest<HTMLElement>(".nav-episode-item");
+    if (!draggedItem) return;
     event.dataTransfer?.setData("text/plain", episode.id);
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = "move";
     }
-    item.classList.add("dragging");
+    draggedItem.classList.add("dragging");
   });
-  item.addEventListener("dragend", () => {
-    item.classList.remove("dragging");
+  dragHandle.addEventListener("dragend", () => {
+    const draggedItem = dragHandle.closest<HTMLElement>(".nav-episode-item");
+    draggedItem?.classList.remove("dragging");
   });
-
-  const dragHandle = document.createElement("span");
-  dragHandle.className = "nav-episode-drag-handle";
-  dragHandle.textContent = "≡";
-  dragHandle.title = "ドラッグして並び替え";
 
   const moveControls = document.createElement("div");
   moveControls.className = "nav-episode-move-controls";
