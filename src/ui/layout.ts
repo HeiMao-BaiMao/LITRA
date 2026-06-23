@@ -11,6 +11,7 @@ export interface AppElements {
   btnSettings: HTMLButtonElement;
   toolbarProjectName: HTMLElement;
   btnProjects: HTMLButtonElement;
+  btnImport: HTMLButtonElement;
   editorSection: HTMLElement;
   projectNav: HTMLElement;
   episodeList: HTMLElement;
@@ -90,6 +91,7 @@ export function getElements(): AppElements {
   const btnSettings = document.querySelector<HTMLButtonElement>("#btn-settings");
   const toolbarProjectName = document.querySelector<HTMLElement>("#toolbar-project-name");
   const btnProjects = document.querySelector<HTMLButtonElement>("#btn-projects");
+  const btnImport = document.querySelector<HTMLButtonElement>("#btn-import");
   const editorSection = document.querySelector<HTMLElement>("#editor-section");
   const projectNav = document.querySelector<HTMLElement>("#project-nav");
   const episodeList = document.querySelector<HTMLElement>("#episode-list");
@@ -186,6 +188,7 @@ export function getElements(): AppElements {
     !btnInitializeSettings ||
     !toolbarProjectName ||
     !btnProjects ||
+    !btnImport ||
     !editorSection ||
     !projectNav ||
     !episodeList ||
@@ -237,6 +240,7 @@ export function getElements(): AppElements {
     btnSettings,
     toolbarProjectName,
     btnProjects,
+    btnImport,
     editorSection,
     projectNav,
     episodeList,

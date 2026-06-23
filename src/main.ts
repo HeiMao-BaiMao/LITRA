@@ -2144,6 +2144,7 @@ function bindUiEvents(): void {
     onFeedback: () => void handleFeedback(),
     onOpenSettings: openSettings,
     onOpenProjects: () => void openProjectManager(),
+    onImport: () => void handleSelectImportFolder(),
   });
 
   getElements().chatForm.addEventListener("submit", (event) => {

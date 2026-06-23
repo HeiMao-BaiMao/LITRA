@@ -6,6 +6,7 @@ export interface ToolbarActions {
   onFeedback: () => void;
   onOpenSettings: () => void;
   onOpenProjects: () => void;
+  onImport: () => void;
 }
 
 export function bindToolbarActions(actions: ToolbarActions): void {
@@ -15,6 +16,7 @@ export function bindToolbarActions(actions: ToolbarActions): void {
     btnFeedback,
     btnSettings,
     btnProjects,
+    btnImport,
   } = getElements();
 
   btnContinue.addEventListener("click", actions.onContinue);
@@ -22,4 +24,5 @@ export function bindToolbarActions(actions: ToolbarActions): void {
   btnFeedback.addEventListener("click", actions.onFeedback);
   btnSettings.addEventListener("click", actions.onOpenSettings);
   btnProjects.addEventListener("click", actions.onOpenProjects);
+  btnImport.addEventListener("click", actions.onImport);
 }
