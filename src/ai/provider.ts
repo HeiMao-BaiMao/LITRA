@@ -19,6 +19,7 @@ export function createModel(settings: AiSettings) {
     case "openai":
     case "llamacpp":
     case "sakura":
+    case "plamo":
       return createOpenAI(common)(settings.model);
     case "anthropic":
       return createAnthropic(common)(settings.model);

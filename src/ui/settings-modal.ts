@@ -19,7 +19,7 @@ let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = nu
 let modalProviderConfig: ProviderConfig | null = null;
 let modalCurrentProvider: Provider = "openai";
 
-const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura"];
+const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo"];
 
 function captureProviderConfig(provider: Provider): void {
   if (!modalProviderConfigs) return;

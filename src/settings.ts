@@ -1,7 +1,7 @@
 import { load, Store } from "@tauri-apps/plugin-store";
 import { loadProviderConfig, getProviderEntry, getProviderModelDefaults } from "./providers/config.ts";
 
-export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura";
+export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura" | "plamo";
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -36,7 +36,7 @@ const STORE_NAME = "phenex-settings.json";
 
 const DEFAULT_PROVIDER: Provider = "openai";
 
-const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura"];
+const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo"];
 
 async function getStore(): Promise<Store> {
   return load(STORE_NAME, { defaults: {}, autoSave: true });
@@ -78,7 +78,8 @@ function isProvider(value: unknown): value is Provider {
     value === "deepseek" ||
     value === "google" ||
     value === "llamacpp" ||
-    value === "sakura"
+    value === "sakura" ||
+    value === "plamo"
   );
 }
 

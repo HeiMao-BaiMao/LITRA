@@ -2167,6 +2167,7 @@ async function init(): Promise<void> {
         google: { apiKey: "", baseUrl: "", model: "" },
         llamacpp: { apiKey: "", baseUrl: "", model: "" },
         sakura: { apiKey: "", baseUrl: "", model: "" },
+        plamo: { apiKey: "", baseUrl: "", model: "" },
       },
       temperature: 0.7,
       maxTokens: 8192,
