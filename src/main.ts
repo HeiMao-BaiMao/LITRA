@@ -730,7 +730,10 @@ async function streamChatWithAutoContinuation(
 function buildChatMessagesForModel(): ModelMessage[] {
   const budgets = getPromptContextBudgets();
   const naturalMessages = state.chatMessages.filter(
-    (message) => message.content.trim().length > 0 && !isToolResultLog(message.content),
+    (message) =>
+      message.content.trim().length > 0 &&
+      !message.excludeFromContext &&
+      !isToolResultLog(message.content),
   );
 
   const selected: typeof naturalMessages = [];
@@ -1236,6 +1239,7 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
   appendMessage(
     "user",
     `「${episode.title || "無題"}」の要約と一行要約を作成してください。`,
+    true,
   );
 
   const summaryToolDeps = {

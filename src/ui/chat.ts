@@ -12,7 +12,11 @@ function sync(): void {
   onSync?.([...state.chatMessages], state.isGenerating);
 }
 
-export function appendMessage(role: ChatMessage["role"], content: string): void {
+export function appendMessage(
+  role: ChatMessage["role"],
+  content: string,
+  excludeFromContext = false,
+): void {
   const container = getElements().chatMessages;
   const messageEl = document.createElement("div");
   messageEl.className = `chat-message ${role}`;
@@ -20,7 +24,7 @@ export function appendMessage(role: ChatMessage["role"], content: string): void 
   container.appendChild(messageEl);
   scrollToBottom();
 
-  state.chatMessages.push({ role, content });
+  state.chatMessages.push({ role, content, excludeFromContext });
   sync();
 }
 

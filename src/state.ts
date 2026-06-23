@@ -1,6 +1,7 @@
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  excludeFromContext?: boolean;
 }
 
 export type ProjectView = "episode" | "characters" | "world" | "relationships";
