@@ -1311,6 +1311,12 @@ button.danger:hover:not(:disabled) {
   resize: none;
 }
 
+.detachable-body .episode-summary {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+}
+
 .chat-panel.detached {
   width: 100%;
   min-width: 0;
