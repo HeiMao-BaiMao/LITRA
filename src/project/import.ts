@@ -145,18 +145,35 @@ const projectMemoTransformSchema = z.object({
 });
 
 const relationshipTransformSchema = z.object({
-  relationships: z.array(
-    z.object({
-      episodeTitle: z.string().describe("関係が紐づくエピソードのタイトル。全体（全話共通）の場合は空文字"),
-      characterAName: z.string().describe("関係の一方のキャラクター名"),
-      characterBName: z.string().describe("関係のもう一方のキャラクター名"),
-      direction: z
-        .enum(["a-to-b", "b-to-a", "mutual"])
-        .describe("関係の向き。a-to-b=A→B, b-to-a=A←B, mutual=A↔B"),
-      description: z.string().describe("関係の説明（例：幼馴染で互いに信頼している）"),
-    }),
-  ),
+  relationships: z
+    .array(
+      z.object({
+        episodeTitle: z
+          .string()
+          .default("")
+          .describe("関係が紐づくエピソードのタイトル。全体（全話共通）の場合は空文字"),
+        characterAName: z.string().describe("関係の一方のキャラクター名"),
+        characterBName: z.string().describe("関係のもう一方のキャラクター名"),
+        direction: z
+          .string()
+          .default("mutual")
+          .describe("関係の向き。a-to-b=A→B, b-to-a=A←B, mutual=A↔B"),
+        description: z.string().default("").describe("関係の説明（例：幼馴染で互いに信頼している）"),
+      }),
+    )
+    .default([]),
 });
+
+function normalizeRelationshipDirection(raw: string): "a-to-b" | "b-to-a" | "mutual" {
+  const normalized = raw.trim().toLowerCase().replace(/[-_\s]/g, "");
+  if (normalized.includes("atob") || normalized.includes("a→b") || normalized.includes("a->b")) {
+    return "a-to-b";
+  }
+  if (normalized.includes("btoa") || normalized.includes("b→a") || normalized.includes("b->b")) {
+    return "b-to-a";
+  }
+  return "mutual";
+}
 
 function fileNameToTitle(filename: string): string {
   const base = filename.replace(/\\/g, "/").split("/").pop() ?? filename;
@@ -386,7 +403,7 @@ ${content}
 
 function buildRelationshipTransformPrompt(title: string, content: string): string {
   return `あなたは創作支援アプリの編集アシスタントです。
-以下のテキストを読み込み、キャラクター間の人間関係として抽出・整理してください。
+以下のテキストを読み込み、キャラクター間の人間関係を **すべて** 抽出・整理してください。
 
 元のファイルの推定タイトル: ${title}
 
@@ -400,7 +417,32 @@ ${content}
   - characterAName: 関係の一方のキャラクター名
   - characterBName: 関係のもう一方のキャラクター名
   - direction: 関係の向き。a-to-b（A→B）/ b-to-a（A←B）/ mutual（A↔B）のいずれか
-  - description: 関係の説明`;
+  - description: 関係の説明
+
+例:
+\`\`\`json
+{
+  "relationships": [
+    {
+      "episodeTitle": "第一話",
+      "characterAName": "太郎",
+      "characterBName": "花子",
+      "direction": "mutual",
+      "description": "幼馴染で互いに信頼している"
+    },
+    {
+      "episodeTitle": "",
+      "characterAName": "三郎",
+      "characterBName": "太郎",
+      "direction": "b-to-a",
+      "description": "三郎は太郎を尊敬している"
+    }
+  ]
+}
+\`\`\`
+
+同じ行に複数の関係があっても、個別の要素に分解してください。
+関係が見つからない場合は空の配列 [] を返してください。`;
 }
 
 async function transformOne(
@@ -481,7 +523,24 @@ async function transformOne(
         maxOutputTokens: 8192,
         temperature: 0.3,
       });
-      return { relationships: result.object.relationships };
+      const relationships: ImportRelationship[] = result.object.relationships
+        .map((rel) => ({
+          episodeTitle: rel.episodeTitle.trim(),
+          characterAName: rel.characterAName.trim(),
+          characterBName: rel.characterBName.trim(),
+          direction: normalizeRelationshipDirection(rel.direction),
+          description: rel.description.trim(),
+        }))
+        .filter(
+          (rel) =>
+            rel.characterAName.length > 0 &&
+            rel.characterBName.length > 0 &&
+            rel.characterAName !== rel.characterBName,
+        );
+      console.log(
+        `[phenex:import:transform] extracted ${relationships.length} relationships from ${candidate.path}`,
+      );
+      return { relationships };
     }
     default:
       return {};

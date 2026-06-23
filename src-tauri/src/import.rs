@@ -383,18 +383,36 @@ fn import_relationships(
         if file.file_type != "relationship" {
             continue;
         }
+        if file.relationships.is_empty() {
+            eprintln!(
+                "[phenex:import:relationships] no relationships extracted from {}",
+                file.path
+            );
+        }
         for rel in &file.relationships {
             let a_id = character_map.get(&rel.character_a_name.to_lowercase()).cloned();
             let b_id = character_map.get(&rel.character_b_name.to_lowercase()).cloned();
             let Some(a_id) = a_id else {
+                eprintln!(
+                    "[phenex:import:relationships] character not found: {} (file: {})",
+                    rel.character_a_name, file.path
+                );
                 skipped += 1;
                 continue;
             };
             let Some(b_id) = b_id else {
+                eprintln!(
+                    "[phenex:import:relationships] character not found: {} (file: {})",
+                    rel.character_b_name, file.path
+                );
                 skipped += 1;
                 continue;
             };
             let Some(direction) = normalize_direction(&rel.direction) else {
+                eprintln!(
+                    "[phenex:import:relationships] invalid direction: {} (file: {})",
+                    rel.direction, file.path
+                );
                 skipped += 1;
                 continue;
             };
