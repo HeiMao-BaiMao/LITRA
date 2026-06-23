@@ -19,7 +19,7 @@ export interface AppElements {
   navCharacters: HTMLButtonElement;
   navWorld: HTMLButtonElement;
   navRelationships: HTMLButtonElement;
-  navProjectMemo: HTMLButtonElement;
+  navMemos: HTMLButtonElement;
   episodeSummary: HTMLTextAreaElement;
   btnGenerateSummary: HTMLButtonElement;
   summarySection: HTMLElement;
@@ -36,6 +36,9 @@ export interface AppElements {
   settingsSection: HTMLElement;
   btnPopoutSettings: HTMLButtonElement;
   settingsPanel: HTMLElement;
+  memosSection: HTMLElement;
+  btnPopoutMemos: HTMLButtonElement;
+  memosPanel: HTMLElement;
   settingsModal: HTMLElement;
   settingsForm: HTMLFormElement;
   settingProvider: HTMLSelectElement;
@@ -100,7 +103,7 @@ export function getElements(): AppElements {
   const navCharacters = document.querySelector<HTMLButtonElement>("#nav-characters");
   const navWorld = document.querySelector<HTMLButtonElement>("#nav-world");
   const navRelationships = document.querySelector<HTMLButtonElement>("#nav-relationships");
-  const navProjectMemo = document.querySelector<HTMLButtonElement>("#nav-project-memo");
+  const navMemos = document.querySelector<HTMLButtonElement>("#nav-memos");
   const episodeSummary = document.querySelector<HTMLTextAreaElement>("#episode-summary");
   const btnGenerateSummary = document.querySelector<HTMLButtonElement>("#btn-generate-summary");
   const summarySection = document.querySelector<HTMLElement>("#summary-section");
@@ -117,6 +120,9 @@ export function getElements(): AppElements {
   const settingsSection = document.querySelector<HTMLElement>("#settings-section");
   const btnPopoutSettings = document.querySelector<HTMLButtonElement>("#btn-popout-settings");
   const settingsPanel = document.querySelector<HTMLElement>("#settings-panel");
+  const memosSection = document.querySelector<HTMLElement>("#memos-section");
+  const btnPopoutMemos = document.querySelector<HTMLButtonElement>("#btn-popout-memos");
+  const memosPanel = document.querySelector<HTMLElement>("#memos-panel");
   const settingsModal = document.querySelector<HTMLElement>("#settings-modal");
   const settingsForm = document.querySelector<HTMLFormElement>("#settings-form");
   const settingProvider = document.querySelector<HTMLSelectElement>("#setting-provider");
@@ -198,7 +204,7 @@ export function getElements(): AppElements {
     !navCharacters ||
     !navWorld ||
     !navRelationships ||
-    !navProjectMemo ||
+    !navMemos ||
     !episodeSummary ||
     !btnGenerateSummary ||
     !summarySection ||
@@ -215,6 +221,9 @@ export function getElements(): AppElements {
     !settingsSection ||
     !btnPopoutSettings ||
     !settingsPanel ||
+    !memosSection ||
+    !btnPopoutMemos ||
+    !memosPanel ||
     !projectModal ||
     !projectList ||
     !projectTitleInput ||
@@ -251,7 +260,7 @@ export function getElements(): AppElements {
     navCharacters,
     navWorld,
     navRelationships,
-    navProjectMemo,
+    navMemos,
     episodeSummary,
     btnGenerateSummary,
     summarySection,
@@ -268,6 +277,9 @@ export function getElements(): AppElements {
     settingsSection,
     btnPopoutSettings,
     settingsPanel,
+    memosSection,
+    btnPopoutMemos,
+    memosPanel,
     settingsModal,
     settingsForm,
     settingProvider,

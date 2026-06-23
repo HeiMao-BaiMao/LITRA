@@ -1,37 +1,36 @@
 import { emit, listen } from "@tauri-apps/api/event";
-import { bindAutoResize } from "./ui/auto-resize.ts";
+import { renderMemosEditor, type MemosEditorActions } from "./ui/memos-editor.ts";
+import type { ProjectMemo } from "./project/project-memo.ts";
 
-interface ProjectMemoSyncPayload {
-  content: string;
+interface ProjectMemosSyncPayload {
+  memos: ProjectMemo[];
+  currentMemoId: string | null;
 }
 
-let isSyncing = false;
-
-async function init(): Promise<void> {
-  const textarea = document.querySelector<HTMLTextAreaElement>("#project-memo-textarea");
-  if (!textarea) return;
-
-  bindAutoResize(textarea, 30);
-
-  listen<ProjectMemoSyncPayload>("project-memo-sync", (event) => {
-    isSyncing = true;
-    try {
-      textarea.value = event.payload.content;
-    } finally {
-      isSyncing = false;
-    }
-  });
-
-  textarea.addEventListener("input", () => {
-    if (isSyncing) return;
-    emit("project-memo-update", { content: textarea.value });
-  });
-
-  emit("project-memo-ready", {});
+const container = document.querySelector<HTMLElement>("#memos-container");
+if (!container) {
+  console.error("[phenex:project-memos-window] container not found");
+  throw new Error("#memos-container not found");
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => void init());
-} else {
-  void init();
+let currentMemos: ProjectMemo[] = [];
+let currentMemoId: string | null = null;
+
+const actions: MemosEditorActions = {
+  onCreate: (title) => emit("project-memos-create", { title }),
+  onUpdate: (id, updates) => emit("project-memos-update", { id, ...updates }),
+  onDelete: (id) => emit("project-memos-delete", { id }),
+  onSelect: (id) => emit("project-memos-select", { id }),
+};
+
+function render(): void {
+  renderMemosEditor(currentMemos, currentMemoId, actions, container!, true);
 }
+
+listen<ProjectMemosSyncPayload>("project-memos-sync", (event) => {
+  currentMemos = event.payload.memos;
+  currentMemoId = event.payload.currentMemoId;
+  render();
+});
+
+emit("project-memos-ready", {});

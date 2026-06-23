@@ -4,7 +4,7 @@ export interface ChatMessage {
   excludeFromContext?: boolean;
 }
 
-export type ProjectView = "episode" | "characters" | "world" | "relationships" | "projectMemo";
+export type ProjectView = "episode" | "characters" | "world" | "relationships" | "memos";
 
 export interface AppState {
   editorText: string;
@@ -24,7 +24,7 @@ export interface AppState {
   chatDetached: boolean;
   summaryDetached: boolean;
   settingsDetached: boolean;
-  projectMemoDetached: boolean;
+  memosDetached: boolean;
 }
 
 export const state: AppState = {
@@ -45,5 +45,5 @@ export const state: AppState = {
   chatDetached: false,
   summaryDetached: false,
   settingsDetached: false,
-  projectMemoDetached: false,
+  memosDetached: false,
 };

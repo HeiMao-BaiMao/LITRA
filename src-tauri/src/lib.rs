@@ -13,8 +13,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             import::import_files,
-            project_memo::load_project_memo,
-            project_memo::save_project_memo,
+            project_memo::list_project_memos,
+            project_memo::create_project_memo,
+            project_memo::update_project_memo,
+            project_memo::delete_project_memo,
             search::rebuild_search_index,
             search::search_episodes,
             settings::list_characters,

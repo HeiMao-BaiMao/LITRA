@@ -4,21 +4,11 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>作品メモ - Phenex</title>
+    <title>メモ - Phenex</title>
     <script type="module" src="/src/project-memo-window.ts" defer></script>
   </head>
 
   <body class="detachable-window">
-    <header class="detachable-header">
-      <h2>作品メモ</h2>
-    </header>
-    <main class="detachable-body">
-      <textarea
-        id="project-memo-textarea"
-        class="project-memo-textarea"
-        placeholder="作品全体に関するメモを自由に書いてください..."
-        spellcheck="false"
-      ></textarea>
-    </main>
+    <main id="memos-container" class="detachable-body memos-container"></main>
   </body>
 </html>

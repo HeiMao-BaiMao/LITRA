@@ -1,9 +1,33 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export async function loadProjectMemo(projectId: string): Promise<string> {
-  return await invoke<string>("load_project_memo", { projectId });
+export interface ProjectMemo {
+  id: string;
+  title: string;
+  content: string;
+  updatedAt: string;
 }
 
-export async function saveProjectMemo(projectId: string, content: string): Promise<void> {
-  await invoke("save_project_memo", { projectId, content });
+export async function listProjectMemos(projectId: string): Promise<ProjectMemo[]> {
+  return await invoke<ProjectMemo[]>("list_project_memos", { projectId });
+}
+
+export async function createProjectMemo(projectId: string, title: string): Promise<ProjectMemo> {
+  return await invoke<ProjectMemo>("create_project_memo", { projectId, title });
+}
+
+export async function updateProjectMemo(
+  projectId: string,
+  memoId: string,
+  updates: { title?: string; content?: string },
+): Promise<ProjectMemo> {
+  return await invoke<ProjectMemo>("update_project_memo", {
+    projectId,
+    memoId,
+    title: updates.title,
+    content: updates.content,
+  });
+}
+
+export async function deleteProjectMemo(projectId: string, memoId: string): Promise<void> {
+  await invoke("delete_project_memo", { projectId, memoId });
 }
