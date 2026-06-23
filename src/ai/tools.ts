@@ -1,6 +1,8 @@
 import { tool } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
+import { checkConsistency } from "./consistency.ts";
+import type { AiSettings } from "../settings.ts";
 import type { CustomField } from "../project/schema.ts";
 import {
   loadRelationships,
@@ -328,6 +330,48 @@ export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
           actualText: item.actualText != null ? limitToolText(item.actualText) : undefined,
         })),
         searchIndexUpdated,
+      };
+    }),
+  });
+}
+
+export interface CheckConsistencyToolDependencies {
+  projectId: string;
+  settings: AiSettings;
+  currentEpisodeId?: string;
+}
+
+const checkConsistencyInputSchema = z.object({
+  episodeId: z
+    .string()
+    .optional()
+    .describe("整合性をチェックするエピソードID。省略時は現在開いているエピソード。"),
+  focus: z
+    .string()
+    .optional()
+    .describe("重点的に確認したい点（特定のキャラクター、世界観項目、過去エピソードなど）。"),
+});
+
+export function createCheckConsistencyTool(deps: CheckConsistencyToolDependencies) {
+  return tool({
+    description:
+      "指定したエピソードの本文全文と、キャラクター設定・世界観設定・人間関係・メモ・他エピソードの要約を照らし合わせて、矛盾や不整合を検出します。文章に違和感がある・設定と食い違っている可能性がある場合に呼び出してください。",
+    inputSchema: checkConsistencyInputSchema,
+    execute: wrapToolExecute("checkConsistency", async ({ episodeId, focus }) => {
+      const targetEpisodeId = episodeId ?? deps.currentEpisodeId;
+      if (!targetEpisodeId) {
+        return {
+          success: false,
+          message: "エピソードIDが指定されていないか、現在開いているエピソードがありません。",
+          issues: [],
+          summary: "",
+        };
+      }
+      const result = await checkConsistency(deps.settings, deps.projectId, targetEpisodeId, focus);
+      return {
+        success: true,
+        message: `整合性チェックが完了しました。${result.issues.length} 件の指摘がありました。`,
+        ...result,
       };
     }),
   });

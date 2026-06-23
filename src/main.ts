@@ -30,6 +30,7 @@ import {
 } from "./ai/service.ts";
 import { buildSummaryPrompt, limitPromptText, parseSummaryOutput } from "./ai/prompts.ts";
 import {
+  createCheckConsistencyTool,
   createCreateCharacterTool,
   createCreateProjectMemoTool,
   createCreateWorldEntryTool,
@@ -472,6 +473,11 @@ function createAiTools(): ToolSet | undefined {
     getProjectMemo: createGetProjectMemoTool(projectMemoDeps),
     updateProjectMemo: createUpdateProjectMemoTool(projectMemoDeps),
     createProjectMemo: createCreateProjectMemoTool(projectMemoDeps),
+    checkConsistency: createCheckConsistencyTool({
+      projectId: currentProject.id,
+      settings: currentSettings,
+      currentEpisodeId: state.currentEpisodeId ?? undefined,
+    }),
   };
 
   if (state.currentEpisodeId) {

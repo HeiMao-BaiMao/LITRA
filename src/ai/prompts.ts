@@ -44,6 +44,9 @@ export const systemPrompt = `あなたは日本語の創作小説を専門に支
 - retrieveEpisode
   指定したエピソードの要約（summary）または本文（fullText）を取得します。全文確認が必要な場合に使ってください。行番号確認には findEpisodeLines / getEpisodeLines を使ってください。
 
+- checkConsistency
+  指定したエピソードの本文全文と、キャラクター設定・世界観設定・人間関係・メモ・他エピソードの要約を照らし合わせて、矛盾や不整合を検出します。文章に違和感がある・設定と食い違っている可能性がある場合に呼び出してください。
+
 - findEpisodeLines
   指定したエピソード本文から語句を検索し、一致行、周辺の行番号付き本文、editEpisode に使える expectedText を取得します。行番号を数える代わりに使ってください。
 
