@@ -1306,11 +1306,16 @@ async function handleUpdateMemo(episodeId: string, text: string): Promise<void> 
   syncMemoToWindow();
 }
 
-async function selectEpisode(episodeId: string): Promise<void> {
+async function selectEpisode(
+  episodeId: string,
+  options: { saveCurrent?: boolean } = {},
+): Promise<void> {
   if (!currentProject) return;
-  await saveCurrentEpisode();
-  await saveCurrentSummary();
-  await saveCurrentMemo();
+  if (options.saveCurrent !== false) {
+    await saveCurrentEpisode();
+    await saveCurrentSummary();
+    await saveCurrentMemo();
+  }
 
   const episode = episodes.find((ep) => ep.id === episodeId);
   if (!episode) return;
@@ -1343,8 +1348,11 @@ async function ensureEpisodeExists(): Promise<void> {
     const episode = await createEpisode(currentProject.id, "第1話");
     episodes.push(episode);
   }
-  if (!state.currentEpisodeId) {
-    state.currentEpisodeId = episodes[0].id;
+  if (
+    !state.currentEpisodeId ||
+    !episodes.some((episode) => episode.id === state.currentEpisodeId)
+  ) {
+    state.currentEpisodeId = episodes[0]?.id ?? null;
   }
 }
 
@@ -1366,7 +1374,7 @@ async function handleDeleteEpisode(episodeId: string): Promise<void> {
   if (state.currentEpisodeId === episodeId) {
     state.currentEpisodeId = episodes.length > 0 ? episodes[0].id : null;
     if (state.currentEpisodeId) {
-      await selectEpisode(state.currentEpisodeId);
+      await selectEpisode(state.currentEpisodeId, { saveCurrent: false });
     } else {
       getElements().editor.value = "";
       state.editorText = "";
@@ -1392,7 +1400,7 @@ async function handleMoveEpisode(episodeId: string, direction: "up" | "down"): P
 
   const current = episodes.find((ep) => ep.id === state.currentEpisodeId);
   if (current) {
-    await selectEpisode(current.id);
+    await selectEpisode(current.id, { saveCurrent: false });
   }
 
   renderProjectNavigation();
@@ -1406,7 +1414,7 @@ async function handleReorderEpisodes(orderedIds: string[]): Promise<void> {
 
   const current = episodes.find((ep) => ep.id === state.currentEpisodeId);
   if (current) {
-    await selectEpisode(current.id);
+    await selectEpisode(current.id, { saveCurrent: false });
   }
 
   renderProjectNavigation();

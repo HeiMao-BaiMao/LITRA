@@ -10,6 +10,10 @@ function projectPath(projectId: string, ...parts: string[]): string {
   return `phenex/projects/${projectId}/${parts.join("/")}`;
 }
 
+function padEpisodeNumber(index: number): string {
+  return `${String(index + 1).padStart(3, "0")}.md`;
+}
+
 export async function episodeFileExists(projectId: string): Promise<boolean> {
   return exists(projectPath(projectId, EPISODES_FILE), { baseDir: BaseDirectory.Document });
 }
@@ -36,12 +40,16 @@ export async function saveEpisodeList(projectId: string, list: EpisodeList): Pro
 }
 
 export async function loadEpisode(projectId: string, fileName: string): Promise<string> {
+  return (await tryLoadEpisode(projectId, fileName)) ?? "";
+}
+
+async function tryLoadEpisode(projectId: string, fileName: string): Promise<string | undefined> {
   try {
     return await readTextFile(projectPath(projectId, EPISODES_DIR, fileName), {
       baseDir: BaseDirectory.Document,
     });
   } catch {
-    return "";
+    return undefined;
   }
 }
 
@@ -57,6 +65,41 @@ export async function saveEpisode(
 
 function episodeFileName(episodeId: string): string {
   return `${episodeId}.md`;
+}
+
+async function loadEpisodeForReindex(
+  projectId: string,
+  episode: Episode,
+  newIndex: number,
+): Promise<{ text: string; sourceFileName: string }> {
+  const candidates = [
+    episode.fileName,
+    episodeFileName(episode.id),
+    padEpisodeNumber(episode.order),
+    padEpisodeNumber(newIndex),
+  ].filter(
+    (fileName, index, self) => fileName && self.indexOf(fileName) === index,
+  );
+
+  let emptyCandidate: { text: string; sourceFileName: string } | null = null;
+  for (const fileName of candidates) {
+    const text = await tryLoadEpisode(projectId, fileName);
+    if (text === undefined) continue;
+    if (text.length > 0) {
+      if (fileName !== episode.fileName) {
+        console.warn(
+          `[phenex] recovered episode text for ${episode.id} from ${fileName}; listed file was ${episode.fileName}`,
+        );
+      }
+      return { text, sourceFileName: fileName };
+    }
+    emptyCandidate ??= { text, sourceFileName: fileName };
+  }
+
+  if (emptyCandidate) return emptyCandidate;
+  throw new Error(
+    `Episode file is missing: ${episode.title || episode.id} (${candidates.join(", ")})`,
+  );
 }
 
 export async function createEpisode(projectId: string, title: string): Promise<Episode> {
@@ -112,9 +155,10 @@ export async function updateEpisodeTitle(
 async function reindexEpisodes(projectId: string, list: EpisodeList): Promise<void> {
   // 書き換え前に全本文を読み込んでおく。逐次リネームすると、
   // まだ処理していないエピソードのファイル名を上書きして本文が失われる恐れがある。
-  const texts = new Map<string, string>();
-  for (const ep of list.episodes) {
-    texts.set(ep.id, await loadEpisode(projectId, ep.fileName));
+  const texts = new Map<string, { text: string; sourceFileName: string }>();
+  for (let i = 0; i < list.episodes.length; i++) {
+    const ep = list.episodes[i];
+    texts.set(ep.id, await loadEpisodeForReindex(projectId, ep, i));
   }
 
   const oldFileNames = list.episodes.map((ep) => ep.fileName);
@@ -122,8 +166,9 @@ async function reindexEpisodes(projectId: string, list: EpisodeList): Promise<vo
   for (let i = 0; i < list.episodes.length; i++) {
     const ep = list.episodes[i];
     const newFileName = episodeFileName(ep.id);
-    if (ep.fileName !== newFileName) {
-      await saveEpisode(projectId, newFileName, texts.get(ep.id) ?? "");
+    const loaded = texts.get(ep.id);
+    if (ep.fileName !== newFileName || loaded?.sourceFileName !== newFileName) {
+      await saveEpisode(projectId, newFileName, loaded?.text ?? "");
       ep.fileName = newFileName;
     }
     ep.order = i;
