@@ -95,8 +95,7 @@ fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
 fn read_json(path: &PathBuf) -> Result<Value, String> {
     let text = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 fn read_or_empty(path: &PathBuf, empty: Value) -> Value {
@@ -115,14 +114,10 @@ fn write_json(path: &PathBuf, value: &Value) -> Result<(), String> {
 
 fn write_text(path: &PathBuf, content: &str) -> Result<(), String> {
     ensure_parent_dir(path).map_err(|e| format!("Failed to prepare {}: {}", path.display(), e))?;
-    fs::write(path, content)
-        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+    fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
-fn extract_custom_fields(
-    fields: &HashMap<String, String>,
-    known_keys: &[&str],
-) -> Vec<Value> {
+fn extract_custom_fields(fields: &HashMap<String, String>, known_keys: &[&str]) -> Vec<Value> {
     let known_lower: Vec<String> = known_keys.iter().map(|k| k.to_lowercase()).collect();
     fields
         .iter()
@@ -133,9 +128,23 @@ fn extract_custom_fields(
 
 fn build_character(fields: &HashMap<String, String>, body: &str, title: &str) -> Value {
     let known_keys = [
-        "name", "alias", "role", "gender", "age", "birthday", "bloodtype", "height", "weight",
-        "appearance", "personality", "individuality", "skills", "specialskills", "upbringing",
-        "background", "notes",
+        "name",
+        "alias",
+        "role",
+        "gender",
+        "age",
+        "birthday",
+        "bloodtype",
+        "height",
+        "weight",
+        "appearance",
+        "personality",
+        "individuality",
+        "skills",
+        "specialskills",
+        "upbringing",
+        "background",
+        "notes",
     ];
 
     let get = |key: &str| -> String {
@@ -171,8 +180,22 @@ fn build_character(fields: &HashMap<String, String>, body: &str, title: &str) ->
 
 fn build_world_entry(fields: &HashMap<String, String>, body: &str, title: &str) -> Value {
     let known_keys = [
-        "name", "category", "era", "geography", "climate", "population", "politics", "laws",
-        "economy", "military", "religion", "language", "culture", "history", "technology", "notes",
+        "name",
+        "category",
+        "era",
+        "geography",
+        "climate",
+        "population",
+        "politics",
+        "laws",
+        "economy",
+        "military",
+        "religion",
+        "language",
+        "culture",
+        "history",
+        "technology",
+        "notes",
     ];
 
     let get = |key: &str| -> String {
@@ -266,10 +289,17 @@ fn create_project_memo_entry(project_id: &str, title: &str, content: &str) -> Re
     save_project_memos(project_id, &data)
 }
 
-fn create_episode_entry(project_id: &str, title: &str, body: &str) -> Result<(String, String), String> {
+fn create_episode_entry(
+    project_id: &str,
+    title: &str,
+    body: &str,
+) -> Result<(String, String), String> {
     let mut episodes = load_episodes(project_id)?;
     let id = uuid::Uuid::new_v4().to_string();
-    let order = episodes["episodes"].as_array().map(|arr| arr.len() as i64).unwrap_or(0);
+    let order = episodes["episodes"]
+        .as_array()
+        .map(|arr| arr.len() as i64)
+        .unwrap_or(0);
     let file_name = format!("{}.md", id);
 
     let episode = json!({
@@ -307,18 +337,16 @@ fn save_episode_memo(project_id: &str, episode_id: &str, content: &str) -> Resul
 }
 
 fn find_episode_id_by_title(episodes: &Value, title: &str) -> Option<String> {
-    episodes["episodes"]
-        .as_array()
-        .and_then(|arr| {
-            arr.iter().find_map(|ep| {
-                let ep_title = ep["title"].as_str().unwrap_or_default();
-                if ep_title == title {
-                    ep["id"].as_str().map(|s| s.to_string())
-                } else {
-                    None
-                }
-            })
+    episodes["episodes"].as_array().and_then(|arr| {
+        arr.iter().find_map(|ep| {
+            let ep_title = ep["title"].as_str().unwrap_or_default();
+            if ep_title == title {
+                ep["id"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
         })
+    })
 }
 
 fn load_relationships(project_id: &str) -> Result<Value, String> {
@@ -330,59 +358,49 @@ fn save_relationships(project_id: &str, data: &Value) -> Result<(), String> {
     write_json(&relationships_path(project_id)?, data)
 }
 
-fn ensure_relationship_characters(
-    project_id: &str,
-    files: &[ImportFileInput],
+fn create_relationship_character_if_missing(
     characters: &mut Value,
     character_map: &mut HashMap<String, String>,
-) -> Result<(), String> {
-    let character_array = characters["characters"]
+    name: &str,
+    relationship_note: &str,
+) -> Result<(Option<String>, bool), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok((None, false));
+    }
+
+    let key = name.to_lowercase();
+    if let Some(id) = character_map.get(&key).cloned() {
+        return Ok((Some(id), false));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    characters["characters"]
         .as_array_mut()
-        .ok_or_else(|| "Invalid characters structure".to_string())?;
-
-    let mut added = false;
-    for file in files {
-        if file.file_type != "relationship" {
-            continue;
-        }
-        for rel in &file.relationships {
-            for name in [&rel.character_a_name, &rel.character_b_name] {
-                let key = name.to_lowercase();
-                if key.is_empty() || character_map.contains_key(&key) {
-                    continue;
-                }
-                let id = uuid::Uuid::new_v4().to_string();
-                character_array.push(json!({
-                    "id": id,
-                    "name": name,
-                    "alias": "",
-                    "role": "",
-                    "gender": "",
-                    "age": "",
-                    "birthday": "",
-                    "bloodType": "",
-                    "height": "",
-                    "weight": "",
-                    "appearance": "",
-                    "personality": "",
-                    "individuality": "",
-                    "skills": "",
-                    "specialSkills": "",
-                    "upbringing": "",
-                    "background": "",
-                    "notes": "",
-                    "customFields": [],
-                }));
-                character_map.insert(key, id);
-                added = true;
-            }
-        }
-    }
-
-    if added {
-        save_characters(project_id, characters)?;
-    }
-    Ok(())
+        .ok_or_else(|| "Invalid characters structure".to_string())?
+        .push(json!({
+            "id": id,
+            "name": name,
+            "alias": "",
+            "role": "",
+            "gender": "",
+            "age": "",
+            "birthday": "",
+            "bloodType": "",
+            "height": "",
+            "weight": "",
+            "appearance": "",
+            "personality": "",
+            "individuality": "",
+            "skills": "",
+            "specialSkills": "",
+            "upbringing": "",
+            "background": "",
+            "notes": relationship_note,
+            "customFields": [],
+        }));
+    character_map.insert(key, id.clone());
+    Ok((Some(id), true))
 }
 
 fn build_character_name_to_id_map(characters: &Value) -> HashMap<String, String> {
@@ -412,7 +430,10 @@ fn find_or_create_relationship_group<'a>(data: &'a mut Value, episode_id: &str) 
     let groups = data["groups"]
         .as_array_mut()
         .expect("relationships groups must be an array");
-    if let Some(index) = groups.iter().position(|g| g["episodeId"].as_str() == Some(episode_id)) {
+    if let Some(index) = groups
+        .iter()
+        .position(|g| g["episodeId"].as_str() == Some(episode_id))
+    {
         &mut groups[index]
     } else {
         groups.push(json!({
@@ -426,13 +447,15 @@ fn find_or_create_relationship_group<'a>(data: &'a mut Value, episode_id: &str) 
 fn import_relationships(
     project_id: &str,
     files: &[ImportFileInput],
-    character_map: &HashMap<String, String>,
+    characters: &mut Value,
+    character_map: &mut HashMap<String, String>,
     episode_title_to_id: &HashMap<String, String>,
     episodes: &Value,
-) -> Result<(usize, usize), String> {
+) -> Result<(usize, usize, usize), String> {
     let mut data = load_relationships(project_id)?;
     let mut imported = 0;
     let mut skipped = 0;
+    let mut created_characters = 0;
 
     for file in files {
         if file.file_type != "relationship" {
@@ -445,8 +468,48 @@ fn import_relationships(
             );
         }
         for rel in &file.relationships {
-            let a_id = character_map.get(&rel.character_a_name.to_lowercase()).cloned();
-            let b_id = character_map.get(&rel.character_b_name.to_lowercase()).cloned();
+            let Some(direction) = normalize_direction(&rel.direction) else {
+                eprintln!(
+                    "[phenex:import:relationships] invalid direction: {} (file: {})",
+                    rel.direction, file.path
+                );
+                skipped += 1;
+                continue;
+            };
+            let a_note = format!(
+                "関係資料から自動作成（{}）。{}との関係: {}",
+                file.path, rel.character_b_name, rel.description
+            );
+            let (a_id, a_created) = create_relationship_character_if_missing(
+                characters,
+                character_map,
+                &rel.character_a_name,
+                &a_note,
+            )?;
+            if a_created {
+                eprintln!(
+                    "[phenex:import:relationships] created missing character: {} (file: {})",
+                    rel.character_a_name, file.path
+                );
+                created_characters += 1;
+            }
+            let b_note = format!(
+                "関係資料から自動作成（{}）。{}との関係: {}",
+                file.path, rel.character_a_name, rel.description
+            );
+            let (b_id, b_created) = create_relationship_character_if_missing(
+                characters,
+                character_map,
+                &rel.character_b_name,
+                &b_note,
+            )?;
+            if b_created {
+                eprintln!(
+                    "[phenex:import:relationships] created missing character: {} (file: {})",
+                    rel.character_b_name, file.path
+                );
+                created_characters += 1;
+            }
             let Some(a_id) = a_id else {
                 eprintln!(
                     "[phenex:import:relationships] character not found: {} (file: {})",
@@ -459,14 +522,6 @@ fn import_relationships(
                 eprintln!(
                     "[phenex:import:relationships] character not found: {} (file: {})",
                     rel.character_b_name, file.path
-                );
-                skipped += 1;
-                continue;
-            };
-            let Some(direction) = normalize_direction(&rel.direction) else {
-                eprintln!(
-                    "[phenex:import:relationships] invalid direction: {} (file: {})",
-                    rel.direction, file.path
                 );
                 skipped += 1;
                 continue;
@@ -497,13 +552,21 @@ fn import_relationships(
         }
     }
 
+    if created_characters > 0 {
+        save_characters(project_id, characters)?;
+    }
     save_relationships(project_id, &data)?;
-    Ok((imported, skipped))
+    Ok((imported, skipped, created_characters))
 }
 
 #[tauri::command]
-pub async fn import_files(project_id: String, files: Vec<ImportFileInput>) -> Result<ImportResult, String> {
-    tauri::async_runtime::spawn_blocking(move || do_import(&project_id, &files)).await.map_err(|e| e.to_string())?
+pub async fn import_files(
+    project_id: String,
+    files: Vec<ImportFileInput>,
+) -> Result<ImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || do_import(&project_id, &files))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult, String> {
@@ -596,14 +659,16 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
 
     // 5th pass: relationships
     let mut character_map = build_character_name_to_id_map(&characters);
-    ensure_relationship_characters(project_id, files, &mut characters, &mut character_map)?;
-    let (imported_relationships, skipped_relationships) = import_relationships(
-        project_id,
-        files,
-        &character_map,
-        &episode_title_to_id,
-        &episodes,
-    )?;
+    let (imported_relationships, skipped_relationships, relationship_characters) =
+        import_relationships(
+            project_id,
+            files,
+            &mut characters,
+            &mut character_map,
+            &episode_title_to_id,
+            &episodes,
+        )?;
+    result.characters += relationship_characters;
     result.relationships = imported_relationships;
     result.skipped_relationships = skipped_relationships;
 
@@ -707,7 +772,10 @@ mod tests {
         let memo_array = memos["memos"].as_array().unwrap();
         assert_eq!(memo_array.len(), 1);
         assert_eq!(memo_array[0]["title"].as_str().unwrap(), "世界観覚書");
-        assert_eq!(memo_array[0]["content"].as_str().unwrap(), "この世界では魔法は日常である。");
+        assert_eq!(
+            memo_array[0]["content"].as_str().unwrap(),
+            "この世界では魔法は日常である。"
+        );
 
         cleanup(&project_id);
     }
@@ -776,6 +844,70 @@ mod tests {
         assert_eq!(relationships.len(), 1);
         assert_eq!(relationships[0]["direction"].as_str().unwrap(), "mutual");
         assert_eq!(relationships[0]["description"].as_str().unwrap(), "幼馴染");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn import_relationships_create_missing_character_with_context_notes() {
+        let project_id = test_project_id();
+
+        let files = vec![
+            ImportFileInput {
+                path: "chars/sophia.md".to_string(),
+                filename: "sophia.md".to_string(),
+                file_type: "character".to_string(),
+                title: "ソフィア".to_string(),
+                content: "名前: ソフィア".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "ソフィア".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+            ImportFileInput {
+                path: "Novel/資料/ソフィアの家族関係.md".to_string(),
+                filename: "ソフィアの家族関係.md".to_string(),
+                file_type: "relationship".to_string(),
+                title: "ソフィアの家族関係".to_string(),
+                content: "父 Alan Hamilton はソフィアに厳しい。".to_string(),
+                fields: HashMap::new(),
+                episode_title: None,
+                relationships: vec![ImportRelationshipInput {
+                    episode_title: "".to_string(),
+                    character_a_name: "ソフィア".to_string(),
+                    character_b_name: "Alan Hamilton".to_string(),
+                    direction: "b-to-a".to_string(),
+                    description: "Alan Hamilton はソフィアの父".to_string(),
+                }],
+            },
+        ];
+
+        let result = do_import(&project_id, &files).expect("import failed");
+        assert_eq!(result.characters, 2);
+        assert_eq!(result.relationships, 1);
+        assert_eq!(result.skipped_relationships, 0);
+
+        let characters = load_characters(&project_id).unwrap();
+        let character_array = characters["characters"].as_array().unwrap();
+        let alan = character_array
+            .iter()
+            .find(|character| character["name"].as_str() == Some("Alan Hamilton"))
+            .expect("Alan Hamilton should be created");
+        let notes = alan["notes"].as_str().unwrap();
+        assert!(notes.contains("ソフィア"));
+        assert!(notes.contains("父"));
+        assert!(notes.contains("ソフィアの家族関係.md"));
+
+        let rels = load_relationships(&project_id).unwrap();
+        let relationships = rels["groups"][0]["relationships"].as_array().unwrap();
+        assert_eq!(relationships[0]["direction"].as_str().unwrap(), "b-to-a");
+        assert_eq!(
+            relationships[0]["description"].as_str().unwrap(),
+            "Alan Hamilton はソフィアの父"
+        );
 
         cleanup(&project_id);
     }

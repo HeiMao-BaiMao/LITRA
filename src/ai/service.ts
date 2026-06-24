@@ -2,20 +2,16 @@ import { generateObject, isLoopFinished, streamText, type ModelMessage, type Sto
 import { createModel } from "./provider.ts";
 import { buildProviderOptions } from "./provider-options.ts";
 import {
+  buildAssistantSystemPrompt,
   buildContinuationPrompt,
   buildFeedbackPrompt,
   buildRewritePrompt,
   buildToolCallNeedPrompt,
-  systemPrompt,
   toolCallNeedSchema,
 } from "./prompts.ts";
 import type { AiSettings } from "../settings.ts";
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
-function buildSystem(basePrompt: string, settingsContext?: string): string {
-  if (!settingsContext) return basePrompt;
-  return `${basePrompt}\n\n以下は本作の設定資料です。本文やフィードバックに矛盾がないよう参照してください。\n\n${settingsContext}`;
-}
 
 function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean): boolean {
   // DeepSeek の thinking モードはツール呼び出しと両立しない。
@@ -250,14 +246,15 @@ async function verifyToolCallNeed(
   settings: AiSettings,
   userRequest: string,
   assistantResponse: string,
+  availableToolNames: string[],
 ): Promise<boolean> {
   try {
     const result = await generateObject({
       model: createModel(settings),
       schema: toolCallNeedSchema,
       system:
-        "あなたはアシスタントの応答を審査し、ツール呼び出しが必要かどうかを判定する専門家です。",
-      prompt: buildToolCallNeedPrompt(userRequest, assistantResponse),
+        "You audit assistant responses and determine whether an actual available tool call was required. Follow the schema exactly.",
+      prompt: buildToolCallNeedPrompt(userRequest, assistantResponse, availableToolNames),
       maxOutputTokens: 1024,
       temperature: 0.1,
     });
@@ -339,10 +336,11 @@ export async function streamChat({
       assistantText += chunk;
       onChunk(chunk);
     };
+    const toolNames = toolsEnabled ? Object.keys(tools) : [];
 
     const result = streamText({
       model: createModel(s),
-      system: buildSystem(systemPrompt, settingsContext),
+      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
       messages,
       ...buildTemperatureOption(s, toolsEnabled),
       maxOutputTokens: s.maxTokens,
@@ -363,7 +361,7 @@ export async function streamChat({
       !abortSignal?.aborted
     ) {
       const userRequest = getLastUserMessageContent(messages);
-      const needsTools = await verifyToolCallNeed(s, userRequest, assistantText);
+      const needsTools = await verifyToolCallNeed(s, userRequest, assistantText, toolNames);
       if (needsTools) {
         console.log("[phenex:ai] retrying with tool-call requirement");
         const retryMessages: ModelMessage[] = [
@@ -377,7 +375,7 @@ export async function streamChat({
         ];
         const retryResult = streamText({
           model: createModel(s),
-          system: buildSystem(systemPrompt, settingsContext),
+          system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames }),
           messages: retryMessages,
           ...buildTemperatureOption(s, toolsEnabled),
           maxOutputTokens: s.maxTokens,
@@ -410,9 +408,10 @@ export async function streamContinuation({
   try {
     const s = normalizeSettings(settings);
     const toolsEnabled = tools != null && Object.keys(tools).length > 0;
+    const toolNames = toolsEnabled ? Object.keys(tools) : [];
     const result = streamText({
       model: createModel(s),
-      system: buildSystem(systemPrompt, settingsContext),
+      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
       prompt: buildContinuationPrompt(context),
       ...buildTemperatureOption(s, toolsEnabled),
       maxOutputTokens: s.maxTokens,
@@ -441,7 +440,7 @@ export async function streamRewrite({
     const s = normalizeSettings(settings);
     const result = streamText({
       model: createModel(s),
-      system: buildSystem(systemPrompt, settingsContext),
+      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false }),
       prompt: buildRewritePrompt(selection, context),
       ...buildTemperatureOption(s, false),
       maxOutputTokens: s.maxTokens,
@@ -467,7 +466,7 @@ export async function streamFeedback({
     const s = normalizeSettings(settings);
     const result = streamText({
       model: createModel(s),
-      system: buildSystem(systemPrompt, settingsContext),
+      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false }),
       prompt: buildFeedbackPrompt(selection),
       ...buildTemperatureOption(s, false),
       maxOutputTokens: s.maxTokens,

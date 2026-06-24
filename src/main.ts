@@ -28,7 +28,7 @@ import {
   type StreamRunResult,
   type StreamToolEvent,
 } from "./ai/service.ts";
-import { buildSummaryPrompt, limitPromptText, parseSummaryOutput } from "./ai/prompts.ts";
+import { buildSummaryPrompt, limitPromptText, parseSummaryOutput, samplePromptText } from "./ai/prompts.ts";
 import {
   createCheckConsistencyTool,
   createCreateCharacterTool,
@@ -209,6 +209,7 @@ const CHAT_TOOL_CALL_RETRY_PROMPT =
 interface PromptContextBudgets {
   settingsField: number;
   settingsSection: number;
+  projectMemos: number;
   previousSummary: number;
   currentMemo: number;
   summarySource: number;
@@ -242,16 +243,17 @@ function getPromptContextBudgets(settings: AiSettings = currentSettings): Prompt
     Math.floor(clampNumber(usableChars * ratio, min, max));
 
   return {
-    settingsField: scaled(0.025, 1200, 12000),
-    settingsSection: scaled(0.35, 16000, 120000),
-    previousSummary: scaled(0.05, 2600, 16000),
-    currentMemo: scaled(0.12, 5000, 40000),
-    summarySource: scaled(0.8, 30000, 240000),
-    continuationContext: scaled(0.7, 18000, 180000),
-    rewriteContextSide: scaled(0.35, 9000, 90000),
+    settingsField: scaled(0.015, 800, 6000),
+    settingsSection: scaled(0.12, 8000, 42000),
+    projectMemos: scaled(0.08, 5000, 26000),
+    previousSummary: scaled(0.035, 2200, 10000),
+    currentMemo: scaled(0.06, 3500, 18000),
+    summarySource: scaled(0.72, 24000, 180000),
+    continuationContext: scaled(0.45, 12000, 100000),
+    rewriteContextSide: scaled(0.18, 5000, 45000),
     chatHistoryMessages: Number.MAX_SAFE_INTEGER,
-    chatMessage: usableChars,
-    chatHistory: usableChars,
+    chatMessage: scaled(0.14, 4000, 36000),
+    chatHistory: scaled(0.35, 10000, 90000),
   };
 }
 
@@ -1420,7 +1422,7 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
 
   const text = await loadEpisode(currentProject.id, episode.fileName);
   const budgets = getPromptContextBudgets();
-  const sourceText = limitPromptText(text, budgets.summarySource, "middle");
+  const sourceText = samplePromptText(text, budgets.summarySource, 4);
   const prompt = buildSummaryPrompt(
     episode.id,
     episode.title || "無題",
@@ -1469,7 +1471,6 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
     const run = await streamChat({
       settings: currentSettings,
       messages,
-      settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       tools: summaryTools,
       toolChoice: isDeepSeek ? "auto" : "required",
       stopWhen: hasToolCall("saveEpisodeSummaryAndOneLiner"),
@@ -1668,6 +1669,38 @@ function handleSelectProjectMemo(id: string | null): void {
 
 function buildSettingsContext(currentEpisodeId?: string): string {
   const budgets = getPromptContextBudgets();
+  const recentConversation = state.chatMessages
+    .filter((message) => !isToolResultLog(message.content))
+    .slice(-4)
+    .map((message) => message.content)
+    .join("\n");
+  const relevanceText = `${state.editorText}\n${recentConversation}`;
+
+  function scoreTerms(terms: string[]): number {
+    return terms.reduce((score, raw) => {
+      const term = raw.trim();
+      if (!term || !relevanceText.includes(term)) return score;
+      return score + (term.length >= 2 ? 10 : 3);
+    }, 0);
+  }
+
+  const relevantCharacters = (characters ?? [])
+    .map((character, index) => ({
+      character,
+      index,
+      score: scoreTerms([character.name, character.alias]),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ character }) => character);
+
+  const relevantWorldEntries = (worldEntries ?? [])
+    .map((entry, index) => ({
+      entry,
+      index,
+      score: scoreTerms([entry.name, entry.category]),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ entry }) => entry);
 
   function formatFields(entries: [string, string | undefined][]): string {
     return entries
@@ -1681,7 +1714,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
       .join("\n");
   }
 
-  const charLinesRaw = (characters ?? [])
+  const charLinesRaw = relevantCharacters
     .map((c) => {
       const fixed: [string, string][] = [
         ["名前", c.name],
@@ -1709,7 +1742,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
     .join("\n\n");
   const charLines = limitPromptText(charLinesRaw, budgets.settingsSection, "head");
 
-  const worldLinesRaw = (worldEntries ?? [])
+  const worldLinesRaw = relevantWorldEntries
     .map((e) => {
       const fixed: [string, string][] = [
         ["名前", e.name],
@@ -1736,16 +1769,36 @@ function buildSettingsContext(currentEpisodeId?: string): string {
     .join("\n\n");
   const worldLines = limitPromptText(worldLinesRaw, budgets.settingsSection, "head");
 
-  const relationshipLinesRaw = (relationshipsMap.groups ?? [])
+  const currentOrder = episodes.find((episode) => episode.id === currentEpisodeId)?.order ?? 0;
+  const relationshipLinesRaw = [...(relationshipsMap.groups ?? [])]
+    .sort((a, b) => {
+      const rank = (episodeId: string | undefined): number => {
+        if (episodeId === currentEpisodeId) return 0;
+        if (!episodeId) return 1;
+        const order = episodes.find((episode) => episode.id === episodeId)?.order ?? currentOrder;
+        return 2 + Math.abs(order - currentOrder);
+      };
+      return rank(a.episodeId) - rank(b.episodeId);
+    })
     .map((group) => {
-      const episode = episodes.find((ep) => ep.id === group.episodeId);
+      const episode = episodes.find((candidate) => candidate.id === group.episodeId);
       const groupTitle = group.episodeId ? `■ ${episode?.title || "（無題）"}` : "■ 全体（全話共通）";
-      const lines = group.relationships
-        .map((rel) => {
-          const charA = characters.find((c) => c.id === rel.characterAId)?.name || "（不明）";
-          const charB = characters.find((c) => c.id === rel.characterBId)?.name || "（不明）";
-          const arrow = rel.direction === "a-to-b" ? "→" : rel.direction === "b-to-a" ? "←" : "↔";
-          return `  - ${charA} ${arrow} ${charB}: ${rel.description || "（説明なし）"}`;
+      const lines = [...group.relationships]
+        .map((relationship, index) => {
+          const charA = characters.find((character) => character.id === relationship.characterAId)?.name || "（不明）";
+          const charB = characters.find((character) => character.id === relationship.characterBId)?.name || "（不明）";
+          return {
+            relationship,
+            index,
+            charA,
+            charB,
+            score: scoreTerms([charA, charB]),
+          };
+        })
+        .sort((a, b) => b.score - a.score || a.index - b.index)
+        .map(({ relationship, charA, charB }) => {
+          const arrow = relationship.direction === "a-to-b" ? "→" : relationship.direction === "b-to-a" ? "←" : "↔";
+          return `  - ${charA} ${arrow} ${charB}: ${relationship.description || "（説明なし）"}`;
         })
         .join("\n");
       return `${groupTitle}\n${lines}`;
@@ -1759,8 +1812,18 @@ function buildSettingsContext(currentEpisodeId?: string): string {
     `【人間関係】\n${relationshipLines || "（未登録）"}`,
   ];
 
+  const projectMemoLines = limitPromptText(
+    projectMemos
+      .map((memo) => `■ ${memo.title || "（無題）"}\n${memo.content}`)
+      .join("\n\n"),
+    budgets.projectMemos,
+    "head",
+  );
+  if (projectMemoLines) {
+    contextParts.push(`【作品メモ】\n${projectMemoLines}`);
+  }
+
   if (currentEpisodeId) {
-    const currentOrder = episodes.find((ep) => ep.id === currentEpisodeId)?.order ?? -1;
     const previousEpisodes = episodes
       .filter((ep) => ep.order < currentOrder)
       .sort((a, b) => a.order - b.order)

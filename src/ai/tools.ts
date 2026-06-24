@@ -38,16 +38,25 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function validateCustomFields(value: unknown): ValidationResult<CustomField[]> | ValidationError {
+function validateCustomFields(
+  value: unknown,
+): ValidationResult<CustomField[]> | ValidationError {
   if (!Array.isArray(value)) {
-    return { success: false, error: "customFields は配列である必要があります。例: [{label: '二人称', value: '君'}]" };
+    return {
+      success: false,
+      error:
+        "customFields は配列である必要があります。例: [{label: '二人称', value: '君'}]",
+    };
   }
 
   const normalized: CustomField[] = [];
   for (let i = 0; i < value.length; i++) {
     const item = value[i];
     if (!isPlainObject(item)) {
-      return { success: false, error: `customFields[${i}] はオブジェクトである必要があります。` };
+      return {
+        success: false,
+        error: `customFields[${i}] はオブジェクトである必要があります。`,
+      };
     }
 
     // label の代わりに key が使われていた場合は寛容に変換する
@@ -61,7 +70,10 @@ function validateCustomFields(value: unknown): ValidationResult<CustomField[]> |
       };
     }
     if (typeof valueRaw !== "string") {
-      return { success: false, error: `customFields[${i}].value は文字列である必要があります。` };
+      return {
+        success: false,
+        error: `customFields[${i}].value は文字列である必要があります。`,
+      };
     }
 
     normalized.push({ label: labelRaw.trim(), value: valueRaw });
@@ -70,7 +82,10 @@ function validateCustomFields(value: unknown): ValidationResult<CustomField[]> |
   return { success: true, data: normalized };
 }
 
-function validateStringField(name: string, value: unknown): ValidationResult<string> | ValidationError {
+function validateStringField(
+  name: string,
+  value: unknown,
+): ValidationResult<string> | ValidationError {
   if (typeof value === "string") {
     return { success: true, data: value };
   }
@@ -137,7 +152,10 @@ function limitToolText(text: string, maxChars = 12000): string {
   return `${text.slice(0, headChars)}${marker}${text.slice(text.length - tailChars)}`;
 }
 
-function findById<T extends { id: string }>(items: T[], id: string): T | undefined {
+function findById<T extends { id: string }>(
+  items: T[],
+  id: string,
+): T | undefined {
   return items.find((item) => item.id === id);
 }
 
@@ -146,7 +164,10 @@ async function rebuildSearchIndexQuietly(projectId: string): Promise<boolean> {
     await invoke("rebuild_search_index", { projectId });
     return true;
   } catch (error) {
-    console.warn("[phenex] failed to rebuild search index after tool mutation:", error);
+    console.warn(
+      "[phenex] failed to rebuild search index after tool mutation:",
+      error,
+    );
     return false;
   }
 }
@@ -230,56 +251,86 @@ const editInputSchema = z
     episodeId: z
       .string()
       .optional()
-      .describe("編集対象のエピソードID。省略時は現在開いているエピソード。"),
-    startLine: z.number().int().min(1).describe("置き換え開始行（1始まり）"),
-    endLine: z.number().int().min(1).describe("置き換え終了行（1始まり）"),
-    expectedText: z.string().describe("該当行範囲の現在の正確なテキスト"),
-    replacementText: z.string().describe("挿入する置き換え後のテキスト"),
+      .describe("Episode ID to edit. Omit to use the currently open episode."),
+    startLine: z
+      .number()
+      .int()
+      .min(1)
+      .describe("First line to replace, using 1-based numbering."),
+    endLine: z
+      .number()
+      .int()
+      .min(1)
+      .describe("Last line to replace, using 1-based numbering."),
+    expectedText: z
+      .string()
+      .describe(
+        "Exact current text in the selected line range. Preserve every character and line break.",
+      ),
+    replacementText: z
+      .string()
+      .describe(
+        "Replacement text. Write natural-language prose in Japanese unless exact source preservation or an explicit user request requires otherwise.",
+      ),
   })
   .refine((value) => value.endLine >= value.startLine, {
-    message: "endLine は startLine 以上である必要があります。",
+    message: "endLine must be greater than or equal to startLine.",
     path: ["endLine"],
   });
 
 export function createEditEpisodeTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "指定した行範囲の内容が完全一致している場合に、その範囲を置き換えます。行番号は1始まりです。startLine/endLine は本文の総行数以内である必要があり、範囲が不明な場合は事前に getEpisodeLines で総行数と内容を確認してください。expectedText には該当行範囲の現在のテキストを改行・空白・全角半角まで含めて完全一致で指定してください。1文字でも違うと失敗します。replacementText には置き換え後の正確なテキストを指定してください。",
+      "Replaces a line range only when expectedText exactly matches the current manuscript. Line numbers are 1-based and must be within the episode. Use getEpisodeLines first when uncertain. expectedText must preserve every character, line break, space, and width variant. replacementText must contain the final replacement; write natural-language prose in Japanese unless exact source preservation or an explicit user request requires otherwise.",
 
     inputSchema: editInputSchema,
-    execute: wrapToolExecute("editEpisode", async ({ episodeId, startLine, endLine, expectedText, replacementText }) => {
-      const targetEpisodeId = episodeId ?? deps.episodeId;
-      const result = await invoke<{
-        success: boolean;
-        message: string;
-        newText?: string;
-        actualText?: string;
-        totalLines?: number;
-      }>("edit_episode_text", {
-        req: {
-          projectId: deps.projectId,
-          episodeId: targetEpisodeId,
-          startLine,
-          endLine,
-          expectedText,
-          replacementText,
-        },
-      });
-      if (result.success && result.newText != null) {
-        deps.onApply(result.newText, targetEpisodeId);
-      }
-      const searchIndexUpdated = result.success ? await rebuildSearchIndexQuietly(deps.projectId) : false;
-      return {
-        success: result.success,
-        message: result.message,
-        totalLines: result.totalLines,
-        actualText: result.actualText != null ? limitToolText(result.actualText) : undefined,
-        applied: result.success,
-        editedLineRange: { startLine, endLine },
-        replacementLineCount: replacementText.split("\n").length,
-        searchIndexUpdated,
-      };
-    }),
+    execute: wrapToolExecute(
+      "editEpisode",
+      async ({
+        episodeId,
+        startLine,
+        endLine,
+        expectedText,
+        replacementText,
+      }) => {
+        const targetEpisodeId = episodeId ?? deps.episodeId;
+        const result = await invoke<{
+          success: boolean;
+          message: string;
+          newText?: string;
+          actualText?: string;
+          totalLines?: number;
+        }>("edit_episode_text", {
+          req: {
+            projectId: deps.projectId,
+            episodeId: targetEpisodeId,
+            startLine,
+            endLine,
+            expectedText,
+            replacementText,
+          },
+        });
+        if (result.success && result.newText != null) {
+          deps.onApply(result.newText, targetEpisodeId);
+        }
+        const searchIndexUpdated = result.success
+          ? await rebuildSearchIndexQuietly(deps.projectId)
+          : false;
+        return {
+          success: result.success,
+          message: result.message,
+          totalLines: result.totalLines,
+          actualText:
+            result.actualText != null
+              ? limitToolText(result.actualText)
+              : undefined,
+          applied: result.success,
+          editedLineRange: { startLine, endLine },
+          replacementLineCount: replacementText.split("\n").length,
+          searchIndexUpdated,
+        };
+      },
+    ),
   });
 }
 
@@ -287,51 +338,61 @@ const batchEditInputSchema = z.object({
   episodeId: z
     .string()
     .optional()
-    .describe("編集対象のエピソードID。省略時は現在開いているエピソード。"),
+    .describe("Episode ID to edit. Omit to use the currently open episode."),
   edits: z
     .array(editInputSchema)
     .min(1)
     .max(50)
-    .describe("一括適用する編集。各 startLine/endLine は、編集前の現在本文に対する1始まりの行番号です。範囲は重複できません。"),
+    .describe(
+      "Edits to apply atomically. Every range uses 1-based line numbers from the same pre-edit manuscript, and ranges must not overlap.",
+    ),
 });
 
 export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "現在開いているエピソード本文の複数の非連続範囲を、1回のツール呼び出しでまとめて置き換えます。各 expectedText は対象行範囲の現在のテキストと改行・空白・全角半角まで含めて完全一致している必要があります。1文字でも違うと失敗します。startLine/endLine は本文の総行数以内である必要があり、範囲が不明な場合は事前に getEpisodeLines で確認してください。すべての expectedText が一致し、範囲が重複しない場合だけ一括適用されます。startLine/endLine はすべて編集前の本文に対する行番号です。",
+      "Atomically replaces multiple non-contiguous ranges in one episode. Every expectedText must exactly match the current text, including line breaks, spacing, and width variants. All ranges use 1-based line numbers from the same pre-edit manuscript and must not overlap. Use getEpisodeLines first when uncertain. All replacementText values must be Japanese natural-language prose unless exact source preservation or an explicit user request requires otherwise.",
     inputSchema: batchEditInputSchema,
-    execute: wrapToolExecute("editEpisodeBatch", async ({ episodeId, edits }) => {
-      const targetEpisodeId = episodeId ?? deps.episodeId;
-      const result = await invoke<{
-        success: boolean;
-        message: string;
-        newText?: string;
-        totalLines: number;
-        appliedEdits: number;
-        editResults: BatchEditItemResponse[];
-      }>("edit_episode_text_batch", {
-        req: {
-          projectId: deps.projectId,
-          episodeId: targetEpisodeId,
-          edits,
-        },
-      });
-      if (result.success && result.newText != null) {
-        deps.onApply(result.newText, targetEpisodeId);
-      }
-      const searchIndexUpdated = result.success ? await rebuildSearchIndexQuietly(deps.projectId) : false;
-      return {
-        success: result.success,
-        message: result.message,
-        totalLines: result.totalLines,
-        appliedEdits: result.appliedEdits,
-        editResults: result.editResults.map((item) => ({
-          ...item,
-          actualText: item.actualText != null ? limitToolText(item.actualText) : undefined,
-        })),
-        searchIndexUpdated,
-      };
-    }),
+    execute: wrapToolExecute(
+      "editEpisodeBatch",
+      async ({ episodeId, edits }) => {
+        const targetEpisodeId = episodeId ?? deps.episodeId;
+        const result = await invoke<{
+          success: boolean;
+          message: string;
+          newText?: string;
+          totalLines: number;
+          appliedEdits: number;
+          editResults: BatchEditItemResponse[];
+        }>("edit_episode_text_batch", {
+          req: {
+            projectId: deps.projectId,
+            episodeId: targetEpisodeId,
+            edits,
+          },
+        });
+        if (result.success && result.newText != null) {
+          deps.onApply(result.newText, targetEpisodeId);
+        }
+        const searchIndexUpdated = result.success
+          ? await rebuildSearchIndexQuietly(deps.projectId)
+          : false;
+        return {
+          success: result.success,
+          message: result.message,
+          totalLines: result.totalLines,
+          appliedEdits: result.appliedEdits,
+          editResults: result.editResults.map((item) => ({
+            ...item,
+            actualText:
+              item.actualText != null
+                ? limitToolText(item.actualText)
+                : undefined,
+          })),
+          searchIndexUpdated,
+        };
+      },
+    ),
   });
 }
 
@@ -345,117 +406,175 @@ const checkConsistencyInputSchema = z.object({
   episodeId: z
     .string()
     .optional()
-    .describe("整合性をチェックするエピソードID。省略時は現在開いているエピソード。"),
+    .describe("Episode ID to check. Omit to use the currently open episode."),
   focus: z
     .string()
     .optional()
-    .describe("重点的に確認したい点（特定のキャラクター、世界観項目、過去エピソードなど）。"),
+    .describe(
+      "Optional focus, such as a character, worldbuilding entry, prior episode, chronology, or scene state. Write this focus in Japanese when it is natural-language content.",
+    ),
 });
 
-export function createCheckConsistencyTool(deps: CheckConsistencyToolDependencies) {
+export function createCheckConsistencyTool(
+  deps: CheckConsistencyToolDependencies,
+) {
   return tool({
     description:
-      "指定したエピソードの本文全文と、キャラクター設定・世界観設定・人間関係・メモ・他エピソードの要約を照らし合わせて、矛盾や不整合を検出します。文章に違和感がある・設定と食い違っている可能性がある場合に呼び出してください。",
+      "Checks an episode against character settings, worldbuilding, relationships, memos, and other episode summaries to detect explicit contradictions or continuity errors. Use when the user asks for a consistency audit. The returned report must be Japanese.",
     inputSchema: checkConsistencyInputSchema,
-    execute: wrapToolExecute("checkConsistency", async ({ episodeId, focus }) => {
-      const targetEpisodeId = episodeId ?? deps.currentEpisodeId;
-      if (!targetEpisodeId) {
+    execute: wrapToolExecute(
+      "checkConsistency",
+      async ({ episodeId, focus }) => {
+        const targetEpisodeId = episodeId ?? deps.currentEpisodeId;
+        if (!targetEpisodeId) {
+          return {
+            success: false,
+            message:
+              "エピソードIDが指定されていないか、現在開いているエピソードがありません。",
+            issues: [],
+            summary: "",
+          };
+        }
+        const result = await checkConsistency(
+          deps.settings,
+          deps.projectId,
+          targetEpisodeId,
+          focus,
+        );
         return {
-          success: false,
-          message: "エピソードIDが指定されていないか、現在開いているエピソードがありません。",
-          issues: [],
-          summary: "",
+          success: true,
+          message: `整合性チェックが完了しました。${result.issues.length} 件の指摘がありました。`,
+          ...result,
         };
-      }
-      const result = await checkConsistency(deps.settings, deps.projectId, targetEpisodeId, focus);
-      return {
-        success: true,
-        message: `整合性チェックが完了しました。${result.issues.length} 件の指摘がありました。`,
-        ...result,
-      };
-    }),
+      },
+    ),
   });
 }
 
 const getEpisodeLinesInputSchema = z.object({
-  episodeId: z.string().describe("行番号付きで取得するエピソードのID"),
-  startLine: z.number().int().min(1).optional().describe("取得開始行（1始まり）。省略時は1行目"),
-  endLine: z.number().int().min(1).optional().describe("取得終了行（1始まり、両端含む）。省略時は最終行"),
+  episodeId: z
+    .string()
+    .describe("Episode ID whose text should be returned with line numbers."),
+  startLine: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("First line to retrieve, 1-based. Omit to start at line 1."),
+  endLine: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      "Last line to retrieve, 1-based and inclusive. Omit to end at the final line.",
+    ),
 });
 
 export function createGetEpisodeLinesTool(deps: SearchDependencies) {
   return tool({
     description:
-      "指定したエピソード本文を行番号付きで取得します。editEpisode の startLine/endLine/expectedText を決めるために使ってください。行範囲を指定するとその範囲だけ返します。",
+      "Returns episode text with 1-based line numbers. Use it to determine startLine, endLine, and exact expectedText for editEpisode. Optional range arguments limit the returned text.",
     inputSchema: getEpisodeLinesInputSchema,
-    execute: wrapToolExecute("getEpisodeLines", async ({ episodeId, startLine, endLine }) => {
-      return await invoke<EpisodeLinesResponse>("get_episode_lines", {
-        req: {
-          projectId: deps.projectId,
-          episodeId,
-          startLine,
-          endLine,
-        },
-      });
-    }),
+    execute: wrapToolExecute(
+      "getEpisodeLines",
+      async ({ episodeId, startLine, endLine }) => {
+        return await invoke<EpisodeLinesResponse>("get_episode_lines", {
+          req: {
+            projectId: deps.projectId,
+            episodeId,
+            startLine,
+            endLine,
+          },
+        });
+      },
+    ),
   });
 }
 
 const findEpisodeLinesInputSchema = z.object({
-  episodeId: z.string().describe("検索するエピソードのID"),
-  query: z.string().describe("探したい本文中の正確な語句・一文・一部フレーズ"),
-  contextLines: z.number().int().min(0).max(50).optional().describe("一致行の前後に付ける行数（デフォルト3）"),
-  maxMatches: z.number().int().min(1).max(200).optional().describe("返す候補数（デフォルト20）"),
-  caseSensitive: z.boolean().optional().describe("大文字小文字を区別するか（デフォルトtrue）"),
+  episodeId: z.string().describe("Episode ID to search."),
+  query: z
+    .string()
+    .describe(
+      "Exact word, sentence, or partial phrase to find in the manuscript.",
+    ),
+  contextLines: z
+    .number()
+    .int()
+    .min(0)
+    .max(50)
+    .optional()
+    .describe(
+      "Number of context lines before and after each match. Default: 3.",
+    ),
+  maxMatches: z
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("Maximum number of matches to return. Default: 20."),
+  caseSensitive: z
+    .boolean()
+    .optional()
+    .describe("Whether matching is case-sensitive. Default: true."),
 });
 
 export function createFindEpisodeLinesTool(deps: SearchDependencies) {
   return tool({
     description:
-      "指定したエピソード本文から語句を検索し、一致した行番号、周辺の行番号付き本文、editEpisode に使える expectedText を返します。行番号を数える代わりに必ずこのツールを使ってください。",
+      "Searches an episode and returns matching line numbers, numbered context, and exact expectedText suitable for editEpisode. Use this instead of manually counting lines.",
     inputSchema: findEpisodeLinesInputSchema,
-    execute: wrapToolExecute("findEpisodeLines", async ({ episodeId, query, contextLines, maxMatches, caseSensitive }) => {
-      return await invoke<EpisodeLineSearchResponse>("find_episode_lines", {
-        req: {
-          projectId: deps.projectId,
-          episodeId,
-          query,
-          contextLines,
-          maxMatches,
-          caseSensitive,
-        },
-      });
-    }),
+    execute: wrapToolExecute(
+      "findEpisodeLines",
+      async ({ episodeId, query, contextLines, maxMatches, caseSensitive }) => {
+        return await invoke<EpisodeLineSearchResponse>("find_episode_lines", {
+          req: {
+            projectId: deps.projectId,
+            episodeId,
+            query,
+            contextLines,
+            maxMatches,
+            caseSensitive,
+          },
+        });
+      },
+    ),
   });
 }
 
 export function createListEpisodesTool(deps: SearchDependencies) {
   return tool({
     description:
-      "登録されているエピソードの一行要約一覧を取得します。過去話の内容を確認したい場合に、まずこのツールで該当エピソードを特定してください。",
+      "Lists registered episodes with one-line summaries. Use this first to identify a past episode.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("listEpisodes", async () => {
-      return await invoke<{
-        episodeId: string;
-        order: number;
-        title: string;
-        oneLineSummary: string;
-      }[]>("list_episodes_with_summaries", { projectId: deps.projectId });
+      return await invoke<
+        {
+          episodeId: string;
+          order: number;
+          title: string;
+          oneLineSummary: string;
+        }[]
+      >("list_episodes_with_summaries", { projectId: deps.projectId });
     }),
   });
 }
 
 const retrieveInputSchema = z.object({
-  episodeId: z.string().describe("取得するエピソードのID"),
+  episodeId: z.string().describe("Episode ID to retrieve."),
   type: z
     .enum(["summary", "fullText"])
-    .describe("取得する内容。summary=要約、fullText=本文"),
+    .describe(
+      "Content type: summary for the saved synopsis, fullText for the complete manuscript.",
+    ),
 });
 
 export function createRetrieveEpisodeTool(deps: SearchDependencies) {
   return tool({
     description:
-      "指定したエピソードの要約または本文全文を取得します。行番号が必要な本文編集では findEpisodeLines または getEpisodeLines を使ってください。",
+      "Retrieves either a saved episode summary or the full manuscript. Use findEpisodeLines or getEpisodeLines when an edit requires line numbers.",
     inputSchema: retrieveInputSchema,
     execute: wrapToolExecute("retrieveEpisode", async ({ episodeId, type }) => {
       return await invoke<{
@@ -476,23 +595,31 @@ export function createRetrieveEpisodeTool(deps: SearchDependencies) {
 }
 
 const searchInputSchema = z.object({
-  query: z.string().describe("検索キーワードやフレーズ"),
-  limit: z.number().int().min(1).max(50).optional().describe("返す結果の最大数（デフォルト5）"),
+  query: z.string().describe("Search query or phrase."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Maximum number of results. Default: 5."),
 });
 
 export function createSearchEpisodesTool(deps: SearchDependencies) {
   return tool({
     description:
-      "エピソード本文・要約を全文検索します。登場人物の名前、地名、過去の出来事などを探したい場合に使用してください。",
+      "Full-text search across episode manuscripts and summaries. Use it to find names, locations, past events, or exact phrases.",
     inputSchema: searchInputSchema,
     execute: wrapToolExecute("searchEpisodes", async ({ query, limit }) => {
-      return await invoke<{
-        score: number;
-        episodeId: string;
-        title: string;
-        docType: string;
-        snippet: string;
-      }[]>("search_episodes", {
+      return await invoke<
+        {
+          score: number;
+          episodeId: string;
+          title: string;
+          docType: string;
+          snippet: string;
+        }[]
+      >("search_episodes", {
         req: {
           projectId: deps.projectId,
           query,
@@ -506,7 +633,7 @@ export function createSearchEpisodesTool(deps: SearchDependencies) {
 export function createRebuildSearchIndexTool(deps: SearchDependencies) {
   return tool({
     description:
-      "内部検索インデックスを最新のエピソード内容で再構築します。インデックスが古い可能性がある場合や、検索結果がない場合に使用してください。",
+      "Rebuilds the internal episode search index. Use only when the index may be stale or expected search results are missing.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("rebuildSearchIndex", async () => {
       return await invoke<{
@@ -519,108 +646,142 @@ export function createRebuildSearchIndexTool(deps: SearchDependencies) {
 }
 
 const saveSummaryInputSchema = z.object({
-  episodeId: z.string().describe("要約を保存するエピソードのID"),
-  content: z.string().describe("エピソードの要約文。本文の内容をまとめたもの。長文や改行を含んでも構いません。"),
+  episodeId: z.string().describe("Episode ID whose summary will be saved."),
+  content: z
+    .string()
+    .describe(
+      "Detailed episode summary. Write the complete natural-language value in Japanese; line breaks are allowed.",
+    ),
 });
 
 export function createSaveEpisodeSummaryTool(deps: SummaryToolDependencies) {
   return tool({
     description:
-      "指定したエピソードの要約を保存または更新します。retrieveEpisode で本文を確認し、内容を要約してから呼び出してください。要約は長くても構いません。",
+      "Saves or updates an episode summary. Inspect the manuscript first. The content value must be Japanese and may be long.",
     inputSchema: saveSummaryInputSchema,
-    execute: wrapToolExecute("saveEpisodeSummary", async ({ episodeId, content }) => {
-      const validation = validateStringField("content", content);
-      if (!validation.success) {
-        return { error: `saveEpisodeSummary の入力が不正です: ${validation.error}` };
-      }
+    execute: wrapToolExecute(
+      "saveEpisodeSummary",
+      async ({ episodeId, content }) => {
+        const validation = validateStringField("content", content);
+        if (!validation.success) {
+          return {
+            error: `saveEpisodeSummary の入力が不正です: ${validation.error}`,
+          };
+        }
 
-      await invoke("save_episode_summary", {
-        req: {
-          projectId: deps.projectId,
-          episodeId,
-          content: validation.data,
-        },
-      });
-      const searchIndexUpdated = await rebuildSearchIndexQuietly(deps.projectId);
-      deps.onSaveSummary?.(episodeId, validation.data);
-      return { success: true, message: "要約を保存しました。", searchIndexUpdated };
-    }),
+        await invoke("save_episode_summary", {
+          req: {
+            projectId: deps.projectId,
+            episodeId,
+            content: validation.data,
+          },
+        });
+        const searchIndexUpdated = await rebuildSearchIndexQuietly(
+          deps.projectId,
+        );
+        deps.onSaveSummary?.(episodeId, validation.data);
+        return {
+          success: true,
+          message: "要約を保存しました。",
+          searchIndexUpdated,
+        };
+      },
+    ),
   });
 }
 
 const saveOneLinerInputSchema = z.object({
-  episodeId: z.string().describe("一行要約を保存するエピソードのID"),
-  oneLiner: z.string().describe("エピソードの一行要約。短くまとめたもの。"),
+  episodeId: z.string().describe("Episode ID whose one-line summary will be saved."),
+  oneLiner: z
+    .string()
+    .describe("A concise one-sentence episode summary written in Japanese."),
 });
 
 const saveSummaryAndOneLinerInputSchema = z.object({
-  episodeId: z.string().describe("要約を保存するエピソードのID"),
-  content: z.string().describe("エピソードの要約文。本文の内容をまとめたもの。長文や改行を含んでも構いません。"),
-  oneLiner: z.string().describe("エピソードの一行要約。短くまとめたもの。"),
+  episodeId: z.string().describe("Episode ID whose summary will be saved."),
+  content: z
+    .string()
+    .describe(
+      "Detailed episode summary. Write the complete natural-language value in Japanese; line breaks are allowed.",
+    ),
+  oneLiner: z
+    .string()
+    .describe("A concise one-sentence episode summary written in Japanese."),
 });
 
 export function createSaveEpisodeOneLinerTool(deps: SummaryToolDependencies) {
   return tool({
-    description:
-      "指定したエピソードの一行要約を保存または更新します。saveEpisodeSummary の後に、さらに短く圧縮したものを保存する際に使用してください。",
+    description: "Saves or updates a Japanese one-line episode summary.",
     inputSchema: saveOneLinerInputSchema,
-    execute: wrapToolExecute("saveEpisodeOneLiner", async ({ episodeId, oneLiner }) => {
-      const validation = validateStringField("oneLiner", oneLiner);
-      if (!validation.success) {
-        return { error: `saveEpisodeOneLiner の入力が不正です: ${validation.error}` };
-      }
+    execute: wrapToolExecute(
+      "saveEpisodeOneLiner",
+      async ({ episodeId, oneLiner }) => {
+        const validation = validateStringField("oneLiner", oneLiner);
+        if (!validation.success) {
+          return {
+            error: `saveEpisodeOneLiner の入力が不正です: ${validation.error}`,
+          };
+        }
 
-      await invoke("save_episode_one_liner", {
-        req: {
-          projectId: deps.projectId,
-          episodeId,
-          oneLiner: validation.data,
-        },
-      });
-      deps.onSaveOneLiner?.(episodeId, validation.data);
-      return { success: true, message: "一行要約を保存しました。" };
-    }),
+        await invoke("save_episode_one_liner", {
+          req: {
+            projectId: deps.projectId,
+            episodeId,
+            oneLiner: validation.data,
+          },
+        });
+        deps.onSaveOneLiner?.(episodeId, validation.data);
+        return { success: true, message: "一行要約を保存しました。" };
+      },
+    ),
   });
 }
 
-export function createSaveEpisodeSummaryAndOneLinerTool(deps: SummaryToolDependencies) {
+export function createSaveEpisodeSummaryAndOneLinerTool(
+  deps: SummaryToolDependencies,
+) {
   return tool({
     description:
-      "指定したエピソードの要約と一行要約を同時に保存または更新します。要約を作成したら、必ずこの1つのツールだけを呼び出して保存を完了してください。",
+      "Saves or updates both the detailed summary and one-line summary in one call. Both natural-language values must be Japanese. Use this single tool when both are required.",
     inputSchema: saveSummaryAndOneLinerInputSchema,
-    execute: wrapToolExecute("saveEpisodeSummaryAndOneLiner", async ({ episodeId, content, oneLiner }) => {
-      const contentValidation = validateStringField("content", content);
-      if (!contentValidation.success) {
-        return { error: `content が不正です: ${contentValidation.error}` };
-      }
-      const oneLinerValidation = validateStringField("oneLiner", oneLiner);
-      if (!oneLinerValidation.success) {
-        return { error: `oneLiner が不正です: ${oneLinerValidation.error}` };
-      }
+    execute: wrapToolExecute(
+      "saveEpisodeSummaryAndOneLiner",
+      async ({ episodeId, content, oneLiner }) => {
+        const contentValidation = validateStringField("content", content);
+        if (!contentValidation.success) {
+          return { error: `content が不正です: ${contentValidation.error}` };
+        }
+        const oneLinerValidation = validateStringField("oneLiner", oneLiner);
+        if (!oneLinerValidation.success) {
+          return { error: `oneLiner が不正です: ${oneLinerValidation.error}` };
+        }
 
-      await invoke("save_episode_summary", {
-        req: {
-          projectId: deps.projectId,
-          episodeId,
-          content: contentValidation.data,
-        },
-      });
-      await invoke("save_episode_one_liner", {
-        req: {
-          projectId: deps.projectId,
-          episodeId,
-          oneLiner: oneLinerValidation.data,
-        },
-      });
-      const searchIndexUpdated = await rebuildSearchIndexQuietly(deps.projectId);
-      deps.onSaveSummary?.(episodeId, contentValidation.data);
-      deps.onSaveOneLiner?.(episodeId, oneLinerValidation.data);
-      return {
-        success: true,
-        message: "要約と一行要約を保存しました。",
-        searchIndexUpdated,
-      };
-    }),
+        await invoke("save_episode_summary", {
+          req: {
+            projectId: deps.projectId,
+            episodeId,
+            content: contentValidation.data,
+          },
+        });
+        await invoke("save_episode_one_liner", {
+          req: {
+            projectId: deps.projectId,
+            episodeId,
+            oneLiner: oneLinerValidation.data,
+          },
+        });
+        const searchIndexUpdated = await rebuildSearchIndexQuietly(
+          deps.projectId,
+        );
+        deps.onSaveSummary?.(episodeId, contentValidation.data);
+        deps.onSaveOneLiner?.(episodeId, oneLinerValidation.data);
+        return {
+          success: true,
+          message: "要約と一行要約を保存しました。",
+          searchIndexUpdated,
+        };
+      },
+    ),
   });
 }
 
@@ -674,12 +835,15 @@ export interface SettingsToolDependencies {
 export function createListCharactersTool(deps: SettingsToolDependencies) {
   return tool({
     description:
-      "登録されているキャラクター設定一覧を取得します。キャラクターのIDと各項目を確認してから updateCharacter で編集してください。",
+      "Lists registered character settings. Inspect IDs, names, aliases, and current fields before updateCharacter or createCharacter.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("listCharacters", async () => {
-      const result = await invoke<{ characters: Character[] }>("list_characters", {
-        projectId: deps.projectId,
-      });
+      const result = await invoke<{ characters: Character[] }>(
+        "list_characters",
+        {
+          projectId: deps.projectId,
+        },
+      );
       deps.onUpdateCharacters(result.characters);
       return result;
     }),
@@ -687,66 +851,169 @@ export function createListCharactersTool(deps: SettingsToolDependencies) {
 }
 
 const updateCharacterInputSchema = z.object({
-  characterId: z.string().describe("更新するキャラクターのID"),
+  characterId: z.string().describe("ID of the character to update."),
   updates: z
-    .record(z.string(), z.union([z.string(), z.array(z.object({ label: z.string(), value: z.string() }))]))
-    .describe("更新するフィールドのマップ。例: { personality: '...', customFields: [{label:'...', value:'...'}] }"),
+    .record(
+      z.string(),
+      z.union([
+        z.string(),
+        z.array(z.object({ label: z.string(), value: z.string() })),
+      ]),
+    )
+    .describe(
+      "Map of fields to update. Write all descriptive natural-language values in Japanese. Preserve field keys, IDs, established foreign proper nouns, and literal codes. Example: { personality: '慎重だが好奇心が強い', customFields: [{label:'二人称', value:'君'}] }",
+    ),
 });
 
 export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
   return tool({
     description:
-      "指定したキャラクターの設定を部分更新します。更新可能なフィールド例: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes, customFields。",
+      "Partially updates one character. Allowed fields include name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes, and customFields. All descriptive natural-language values must be Japanese; keep IDs, field keys, literal codes, and established foreign proper nouns unchanged.",
     inputSchema: updateCharacterInputSchema,
-    execute: wrapToolExecute("updateCharacter", async ({ characterId, updates }) => {
-      const validation = validateSettingsUpdates(updates as Record<string, unknown>, CHARACTER_UPDATE_FIELDS);
-      if (!validation.success) {
-        return { error: `updateCharacter の入力が不正です: ${validation.error}` };
-      }
+    execute: wrapToolExecute(
+      "updateCharacter",
+      async ({ characterId, updates }) => {
+        const validation = validateSettingsUpdates(
+          updates as Record<string, unknown>,
+          CHARACTER_UPDATE_FIELDS,
+        );
+        if (!validation.success) {
+          return {
+            error: `updateCharacter の入力が不正です: ${validation.error}`,
+          };
+        }
 
-      const result = await invoke<{ characters: Character[] }>("update_character", {
-        req: {
-          projectId: deps.projectId,
-          characterId,
-          updates: validation.data,
-        },
-      });
-      deps.onUpdateCharacters(result.characters);
-      return {
-        success: true,
-        message: "キャラクター設定を更新しました。",
-        character: findById(result.characters, characterId),
-      };
-    }),
+        const result = await invoke<{ characters: Character[] }>(
+          "update_character",
+          {
+            req: {
+              projectId: deps.projectId,
+              characterId,
+              updates: validation.data,
+            },
+          },
+        );
+        deps.onUpdateCharacters(result.characters);
+        return {
+          success: true,
+          message: "キャラクター設定を更新しました。",
+          character: findById(result.characters, characterId),
+        };
+      },
+    ),
   });
 }
 
 const createCharacterInputSchema = z.object({
-  name: z.string().describe("新しいキャラクターの名前"),
+  name: z
+    .string()
+    .describe(
+      "Name of the new character. Preserve the established proper-name spelling; do not translate a foreign proper name merely to satisfy the Japanese prose rule.",
+    ),
 });
 
 export function createCreateCharacterTool(deps: SettingsToolDependencies) {
+  // モデルが同一ターン内で同じ createCharacter を並列・反復実行しても、
+  // 実際の書き込みは一度だけにする。ツールインスタンスはAI実行ごとに作られるため、
+  // このガードは別ターンの意図的な作成までは妨げない。
+  const createdInThisRun = new Map<string, Character>();
+  let creationQueue: Promise<void> = Promise.resolve();
+
+  const normalizeNameKey = (value: string): string =>
+    value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+
+  const serializeCreation = async <T>(
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    const previous = creationQueue;
+    let release!: () => void;
+    creationQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  };
+
   return tool({
-    description: "新しいキャラクター設定を作成します。",
+    description:
+      "Creates a new character record. Before calling, use listCharacters and check names, aliases, spacing, width variants, and obvious spelling variants. Call at most once per person. Do not create when the same person already exists.",
     inputSchema: createCharacterInputSchema,
     execute: wrapToolExecute("createCharacter", async ({ name }) => {
       const validation = validateStringField("name", name);
       if (!validation.success) {
-        return { error: `createCharacter の入力が不正です: ${validation.error}` };
+        return {
+          error: `createCharacter の入力が不正です: ${validation.error}`,
+        };
       }
 
-      const result = await invoke<{ characters: Character[] }>("create_character", {
-        req: {
-          projectId: deps.projectId,
-          name: validation.data,
-        },
+      const normalizedName = validation.data.trim();
+      if (!normalizedName) {
+        return {
+          error: "createCharacter の入力が不正です: 名前を空にはできません。",
+        };
+      }
+      const nameKey = normalizeNameKey(normalizedName);
+
+      return await serializeCreation(async () => {
+        const alreadyCreated = createdInThisRun.get(nameKey);
+        if (alreadyCreated) {
+          return {
+            success: true,
+            created: false,
+            duplicatePrevented: true,
+            message: `キャラクター「${normalizedName}」はこの実行内ですでに作成済みのため、二重登録を防止しました。`,
+            character: alreadyCreated,
+          };
+        }
+
+        const current = await invoke<{ characters: Character[] }>(
+          "list_characters",
+          {
+            projectId: deps.projectId,
+          },
+        );
+        const existing = current.characters.find(
+          (character) => normalizeNameKey(character.name) === nameKey,
+        );
+        if (existing) {
+          deps.onUpdateCharacters(current.characters);
+          createdInThisRun.set(nameKey, existing);
+          return {
+            success: true,
+            created: false,
+            duplicatePrevented: true,
+            message: `キャラクター「${normalizedName}」はすでに登録されているため、新規作成しませんでした。`,
+            character: existing,
+          };
+        }
+
+        const result = await invoke<{ characters: Character[] }>(
+          "create_character",
+          {
+            req: {
+              projectId: deps.projectId,
+              name: normalizedName,
+            },
+          },
+        );
+        deps.onUpdateCharacters(result.characters);
+        const character =
+          result.characters.find(
+            (item) => normalizeNameKey(item.name) === nameKey,
+          ) ?? result.characters[result.characters.length - 1];
+        if (character) createdInThisRun.set(nameKey, character);
+        return {
+          success: true,
+          created: true,
+          message: `キャラクター「${normalizedName}」を作成しました。`,
+          character,
+        };
       });
-      deps.onUpdateCharacters(result.characters);
-      return {
-        success: true,
-        message: `キャラクター「${validation.data}」を作成しました。`,
-        character: result.characters[result.characters.length - 1],
-      };
     }),
   });
 }
@@ -754,12 +1021,15 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
 export function createListWorldEntriesTool(deps: SettingsToolDependencies) {
   return tool({
     description:
-      "登録されている世界観設定一覧を取得します。世界観のIDと各項目を確認してから updateWorldEntry で編集してください。",
+      "Lists registered worldbuilding entries. Inspect entry IDs and current fields before updateWorldEntry or createWorldEntry.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("listWorldEntries", async () => {
-      const result = await invoke<{ entries: WorldEntry[] }>("list_world_entries", {
-        projectId: deps.projectId,
-      });
+      const result = await invoke<{ entries: WorldEntry[] }>(
+        "list_world_entries",
+        {
+          projectId: deps.projectId,
+        },
+      );
       deps.onUpdateWorldEntries(result.entries);
       return result;
     }),
@@ -767,66 +1037,101 @@ export function createListWorldEntriesTool(deps: SettingsToolDependencies) {
 }
 
 const updateWorldEntryInputSchema = z.object({
-  entryId: z.string().describe("更新する世界観のID"),
+  entryId: z.string().describe("ID of the worldbuilding entry to update."),
   updates: z
-    .record(z.string(), z.union([z.string(), z.array(z.object({ label: z.string(), value: z.string() }))]))
-    .describe("更新するフィールドのマップ。例: { geography: '...', customFields: [{label:'...', value:'...'}] }"),
+    .record(
+      z.string(),
+      z.union([
+        z.string(),
+        z.array(z.object({ label: z.string(), value: z.string() })),
+      ]),
+    )
+    .describe(
+      "Map of fields to update. Write all descriptive natural-language values in Japanese. Preserve field keys, IDs, established proper nouns, and literal codes. Example: { geography: '北部に高い山脈が連なる', customFields: [{label:'通貨', value:'銀貨'}] }",
+    ),
 });
 
 export function createUpdateWorldEntryTool(deps: SettingsToolDependencies) {
   return tool({
     description:
-      "指定した世界観設定を部分更新します。更新可能なフィールド例: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes, customFields。",
+      "Partially updates one worldbuilding entry. Allowed fields include name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes, and customFields. All descriptive natural-language values must be Japanese; preserve IDs, keys, literal codes, and established proper nouns.",
     inputSchema: updateWorldEntryInputSchema,
-    execute: wrapToolExecute("updateWorldEntry", async ({ entryId, updates }) => {
-      const validation = validateSettingsUpdates(updates as Record<string, unknown>, WORLD_ENTRY_UPDATE_FIELDS);
-      if (!validation.success) {
-        return { error: `updateWorldEntry の入力が不正です: ${validation.error}` };
-      }
+    execute: wrapToolExecute(
+      "updateWorldEntry",
+      async ({ entryId, updates }) => {
+        const validation = validateSettingsUpdates(
+          updates as Record<string, unknown>,
+          WORLD_ENTRY_UPDATE_FIELDS,
+        );
+        if (!validation.success) {
+          return {
+            error: `updateWorldEntry の入力が不正です: ${validation.error}`,
+          };
+        }
 
-      const result = await invoke<{ entries: WorldEntry[] }>("update_world_entry", {
-        req: {
-          projectId: deps.projectId,
-          entryId,
-          updates: validation.data,
-        },
-      });
-      deps.onUpdateWorldEntries(result.entries);
-      return {
-        success: true,
-        message: "世界観設定を更新しました。",
-        entry: findById(result.entries, entryId),
-      };
-    }),
+        const result = await invoke<{ entries: WorldEntry[] }>(
+          "update_world_entry",
+          {
+            req: {
+              projectId: deps.projectId,
+              entryId,
+              updates: validation.data,
+            },
+          },
+        );
+        deps.onUpdateWorldEntries(result.entries);
+        return {
+          success: true,
+          message: "世界観設定を更新しました。",
+          entry: findById(result.entries, entryId),
+        };
+      },
+    ),
   });
 }
 
 const createWorldEntryInputSchema = z.object({
-  name: z.string().describe("新しい世界観の名前"),
-  category: z.string().describe("世界観のカテゴリ（場所・時代・制度 など）"),
+  name: z
+    .string()
+    .describe(
+      "Name of the new worldbuilding entry. Preserve an established proper noun when applicable.",
+    ),
+  category: z
+    .string()
+    .describe(
+      "Japanese category label for the entry, such as 場所, 時代, 制度, 組織, or 技術.",
+    ),
 });
 
 export function createCreateWorldEntryTool(deps: SettingsToolDependencies) {
   return tool({
-    description: "新しい世界観設定を作成します。",
+    description:
+      "Creates a new worldbuilding entry. Write category in Japanese and preserve established proper nouns in name.",
     inputSchema: createWorldEntryInputSchema,
     execute: wrapToolExecute("createWorldEntry", async ({ name, category }) => {
       const nameValidation = validateStringField("name", name);
       if (!nameValidation.success) {
-        return { error: `createWorldEntry の入力が不正です: ${nameValidation.error}` };
+        return {
+          error: `createWorldEntry の入力が不正です: ${nameValidation.error}`,
+        };
       }
       const categoryValidation = validateStringField("category", category);
       if (!categoryValidation.success) {
-        return { error: `createWorldEntry の入力が不正です: ${categoryValidation.error}` };
+        return {
+          error: `createWorldEntry の入力が不正です: ${categoryValidation.error}`,
+        };
       }
 
-      const result = await invoke<{ entries: WorldEntry[] }>("create_world_entry", {
-        req: {
-          projectId: deps.projectId,
-          name: nameValidation.data,
-          category: categoryValidation.data,
+      const result = await invoke<{ entries: WorldEntry[] }>(
+        "create_world_entry",
+        {
+          req: {
+            projectId: deps.projectId,
+            name: nameValidation.data,
+            category: categoryValidation.data,
+          },
         },
-      });
+      );
       deps.onUpdateWorldEntries(result.entries);
       return {
         success: true,
@@ -871,16 +1176,21 @@ function formatRelationshipsForAi(deps: RelationshipToolDependencies): string {
     .join("\n\n");
 }
 
-export function createListRelationshipsTool(deps: RelationshipToolDependencies) {
+export function createListRelationshipsTool(
+  deps: RelationshipToolDependencies,
+) {
   return tool({
     description:
-      "登録されているキャラクター間の人間関係一覧を取得します。更新・削除する前に対象の relationshipId と現在の値を確認してください。",
+      "Lists character relationships. Confirm relationshipId and current values before update or deletion.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("listRelationships", async () => {
       const map = await loadRelationships(deps.projectId);
       deps.onUpdateRelationships(map);
       return {
-        relationships: formatRelationshipsForAi({ ...deps, relationshipsMap: map }),
+        relationships: formatRelationshipsForAi({
+          ...deps,
+          relationshipsMap: map,
+        }),
       };
     }),
   });
@@ -889,22 +1199,36 @@ export function createListRelationshipsTool(deps: RelationshipToolDependencies) 
 const createRelationshipInputSchema = z.object({
   episodeId: z
     .string()
-    .describe('関係を登録するエピソードのID。全体（全話共通）に登録する場合は空文字列 ""'),
-  characterAId: z.string().describe("関係の一方のキャラクターID"),
-  characterBId: z.string().describe("関係のもう一方のキャラクターID"),
+    .describe(
+      "Episode ID for this relationship. Use an empty string for a relationship that applies to the whole work.",
+    ),
+  characterAId: z.string().describe("ID of character A."),
+  characterBId: z.string().describe("ID of character B."),
   direction: z
     .enum(["a-to-b", "b-to-a", "mutual"])
-    .describe("関係の向き。a-to-b=A→B, b-to-a=A←B, mutual=A↔B"),
-  description: z.string().describe("関係の説明（例：敵同士で憎み合っている）"),
+    .describe(
+      "Direction: a-to-b means A directs the relationship toward B; b-to-a means B directs it toward A; mutual is symmetric or reciprocal.",
+    ),
+  description: z
+    .string()
+    .describe(
+      "Japanese description of the relationship, for example 「敵対しており、互いを警戒している」.",
+    ),
 });
 
-export function createCreateRelationshipTool(deps: RelationshipToolDependencies) {
+export function createCreateRelationshipTool(
+  deps: RelationshipToolDependencies,
+) {
   return tool({
-    description: "キャラクター間の新しい人間関係を作成します。",
+    description:
+      "Creates a character relationship. The description must be Japanese and its meaning must match direction.",
     inputSchema: createRelationshipInputSchema,
     execute: wrapToolExecute("createRelationship", async (input) => {
       if (!input.characterAId || !input.characterBId) {
-        return { error: "characterAId と characterBId は必須です。listCharacters でIDを確認してください。" };
+        return {
+          error:
+            "characterAId と characterBId は必須です。listCharacters でIDを確認してください。",
+        };
       }
       if (input.characterAId === input.characterBId) {
         return { error: "同じキャラクター同士の関係は登録できません。" };
@@ -940,73 +1264,104 @@ export function createCreateRelationshipTool(deps: RelationshipToolDependencies)
 }
 
 const updateRelationshipInputSchema = z.object({
-  relationshipId: z.string().describe("更新する関係のID"),
-  updates: z.object({
-    characterAId: z.string().optional().describe("新しいキャラクターAのID"),
-    characterBId: z.string().optional().describe("新しいキャラクターBのID"),
-    direction: z.enum(["a-to-b", "b-to-a", "mutual"]).optional().describe("新しい向き"),
-    description: z.string().optional().describe("新しい関係の説明"),
-  }).describe("更新するフィールド。指定したフィールドのみ変更されます。"),
+  relationshipId: z.string().describe("ID of the relationship to update."),
+  updates: z
+    .object({
+      characterAId: z.string().optional().describe("New character A ID."),
+      characterBId: z.string().optional().describe("New character B ID."),
+      direction: z
+        .enum(["a-to-b", "b-to-a", "mutual"])
+        .optional()
+        .describe("New direction enum value."),
+      description: z
+        .string()
+        .optional()
+        .describe("New Japanese relationship description."),
+    })
+    .describe(
+      "Fields to update. Only supplied fields are changed. Any description value must be Japanese.",
+    ),
 });
 
-export function createUpdateRelationshipTool(deps: RelationshipToolDependencies) {
+export function createUpdateRelationshipTool(
+  deps: RelationshipToolDependencies,
+) {
   return tool({
-    description: "指定した人間関係の向きや説明を更新します。listRelationships でIDを確認してください。",
+    description:
+      "Updates a relationship direction or description. Confirm the ID with listRelationships. Any description must be Japanese.",
     inputSchema: updateRelationshipInputSchema,
-    execute: wrapToolExecute("updateRelationship", async ({ relationshipId, updates }) => {
-      const map = await loadRelationships(deps.projectId);
-      let target: CharacterRelationship | undefined;
-      for (const group of map.groups) {
-        target = group.relationships.find((r) => r.id === relationshipId);
-        if (target) break;
-      }
-      if (!target) {
-        return { error: `指定した関係IDが見つかりません: ${relationshipId}` };
-      }
+    execute: wrapToolExecute(
+      "updateRelationship",
+      async ({ relationshipId, updates }) => {
+        const map = await loadRelationships(deps.projectId);
+        let target: CharacterRelationship | undefined;
+        for (const group of map.groups) {
+          target = group.relationships.find((r) => r.id === relationshipId);
+          if (target) break;
+        }
+        if (!target) {
+          return { error: `指定した関係IDが見つかりません: ${relationshipId}` };
+        }
 
-      if (updates.characterAId !== undefined) target.characterAId = updates.characterAId;
-      if (updates.characterBId !== undefined) target.characterBId = updates.characterBId;
-      if (updates.direction !== undefined) target.direction = updates.direction;
-      if (updates.description !== undefined) target.description = updates.description;
+        if (updates.characterAId !== undefined)
+          target.characterAId = updates.characterAId;
+        if (updates.characterBId !== undefined)
+          target.characterBId = updates.characterBId;
+        if (updates.direction !== undefined)
+          target.direction = updates.direction;
+        if (updates.description !== undefined)
+          target.description = updates.description;
 
-      if (target.characterAId && target.characterBId && target.characterAId === target.characterBId) {
-        return { error: "同じキャラクター同士の関係にはできません。" };
-      }
+        if (
+          target.characterAId &&
+          target.characterBId &&
+          target.characterAId === target.characterBId
+        ) {
+          return { error: "同じキャラクター同士の関係にはできません。" };
+        }
 
-      await saveRelationships(deps.projectId, map);
-      deps.onUpdateRelationships(map);
-      return {
-        success: true,
-        message: "人間関係を更新しました。",
-        relationship: target,
-      };
-    }),
+        await saveRelationships(deps.projectId, map);
+        deps.onUpdateRelationships(map);
+        return {
+          success: true,
+          message: "人間関係を更新しました。",
+          relationship: target,
+        };
+      },
+    ),
   });
 }
 
 const deleteRelationshipInputSchema = z.object({
-  relationshipId: z.string().describe("削除する関係のID"),
+  relationshipId: z.string().describe("ID of the relationship to delete."),
 });
 
-export function createDeleteRelationshipTool(deps: RelationshipToolDependencies) {
+export function createDeleteRelationshipTool(
+  deps: RelationshipToolDependencies,
+) {
   return tool({
-    description: "指定した人間関係を削除します。",
+    description: "Deletes the specified relationship.",
     inputSchema: deleteRelationshipInputSchema,
-    execute: wrapToolExecute("deleteRelationship", async ({ relationshipId }) => {
-      const map = await loadRelationships(deps.projectId);
-      for (const group of map.groups) {
-        const index = group.relationships.findIndex((r) => r.id === relationshipId);
-        if (index !== -1) {
-          group.relationships.splice(index, 1);
-          break;
+    execute: wrapToolExecute(
+      "deleteRelationship",
+      async ({ relationshipId }) => {
+        const map = await loadRelationships(deps.projectId);
+        for (const group of map.groups) {
+          const index = group.relationships.findIndex(
+            (r) => r.id === relationshipId,
+          );
+          if (index !== -1) {
+            group.relationships.splice(index, 1);
+            break;
+          }
         }
-      }
-      map.groups = map.groups.filter((g) => g.relationships.length > 0);
+        map.groups = map.groups.filter((g) => g.relationships.length > 0);
 
-      await saveRelationships(deps.projectId, map);
-      deps.onUpdateRelationships(map);
-      return { success: true, message: "人間関係を削除しました。" };
-    }),
+        await saveRelationships(deps.projectId, map);
+        deps.onUpdateRelationships(map);
+        return { success: true, message: "人間関係を削除しました。" };
+      },
+    ),
   });
 }
 
@@ -1020,7 +1375,7 @@ export interface MemoToolDependencies {
 export function createListEpisodeMemosTool(deps: MemoToolDependencies) {
   return tool({
     description:
-      "登録されているエピソードごとの覚え書き（メモ）の一覧を取得します。メモがあるエピソードのID、タイトル、内容の先頭部分を返します。",
+      "Lists episode memos and returns episode IDs, titles, and content previews.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("listEpisodeMemos", async () => {
       const memos = deps.episodeMemos.memos;
@@ -1040,12 +1395,12 @@ export function createListEpisodeMemosTool(deps: MemoToolDependencies) {
 }
 
 const getEpisodeMemoInputSchema = z.object({
-  episodeId: z.string().describe("取得するメモの紐づくエピソードのID"),
+  episodeId: z.string().describe("Episode ID whose memo should be retrieved."),
 });
 
 export function createGetEpisodeMemoTool(deps: MemoToolDependencies) {
   return tool({
-    description: "指定したエピソードに紐づく覚え書き（メモ）の全文を取得します。",
+    description: "Retrieves the complete memo associated with an episode.",
     inputSchema: getEpisodeMemoInputSchema,
     execute: wrapToolExecute("getEpisodeMemo", async ({ episodeId }) => {
       const content = deps.episodeMemos.memos[episodeId]?.content ?? "";
@@ -1060,25 +1415,35 @@ export function createGetEpisodeMemoTool(deps: MemoToolDependencies) {
 }
 
 const saveEpisodeMemoInputSchema = z.object({
-  episodeId: z.string().describe("保存するメモの紐づくエピソードのID"),
-  content: z.string().describe("保存するメモの内容。長文や改行を含んでも構いません。"),
+  episodeId: z.string().describe("Episode ID whose memo will be saved."),
+  content: z
+    .string()
+    .describe(
+      "Memo content. Write natural-language content in Japanese; long text and line breaks are allowed.",
+    ),
 });
 
 export function createSaveEpisodeMemoTool(deps: MemoToolDependencies) {
   return tool({
-    description: "指定したエピソードに紐づく覚え書き（メモ）を保存または更新します。",
+    description:
+      "Saves or updates an episode memo. The content must be Japanese except for exact quotations, code, identifiers, URLs, or established proper nouns.",
     inputSchema: saveEpisodeMemoInputSchema,
-    execute: wrapToolExecute("saveEpisodeMemo", async ({ episodeId, content }) => {
-      const validation = validateStringField("content", content);
-      if (!validation.success) {
-        return { error: `saveEpisodeMemo の入力が不正です: ${validation.error}` };
-      }
+    execute: wrapToolExecute(
+      "saveEpisodeMemo",
+      async ({ episodeId, content }) => {
+        const validation = validateStringField("content", content);
+        if (!validation.success) {
+          return {
+            error: `saveEpisodeMemo の入力が不正です: ${validation.error}`,
+          };
+        }
 
-      await saveEpisodeMemo(deps.projectId, episodeId, validation.data);
-      const updated = await loadMemos(deps.projectId);
-      deps.onUpdateMemos(updated);
-      return { success: true, message: "覚え書きを保存しました。" };
-    }),
+        await saveEpisodeMemo(deps.projectId, episodeId, validation.data);
+        const updated = await loadMemos(deps.projectId);
+        deps.onUpdateMemos(updated);
+        return { success: true, message: "覚え書きを保存しました。" };
+      },
+    ),
   });
 }
 
@@ -1089,27 +1454,29 @@ export interface ProjectMemoToolDependencies {
 
 export function createListProjectMemosTool(deps: ProjectMemoToolDependencies) {
   return tool({
-    description:
-      "登録されている作品メモ（プロジェクトメモ）の一覧を取得します。各メモのIDとタイトルを返します。",
+    description: "Lists project memos and returns each memo ID and title.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("listProjectMemos", async () => {
       const memos = await listProjectMemos(deps.projectId);
       deps.onUpdateMemos(memos);
       return {
         count: memos.length,
-        memos: memos.map((memo) => ({ id: memo.id, title: memo.title || "（無題）" })),
+        memos: memos.map((memo) => ({
+          id: memo.id,
+          title: memo.title || "（無題）",
+        })),
       };
     }),
   });
 }
 
 const getProjectMemoInputSchema = z.object({
-  memoId: z.string().describe("取得する作品メモのID"),
+  memoId: z.string().describe("ID of the project memo to retrieve."),
 });
 
 export function createGetProjectMemoTool(deps: ProjectMemoToolDependencies) {
   return tool({
-    description: "指定した作品メモ（プロジェクトメモ）のタイトルと本文を取得します。",
+    description: "Retrieves the title and full content of a project memo.",
     inputSchema: getProjectMemoInputSchema,
     execute: wrapToolExecute("getProjectMemo", async ({ memoId }) => {
       const memos = await listProjectMemos(deps.projectId);
@@ -1127,51 +1494,62 @@ export function createGetProjectMemoTool(deps: ProjectMemoToolDependencies) {
 }
 
 const updateProjectMemoInputSchema = z.object({
-  memoId: z.string().describe("更新する作品メモのID"),
-  title: z.string().optional().describe("新しいタイトル"),
-  content: z.string().optional().describe("新しい本文"),
+  memoId: z.string().describe("ID of the project memo to update."),
+  title: z.string().optional().describe("New Japanese title."),
+  content: z.string().optional().describe("New Japanese memo content."),
 });
 
 export function createUpdateProjectMemoTool(deps: ProjectMemoToolDependencies) {
   return tool({
     description:
-      "指定した作品メモ（プロジェクトメモ）のタイトルまたは本文を更新します。listProjectMemos でIDを確認してください。",
+      "Updates a project memo title or content. Confirm the ID with listProjectMemos. Any new natural-language value must be Japanese.",
     inputSchema: updateProjectMemoInputSchema,
-    execute: wrapToolExecute("updateProjectMemo", async ({ memoId, title, content }) => {
-      const updates: { title?: string; content?: string } = {};
-      if (title !== undefined) updates.title = title;
-      if (content !== undefined) updates.content = content;
-      if (Object.keys(updates).length === 0) {
-        return { error: "title または content のいずれかを指定してください。" };
-      }
+    execute: wrapToolExecute(
+      "updateProjectMemo",
+      async ({ memoId, title, content }) => {
+        const updates: { title?: string; content?: string } = {};
+        if (title !== undefined) updates.title = title;
+        if (content !== undefined) updates.content = content;
+        if (Object.keys(updates).length === 0) {
+          return {
+            error: "title または content のいずれかを指定してください。",
+          };
+        }
 
-      await updateProjectMemo(deps.projectId, memoId, updates);
-      const memos = await listProjectMemos(deps.projectId);
-      deps.onUpdateMemos(memos);
-      const updated = memos.find((m) => m.id === memoId);
-      return {
-        success: true,
-        message: "作品メモを更新しました。",
-        memo: updated
-          ? { id: updated.id, title: updated.title || "（無題）", content: limitToolText(updated.content) }
-          : undefined,
-      };
-    }),
+        await updateProjectMemo(deps.projectId, memoId, updates);
+        const memos = await listProjectMemos(deps.projectId);
+        deps.onUpdateMemos(memos);
+        const updated = memos.find((m) => m.id === memoId);
+        return {
+          success: true,
+          message: "作品メモを更新しました。",
+          memo: updated
+            ? {
+                id: updated.id,
+                title: updated.title || "（無題）",
+                content: limitToolText(updated.content),
+              }
+            : undefined,
+        };
+      },
+    ),
   });
 }
 
 const createProjectMemoInputSchema = z.object({
-  title: z.string().describe("新しい作品メモのタイトル"),
+  title: z.string().describe("Japanese title for the new project memo."),
 });
 
 export function createCreateProjectMemoTool(deps: ProjectMemoToolDependencies) {
   return tool({
-    description: "新しい作品メモ（プロジェクトメモ）を作成します。",
+    description: "Creates a new project memo with a Japanese title.",
     inputSchema: createProjectMemoInputSchema,
     execute: wrapToolExecute("createProjectMemo", async ({ title }) => {
       const validation = validateStringField("title", title);
       if (!validation.success) {
-        return { error: `createProjectMemo の入力が不正です: ${validation.error}` };
+        return {
+          error: `createProjectMemo の入力が不正です: ${validation.error}`,
+        };
       }
 
       await createProjectMemo(deps.projectId, validation.data);

@@ -1,10 +1,19 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { createModel } from "../ai/provider.ts";
-import { loadCharacters, loadWorldEntries, updateCharacter, updateWorldEntry } from "./settings.ts";
+import {
+  loadCharacters,
+  loadWorldEntries,
+  updateCharacter,
+  updateWorldEntry,
+} from "./settings.ts";
 import { loadRelationships, saveRelationships } from "./relationships.ts";
 import { loadMemos, saveEpisodeMemo } from "./memos.ts";
-import { listProjectMemos, createProjectMemo, updateProjectMemo } from "./project-memo.ts";
+import {
+  listProjectMemos,
+  createProjectMemo,
+  updateProjectMemo,
+} from "./project-memo.ts";
 import type { ProjectMemo } from "./project-memo.ts";
 import { loadEpisodeList } from "./episodes.ts";
 import type { AiSettings } from "../settings.ts";
@@ -26,45 +35,98 @@ export interface ImportReviewResult {
 const reviewSchema = z.object({
   charactersToUpdate: z.array(
     z.object({
-      id: z.string().describe("更新対象のキャラクターID"),
-      name: z.string().optional().describe("名前（変更しない場合は省略）"),
-      alias: z.string().optional(),
-      role: z.string().optional(),
-      gender: z.string().optional(),
+      id: z.string().describe("Character ID to update."),
+      name: z
+        .string()
+        .optional()
+        .describe(
+          "Name change. Preserve an established proper-name spelling; omit when unchanged.",
+        ),
+      alias: z
+        .string()
+        .optional()
+        .describe("Japanese alias description or established proper name."),
+      role: z.string().optional().describe("Japanese role description."),
+      gender: z
+        .string()
+        .optional()
+        .describe("Japanese gender description when present in the source."),
       age: z.string().optional(),
       birthday: z.string().optional(),
       bloodType: z.string().optional(),
       height: z.string().optional(),
       weight: z.string().optional(),
-      appearance: z.string().optional(),
-      personality: z.string().optional(),
-      individuality: z.string().optional(),
-      skills: z.string().optional(),
-      specialSkills: z.string().optional(),
-      upbringing: z.string().optional(),
-      background: z.string().optional(),
-      notes: z.string().optional(),
+      appearance: z
+        .string()
+        .optional()
+        .describe("Japanese appearance description."),
+      personality: z
+        .string()
+        .optional()
+        .describe("Japanese personality description."),
+      individuality: z
+        .string()
+        .optional()
+        .describe("Japanese individuality description."),
+      skills: z.string().optional().describe("Japanese skills description."),
+      specialSkills: z
+        .string()
+        .optional()
+        .describe("Japanese special-skills description."),
+      upbringing: z
+        .string()
+        .optional()
+        .describe("Japanese upbringing description."),
+      background: z
+        .string()
+        .optional()
+        .describe("Japanese background description."),
+      notes: z.string().optional().describe("Japanese notes."),
     }),
   ),
   worldEntriesToUpdate: z.array(
     z.object({
-      id: z.string().describe("更新対象の世界観項目ID"),
-      name: z.string().optional(),
-      category: z.string().optional(),
-      era: z.string().optional(),
-      geography: z.string().optional(),
-      climate: z.string().optional(),
-      population: z.string().optional(),
-      politics: z.string().optional(),
-      laws: z.string().optional(),
-      economy: z.string().optional(),
-      military: z.string().optional(),
-      religion: z.string().optional(),
-      language: z.string().optional(),
-      culture: z.string().optional(),
-      history: z.string().optional(),
-      technology: z.string().optional(),
-      notes: z.string().optional(),
+      id: z.string().describe("Worldbuilding entry ID to update."),
+      name: z
+        .string()
+        .optional()
+        .describe("Japanese entry name or established proper noun."),
+      category: z.string().optional().describe("Japanese category label."),
+      era: z.string().optional().describe("Japanese era description."),
+      geography: z
+        .string()
+        .optional()
+        .describe("Japanese geography description."),
+      climate: z.string().optional().describe("Japanese climate description."),
+      population: z
+        .string()
+        .optional()
+        .describe("Japanese population description."),
+      politics: z
+        .string()
+        .optional()
+        .describe("Japanese politics description."),
+      laws: z.string().optional().describe("Japanese laws description."),
+      economy: z.string().optional().describe("Japanese economy description."),
+      military: z
+        .string()
+        .optional()
+        .describe("Japanese military description."),
+      religion: z
+        .string()
+        .optional()
+        .describe("Japanese religion description."),
+      language: z
+        .string()
+        .optional()
+        .describe("Japanese description of the in-world language."),
+      culture: z.string().optional().describe("Japanese culture description."),
+      history: z.string().optional().describe("Japanese history description."),
+      technology: z
+        .string()
+        .optional()
+        .describe("Japanese technology description."),
+      notes: z.string().optional().describe("Japanese notes."),
     }),
   ),
   relationshipsToCreate: z.array(
@@ -72,23 +134,28 @@ const reviewSchema = z.object({
       episodeTitle: z
         .string()
         .default("")
-        .describe("紐づくエピソードのタイトル。全体（全話共通）の場合は空文字"),
-      characterAName: z.string().describe("関係の一方のキャラクター名"),
-      characterBName: z.string().describe("関係のもう一方のキャラクター名"),
-      direction: z.string().default("mutual").describe("a-to-b / b-to-a / mutual"),
-      description: z.string().describe("関係の説明"),
+        .describe(
+          "Associated episode title. Use an empty string for a whole-work relationship.",
+        ),
+      characterAName: z.string().describe("Existing character A name."),
+      characterBName: z.string().describe("Existing character B name."),
+      direction: z
+        .string()
+        .default("mutual")
+        .describe("Direction enum: a-to-b, b-to-a, or mutual."),
+      description: z.string().describe("Japanese relationship description."),
     }),
   ),
   projectMemosToCreate: z.array(
     z.object({
-      title: z.string().describe("メモのタイトル"),
-      content: z.string().describe("メモの内容"),
+      title: z.string().describe("Japanese memo title."),
+      content: z.string().describe("Japanese memo content."),
     }),
   ),
   episodeMemosToUpdate: z.array(
     z.object({
-      episodeTitle: z.string().describe("更新対象のエピソードタイトル"),
-      content: z.string().describe("更新後のメモ内容"),
+      episodeTitle: z.string().describe("Existing episode title to update."),
+      content: z.string().describe("Updated Japanese memo content."),
     }),
   ),
 });
@@ -98,14 +165,22 @@ function limitText(text: string, maxLength: number): string {
   return text.slice(0, maxLength) + "\n...（以下省略）";
 }
 
-function formatRelationshipMap(map: CharacterRelationshipMap, characters: Character[]): string {
-  const name = (id: string): string => characters.find((c) => c.id === id)?.name || "（不明）";
+function formatRelationshipMap(
+  map: CharacterRelationshipMap,
+  characters: Character[],
+): string {
+  const name = (id: string): string =>
+    characters.find((c) => c.id === id)?.name || "（不明）";
   return map.groups
     .map((group) => {
       const lines = group.relationships
         .map((rel) => {
           const arrow =
-            rel.direction === "a-to-b" ? "→" : rel.direction === "b-to-a" ? "←" : "↔";
+            rel.direction === "a-to-b"
+              ? "→"
+              : rel.direction === "b-to-a"
+                ? "←"
+                : "↔";
           return `  - ${name(rel.characterAId)} ${arrow} ${name(rel.characterBId)}: ${rel.description}`;
         })
         .join("\n");
@@ -124,11 +199,17 @@ function buildReviewPrompt(params: {
   importSummary: string;
 }): string {
   const characterLines = params.characters
-    .map((c) => `- ${c.name} (${c.role || "役割未設定"}): ${limitText(c.notes || c.appearance || c.personality || "（説明なし）", 120)}`)
+    .map(
+      (c) =>
+        `- ${c.name} (${c.role || "役割未設定"}): ${limitText(c.notes || c.appearance || c.personality || "（説明なし）", 120)}`,
+    )
     .join("\n");
 
   const worldLines = params.worldEntries
-    .map((e) => `- ${e.name} [${e.category}]: ${limitText(e.notes || e.geography || e.history || "（説明なし）", 120)}`)
+    .map(
+      (e) =>
+        `- ${e.name} [${e.category}]: ${limitText(e.notes || e.geography || e.history || "（説明なし）", 120)}`,
+    )
     .join("\n");
 
   const episodeLines = params.episodes.map((e) => `- ${e.title}`).join("\n");
@@ -145,47 +226,64 @@ function buildReviewPrompt(params: {
     })
     .join("\n");
 
-  return `あなたは創作支援アプリの編集アシスタントです。
-先ほど行ったフォルダ取り込みの結果と、現在のプロジェクトデータを照らし合わせて、足りない項目や不適切な点を修正してください。
+  return `TASK:
+Review the recent folder-import result against the current project data and return only strongly supported corrective operations.
 
-## 今回の取り込みサマリー
+PERSISTED-DATA LANGUAGE RULE:
+- Write every new or updated descriptive setting value, relationship description, memo title, and memo content in Japanese.
+- Preserve IDs, enum values, existing proper names, exact quotations, code, URLs, filenames, and literal identifiers.
+- Never write English explanatory prose into a persisted field merely because these instructions are English.
+
+CURRENT IMPORT SUMMARY:
 ${params.importSummary}
 
-## 現在のキャラクター一覧
+CURRENT CHARACTERS:
 ${characterLines || "（なし）"}
 
-## 現在の世界観項目一覧
+CURRENT WORLDBUILDING ENTRIES:
 ${worldLines || "（なし）"}
 
-## 現在のエピソード一覧
+CURRENT EPISODES:
 ${episodeLines || "（なし）"}
 
-## 現在の人間関係
+CURRENT RELATIONSHIPS:
 ${formatRelationshipMap(params.relationships, params.characters) || "（なし）"}
 
-## 現在の作品メモ
+CURRENT PROJECT MEMOS:
 ${projectMemoLines || "（なし）"}
 
-## 現在のエピソード覚え書き
+CURRENT EPISODE MEMOS:
 ${episodeMemoLines || "（なし）"}
 
-## 指示
-- キャラクターの空欄フィールドが、他のデータ（関係、エピソード、世界観など）から推定できる場合は埋めてください。
-- 明らかに不足している人間関係があれば追加してください。
-- 矛盾している関係の方向や説明があれば修正してください。
-- 取り込みで見落とされた可能性のある世界観項目やメモがあれば追加してください。
-- 存在しないキャラクター名を使った関係追加は行わないでください。必ず「現在のキャラクター一覧」にいる名前を使ってください。
-- 変更が必要ない場合は空の配列を返してください。
-
-出力は指定された JSON 形式に従ってください。`;
+CORRECTION RULES:
+- Fill an empty character field only when other project data explicitly supports the value.
+- Add only clearly missing relationships.
+- Correct a relationship direction or description only when explicit evidence shows it is wrong.
+- For family or role relationship additions, use A=the central or known person and B=the relative or role holder; use direction=b-to-a when B's role points toward A.
+- Add a missed worldbuilding item or memo only when explicit imported evidence supports it.
+- Never create a relationship using a character name absent from CURRENT CHARACTERS.
+- Do not invent settings, relationships, or memos from weak inference.
+- Return empty arrays when no correction is necessary.
+- Follow the JSON schema exactly.`;
 }
 
 function normalizeDirection(raw: string): "a-to-b" | "b-to-a" | "mutual" {
-  const normalized = raw.trim().toLowerCase().replace(/[-_\s]/g, "");
-  if (normalized.includes("atob") || normalized.includes("a→b") || normalized.includes("a->b")) {
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[-_\s]/g, "");
+  if (
+    normalized.includes("atob") ||
+    normalized.includes("a→b") ||
+    normalized.includes("a->b")
+  ) {
     return "a-to-b";
   }
-  if (normalized.includes("btoa") || normalized.includes("b→a") || normalized.includes("b->a")) {
+  if (
+    normalized.includes("btoa") ||
+    normalized.includes("b→a") ||
+    normalized.includes("b->a")
+  ) {
     return "b-to-a";
   }
   return "mutual";
@@ -196,15 +294,21 @@ export async function reviewAndFixImportedData(
   settings: AiSettings,
   importSummary: string,
 ): Promise<ImportReviewResult> {
-  const [characterList, worldList, episodeList, relationshipsMap, memos, projectMemoList] =
-    await Promise.all([
-      loadCharacters(projectId),
-      loadWorldEntries(projectId),
-      loadEpisodeList(projectId),
-      loadRelationships(projectId),
-      loadMemos(projectId),
-      listProjectMemos(projectId),
-    ]);
+  const [
+    characterList,
+    worldList,
+    episodeList,
+    relationshipsMap,
+    memos,
+    projectMemoList,
+  ] = await Promise.all([
+    loadCharacters(projectId),
+    loadWorldEntries(projectId),
+    loadEpisodeList(projectId),
+    loadRelationships(projectId),
+    loadMemos(projectId),
+    listProjectMemos(projectId),
+  ]);
 
   const characters = characterList.characters;
   const worldEntries = worldList.entries;
@@ -214,7 +318,7 @@ export async function reviewAndFixImportedData(
     model: createModel(settings),
     schema: reviewSchema,
     system:
-      "創作データの整合性を確認し、修正が必要な箇所を構造化された JSON で返してください。",
+      "Review imported creative-writing data and return only necessary corrections as structured JSON. Keep control fields in the schema unchanged. All natural-language values that will be persisted must be Japanese.",
     prompt: buildReviewPrompt({
       characters,
       worldEntries,
@@ -244,7 +348,9 @@ export async function reviewAndFixImportedData(
     const updated: Character = {
       ...target,
       ...Object.fromEntries(
-        Object.entries(update).filter(([, value]) => value !== undefined && value !== ""),
+        Object.entries(update).filter(
+          ([, value]) => value !== undefined && value !== "",
+        ),
       ),
     } as Character;
     await updateCharacter(projectId, updated);
@@ -258,7 +364,9 @@ export async function reviewAndFixImportedData(
     const updated: WorldEntry = {
       ...target,
       ...Object.fromEntries(
-        Object.entries(update).filter(([, value]) => value !== undefined && value !== ""),
+        Object.entries(update).filter(
+          ([, value]) => value !== undefined && value !== "",
+        ),
       ),
     } as WorldEntry;
     await updateWorldEntry(projectId, updated);
@@ -283,7 +391,9 @@ export async function reviewAndFixImportedData(
         ? (episodeTitleToId.get(rel.episodeTitle.toLowerCase()) ?? "")
         : "";
 
-      let group = relationshipsMap.groups.find((g) => g.episodeId === episodeId);
+      let group = relationshipsMap.groups.find(
+        (g) => g.episodeId === episodeId,
+      );
       if (!group) {
         group = { episodeId, relationships: [] };
         relationshipsMap.groups.push(group);
@@ -309,7 +419,9 @@ export async function reviewAndFixImportedData(
   }
 
   // エピソード覚え書き更新
-  const episodeTitleToId = new Map(episodes.map((ep) => [ep.title.toLowerCase(), ep.id] as const));
+  const episodeTitleToId = new Map(
+    episodes.map((ep) => [ep.title.toLowerCase(), ep.id] as const),
+  );
   for (const memo of review.episodeMemosToUpdate) {
     const episodeId = episodeTitleToId.get(memo.episodeTitle.toLowerCase());
     if (!episodeId) continue;
