@@ -9,6 +9,11 @@ export function buildProviderOptions(
   switch (settings.provider) {
     case "openai": {
       if (!settings.openaiReasoningEffort) return undefined;
+      // OpenAI 互換エンドポイント（PLaMo 等）では /v1/responses がないため、
+      // カスタム baseUrl を使う場合は reasoningEffort を送らず通常の chat completions を使う。
+      const baseUrl = settings.baseUrl.trim();
+      const isOfficialOpenAI = !baseUrl || baseUrl === "https://api.openai.com/v1";
+      if (!isOfficialOpenAI) return undefined;
       return {
         openai: {
           reasoningEffort: settings.openaiReasoningEffort,
