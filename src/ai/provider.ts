@@ -10,7 +10,22 @@ async function debugFetch(
   init?: RequestInit,
 ): Promise<Response> {
   const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-  const body = init?.body ? String(init.body) : undefined;
+  let body = init?.body ? String(init.body) : undefined;
+
+  // PLaMo は stream_options に対応していない可能性があるため、削除して試す。
+  if (url.includes("api.platform.preferredai.jp") && body) {
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.stream_options !== undefined) {
+        delete parsed.stream_options;
+        body = JSON.stringify(parsed);
+        init = { ...init, body };
+      }
+    } catch {
+      // ignore parse error
+    }
+  }
+
   console.log("[phenex] fetch request", url, body);
   const res = await tauriFetch(input, init);
   const clone = res.clone ? res.clone() : res;
