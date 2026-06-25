@@ -2,8 +2,22 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { AiSettings } from "../settings.ts";
+
+async function debugFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  const body = init?.body ? String(init.body) : undefined;
+  console.log("[phenex] fetch request", url, body);
+  const res = await tauriFetch(input, init);
+  const clone = res.clone ? res.clone() : res;
+  const text = await clone.text();
+  console.log("[phenex] fetch response", res.status, text.slice(0, 500));
+  return res;
+}
 
 export function createModel(settings: AiSettings) {
   const baseURL = settings.baseUrl.trim();
@@ -20,7 +34,7 @@ export function createModel(settings: AiSettings) {
   );
   const common = {
     apiKey,
-    fetch,
+    fetch: debugFetch,
     ...(baseURL ? { baseURL } : {}),
   };
 
