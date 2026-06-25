@@ -9,6 +9,12 @@ export function createModel(settings: AiSettings) {
   const baseURL = settings.baseUrl.trim();
   const apiKey =
     settings.apiKey.trim() || (settings.provider === "llamacpp" ? "sk-no-key-required" : settings.apiKey);
+  console.debug("[phenex] createModel", {
+    provider: settings.provider,
+    model: settings.model,
+    baseURL: baseURL || "(default)",
+    hasApiKey: Boolean(apiKey && apiKey !== "sk-no-key-required"),
+  });
   const common = {
     apiKey,
     fetch,
