@@ -2145,7 +2145,13 @@ async function handleFeedback(): Promise<void> {
 
 async function handleChatMessage(): Promise<void> {
   const chatSettings = resolveChatSettings(currentSettings);
-  console.log("[phenex] handleChatMessage start", { provider: chatSettings.provider, model: chatSettings.model, maxTokens: chatSettings.maxTokens });
+  console.log("[phenex] handleChatMessage start", {
+    provider: chatSettings.provider,
+    model: chatSettings.model,
+    baseUrl: chatSettings.baseUrl,
+    maxTokens: chatSettings.maxTokens,
+    openaiReasoningEffort: chatSettings.openaiReasoningEffort,
+  });
   const controller = startGeneration();
   try {
     // 空応答の場合でも UI に何か表示できるよう、事前に空のアシスタント返答枠を用意する
