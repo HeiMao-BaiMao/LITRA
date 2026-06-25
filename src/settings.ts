@@ -213,6 +213,16 @@ export async function loadSettings(): Promise<AiSettings> {
   return base;
 }
 
+async function setIfDefined<T>(
+  store: Store,
+  key: string,
+  value: T | undefined,
+): Promise<void> {
+  if (value !== undefined) {
+    await store.set(key, value);
+  }
+}
+
 export async function saveSettings(settings: AiSettings): Promise<void> {
   const store = await getStore();
   await store.set("provider", settings.provider);
@@ -225,14 +235,14 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("temperature", settings.temperature);
   await store.set("maxTokens", settings.maxTokens);
   await store.set("maxContextTokens", settings.maxContextTokens);
-  await store.set("topP", settings.topP);
-  await store.set("topK", settings.topK);
-  await store.set("frequencyPenalty", settings.frequencyPenalty);
-  await store.set("presencePenalty", settings.presencePenalty);
-  await store.set("openaiReasoningEffort", settings.openaiReasoningEffort);
-  await store.set("deepseekReasoningEffort", settings.deepseekReasoningEffort);
-  await store.set("anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
-  await store.set("anthropicThinkingBudget", settings.anthropicThinkingBudget);
+  await setIfDefined(store, "topP", settings.topP);
+  await setIfDefined(store, "topK", settings.topK);
+  await setIfDefined(store, "frequencyPenalty", settings.frequencyPenalty);
+  await setIfDefined(store, "presencePenalty", settings.presencePenalty);
+  await setIfDefined(store, "openaiReasoningEffort", settings.openaiReasoningEffort);
+  await setIfDefined(store, "deepseekReasoningEffort", settings.deepseekReasoningEffort);
+  await setIfDefined(store, "anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
+  await setIfDefined(store, "anthropicThinkingBudget", settings.anthropicThinkingBudget);
   await store.save();
 }
 
