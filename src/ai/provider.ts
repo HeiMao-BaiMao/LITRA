@@ -5,31 +5,10 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { fetch } from "@tauri-apps/plugin-http";
 import type { AiSettings } from "../settings.ts";
 
-function isOfficialOpenAIBaseUrl(baseURL: string): boolean {
-  return !baseURL || baseURL === "https://api.openai.com/v1";
-}
-
-function isOpenAIResponsesModel(model: string): boolean {
-  // @ai-sdk/openai v3.0.73 ではデフォルトのモデル関数が Responses API を使う。
-  // Chat Completions を使いたい場合は .chat() を呼ぶ必要がある。
-  // Responses API を使うべきなのは OpenAI 公式の推論モデルのみ。
-  const m = model.trim().toLowerCase();
-  return (
-    m.startsWith("o1") ||
-    m.startsWith("o3") ||
-    m.startsWith("o4-mini") ||
-    (m.startsWith("gpt-5") && !m.startsWith("gpt-5-chat"))
-  );
-}
-
 export function createModel(settings: AiSettings) {
   const baseURL = settings.baseUrl.trim();
   const apiKey =
     settings.apiKey.trim() || (settings.provider === "llamacpp" ? "sk-no-key-required" : settings.apiKey);
-  const useResponsesAPI =
-    settings.provider === "openai" &&
-    isOfficialOpenAIBaseUrl(baseURL) &&
-    isOpenAIResponsesModel(settings.model);
   console.log(
     "[phenex] createModel",
     JSON.stringify({
@@ -37,7 +16,6 @@ export function createModel(settings: AiSettings) {
       model: settings.model,
       baseURL: baseURL || "(default)",
       hasApiKey: Boolean(apiKey && apiKey !== "sk-no-key-required"),
-      useResponsesAPI,
     }),
   );
   const common = {
@@ -52,7 +30,13 @@ export function createModel(settings: AiSettings) {
     case "sakura":
     case "plamo": {
       const openai = createOpenAI(common);
-      return useResponsesAPI ? openai(settings.model) : openai.chat(settings.model);
+      // PLaMo は /v1/responses に対応していないので chat completions を使う。
+      // 他の OpenAI 互換サービスは responses API に対応している可能性があるため、
+      // PLaMo だけを特別扱いする。
+      if (settings.provider === "plamo") {
+        return openai.chat(settings.model);
+      }
+      return openai(settings.model);
     }
     case "anthropic":
       return createAnthropic(common)(settings.model);
