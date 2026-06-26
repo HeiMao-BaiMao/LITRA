@@ -175,6 +175,7 @@ function renderCharacterForm(character: Character): HTMLElement {
 
   const basic = createSection("基本情報");
   basic.appendChild(createTextField("名前", character.name, (v) => (character.name = v)));
+  basic.appendChild(createTextField("よみがな", character.reading, (v) => (character.reading = v)));
   basic.appendChild(createTextField("別名・あだ名", character.alias, (v) => (character.alias = v)));
   basic.appendChild(createTextField("役職・役割", character.role, (v) => (character.role = v)));
   basic.appendChild(createTextField("性別", character.gender, (v) => (character.gender = v)));

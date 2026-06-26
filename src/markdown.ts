@@ -135,7 +135,11 @@ function summarizeToolInput(toolName: string, input: unknown): string[] {
   }
 
   if (toolName === "createCharacter") {
-    return [`名前: ${compactValue(record.name)}`];
+    return [
+      `名前: ${compactValue(record.name)}`,
+      ...(record.reading ? [`よみがな: ${compactValue(record.reading)}`] : []),
+      ...(record.alias ? [`別名: ${compactValue(record.alias)}`] : []),
+    ];
   }
 
   if (toolName === "createWorldEntry") {
@@ -269,20 +273,34 @@ function renderToolCallHtml(content: string): string | null {
   </details>`;
 }
 
-export function renderChatMessageHtml(element: HTMLElement, content: string): void {
+function renderMarkdownOrFallback(content: string): string {
+  const html = renderMarkdown(content);
+  if (html.trim().length === 0 && content.trim().length > 0) {
+    console.warn("[phenex:markdown] renderMarkdown returned empty for non-empty content:", JSON.stringify(content.slice(0, 200)));
+    return `<pre class="chat-message-fallback"><code>${escapeHtml(content)}</code></pre>`;
+  }
+  return html;
+}
+
+function renderThinkingHtml(thinking: string | undefined): string {
+  if (!thinking || thinking.trim().length === 0) return "";
+  const body = renderMarkdownOrFallback(thinking);
+  return `<details class="thinking-panel">
+    <summary class="thinking-summary">Thinking</summary>
+    <div class="thinking-content">${body}</div>
+  </details>`;
+}
+
+export function renderChatMessageHtml(element: HTMLElement, content: string, thinking?: string): void {
   const toolHtml = renderToolCallHtml(content);
   if (toolHtml != null) {
-    element.innerHTML = DOMPurify.sanitize(toolHtml);
-    element.classList.add("tool-call-message");
+    const thinkingHtml = renderThinkingHtml(thinking);
+    element.innerHTML = DOMPurify.sanitize(`${thinkingHtml}${toolHtml}`);
+    element.classList.toggle("tool-call-message", thinkingHtml.length === 0);
     return;
   }
 
   element.classList.remove("tool-call-message");
-  const html = renderMarkdown(content);
-  if (html.trim().length === 0 && content.trim().length > 0) {
-    console.warn("[phenex:markdown] renderMarkdown returned empty for non-empty content:", JSON.stringify(content.slice(0, 200)));
-    element.textContent = content;
-  } else {
-    element.innerHTML = html;
-  }
+  const html = `${renderThinkingHtml(thinking)}${renderMarkdownOrFallback(content)}`;
+  element.innerHTML = DOMPurify.sanitize(html);
 }

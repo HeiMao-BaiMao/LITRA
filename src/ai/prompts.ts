@@ -183,12 +183,13 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
     ])
   ) {
     sections.push(`CHARACTER SETTINGS:
-- Before createCharacter, call listCharacters and compare names, aliases, spacing, width variants, and obvious spelling variants. If the same person already exists, do not create a new record; update only the existing record when requested.
+- Before createCharacter, call listCharacters and compare names, readings, aliases, surnames, ranks/titles, forms of address, spacing, width variants, English/Japanese spellings, and obvious spelling variants. If the same person already exists, do not create a new record; update only the existing record when requested.
 - Call createCharacter at most once per person in one response. Never recreate a character after a successful create result.
-- If a same-name or near-match candidate exists and identity is uncertain, avoid creation and report the candidate in Japanese.
+- If a same-name or near-match candidate exists and identity is uncertain, avoid creation and report the candidate in Japanese. For example, treat 「リチャード・ハートマン」 and 「ハートマン大佐」 as the same person only when the surname/title evidence is clear.
 - Before updateCharacter, use listCharacters to confirm characterId and current values.
 - Update only requested fields. Never replace unknown fields with empty strings or guesses.
-- Write all descriptive values in Japanese: role, appearance, personality, individuality, skills, upbringing, background, notes, and customFields values. Preserve established foreign names and literal identifiers.
+- Use reading for よみがな. Put nicknames, title forms, and alternate Japanese/English spellings into alias.
+- Write all descriptive values in Japanese: reading, alias, role, appearance, personality, individuality, skills, upbringing, background, notes, and customFields values. Preserve established foreign names and literal identifiers.
 - customFields must be an array of {label, value}; both label and descriptive value must be Japanese unless they are literal proper nouns or identifiers.`);
   }
 

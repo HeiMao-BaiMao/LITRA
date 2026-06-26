@@ -44,7 +44,28 @@ export function updateLastAssistantChunk(chunk: string): void {
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
   if (lastMessage && lastMessage.role === "assistant") {
     lastMessage.content += chunk;
-    renderChatMessageHtml(messageEl, lastMessage.content);
+    renderChatMessageHtml(messageEl, lastMessage.content, lastMessage.thinking);
+  }
+  sync();
+}
+
+export function updateLastAssistantThinking(chunk: string): void {
+  const container = getElements().chatMessages;
+  let messageEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
+
+  if (!messageEl) {
+    messageEl = document.createElement("div");
+    messageEl.className = "chat-message assistant";
+    container.appendChild(messageEl);
+
+    state.chatMessages.push({ role: "assistant", content: "" });
+    scrollToBottom();
+  }
+
+  const lastMessage = state.chatMessages[state.chatMessages.length - 1];
+  if (lastMessage && lastMessage.role === "assistant") {
+    lastMessage.thinking = `${lastMessage.thinking ?? ""}${chunk}`;
+    renderChatMessageHtml(messageEl, lastMessage.content, lastMessage.thinking);
   }
   sync();
 }
@@ -57,7 +78,7 @@ export function updateMessageContent(index: number, content: string): boolean {
   const container = getElements().chatMessages;
   const messageEl = container.querySelectorAll<HTMLElement>(".chat-message")[index];
   if (messageEl) {
-    renderChatMessageHtml(messageEl, content);
+    renderChatMessageHtml(messageEl, content, message.thinking);
     scrollToBottom();
   }
   sync();
@@ -66,7 +87,12 @@ export function updateMessageContent(index: number, content: string): boolean {
 
 export function removeLastEmptyAssistantMessage(): void {
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
-  if (!lastMessage || lastMessage.role !== "assistant" || lastMessage.content.trim().length > 0) {
+  if (
+    !lastMessage ||
+    lastMessage.role !== "assistant" ||
+    lastMessage.content.trim().length > 0 ||
+    (lastMessage.thinking?.trim().length ?? 0) > 0
+  ) {
     return;
   }
 
@@ -95,7 +121,7 @@ export function renderMessages(messages: ChatMessage[]): void {
   for (const message of messages) {
     const messageEl = document.createElement("div");
     messageEl.className = `chat-message ${message.role}`;
-    renderChatMessageHtml(messageEl, message.content);
+    renderChatMessageHtml(messageEl, message.content, message.thinking);
     container.appendChild(messageEl);
     state.chatMessages.push(message);
   }

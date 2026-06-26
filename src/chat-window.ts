@@ -26,7 +26,7 @@ function renderMessages(container: HTMLElement, messages: ChatMessage[]): void {
   for (const message of messages) {
     const el = document.createElement("div");
     el.className = `chat-message ${message.role}`;
-    renderChatMessageHtml(el, message.content);
+    renderChatMessageHtml(el, message.content, message.thinking);
     container.appendChild(el);
   }
   container.scrollTop = container.scrollHeight;

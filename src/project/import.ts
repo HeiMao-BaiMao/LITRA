@@ -71,6 +71,7 @@ const IMPORT_SYSTEM_PROMPT = `You convert creative-writing source material into 
 - Follow the requested schema exactly. Keep schema keys, IDs, paths, and enum values unchanged.
 - Write normalized natural-language data that will be stored in Japanese: setting descriptions, categories, notes, memo text, generated titles, reasons, and relationship descriptions.
 - Preserve established foreign proper nouns.
+- Use character reading and alias fields to keep identity stable across Japanese/English spellings, kana readings, surnames, titles, and forms of address.
 - Preserve exact source language and wording only for faithful manuscript import, exact headings and boundary hints, quotations, code, URLs, filenames, and identifiers.
 - Never put English explanatory prose into a persisted setting field merely because these instructions are English.`;
 
@@ -212,7 +213,7 @@ const characterTransformSchema = z.object({
   fields: z
     .record(z.string(), z.string())
     .describe(
-      "Use keys such as name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, and notes. Write descriptive values in Japanese. Preserve proper names and literal codes. Use an empty string for unavailable known fields.",
+      "Use keys such as name, reading, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, and notes. Use reading for よみがな. Write descriptive values in Japanese. Preserve proper names and literal codes. Use an empty string for unavailable known fields.",
     ),
 });
 
@@ -429,11 +430,12 @@ DECISION RULES:
 - type must be character, world, episode, memo, projectMemo, relationship, or ignore.
 - If a file about two or more people mainly describes how they relate to each other, classify it as relationship, not character.
 - For character/world fields, include only source-supported values. Never infer missing facts. Write descriptive values in Japanese.
+- For character fields, use reading for よみがな when supported by the source. Put alternate spellings, surnames with titles, role-based forms of address, and Japanese/English name variants for the same person into alias instead of creating a separate character candidate.
 - Set memo episodeTitle only when identifiable from the source; otherwise use an empty string.
 - Write reason in 1–2 specific Japanese sentences.
 
 KNOWN FIELD KEYS:
-character: name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes
+character: name, reading, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes
 world: name, category, era, geography, climate, population, politics, laws, economy, military, religion, language, culture, history, technology, notes
 
 ${formatPromptDataBlock("import_file_metadata", metadata)}
@@ -569,6 +571,8 @@ Structure the source as one character setting record.
 
 LANGUAGE AND EXTRACTION RULES:
 - Preserve the character's established proper-name spelling in title and name.
+- Use reading for よみがな when the source provides kana or an explicit pronunciation.
+- Put alternate spellings, translated/romanized names, surnames with ranks or titles, nicknames, and forms of address that refer to the same person into alias. Example: if the same person appears as 「リチャード・ハートマン」 and 「ハートマン大佐」, keep one character, use the formal name in name, and put 「ハートマン大佐」 in alias.
 - Write all descriptive field values in Japanese, including role, gender wording, appearance, personality, individuality, skills, specialSkills, upbringing, background, and notes.
 - Keep field keys in English exactly as defined by the schema.
 - Extract only explicitly supported information. Do not fill gaps using inference, common knowledge, or knowledge of other works.
@@ -685,6 +689,7 @@ LANGUAGE RULE:
 
 NAME RESOLUTION:
 - Normalize a nickname, surname, or role name to a known formal character name only when identity is clear.
+- Resolve names against known formal names, readings, aliases, surnames, ranks/titles, and English/Japanese spelling variants. Example: 「ハートマン大佐」 may refer to 「リチャード・ハートマン」 when Hartmann is a known unique surname or alias.
 - An unregistered person may be extracted when the source, title, or path explicitly names them.
 - When only a role such as father or mother is available, use a unique Japanese relation name such as 「ソフィアの父」 only when the central person is clear.
 
@@ -771,6 +776,7 @@ RULES:
 - Write all relationship descriptions in Japanese.
 - Keep direction enum values unchanged.
 - A title or path such as 「Xの家族関係」 may establish X as the central person for interpreting role labels.
+- Resolve names against known formal names, readings, aliases, surnames, ranks/titles, and English/Japanese spelling variants when identity is clear.
 - Example: if the title is 「ソフィアの家族関係」 and the source says 「父 Alan Hamilton」, use A=ソフィア, B=Alan Hamilton, direction=b-to-a, and description「Alan Hamilton はソフィアの父」.
 - When only a role is given, create a unique Japanese role-name such as 「ソフィアの父」 only when the central person is unambiguous.
 - Do not invent names, emotions, or relationships unsupported by source, title, path, or known-character context.
@@ -938,6 +944,8 @@ export async function transformImportFilesWithAI(
       if (candidate.title) context.characterNames.add(candidate.title);
       if (candidate.fields?.name)
         context.characterNames.add(candidate.fields.name);
+      if (candidate.fields?.reading)
+        context.characterNames.add(candidate.fields.reading);
       if (candidate.fields?.alias)
         context.characterNames.add(candidate.fields.alias);
     } else if (candidate.type === "episode") {
@@ -994,6 +1002,8 @@ export async function transformImportFilesWithAI(
             if (updated.title) context.characterNames.add(updated.title);
             if (updated.fields?.name)
               context.characterNames.add(updated.fields.name);
+            if (updated.fields?.reading)
+              context.characterNames.add(updated.fields.reading);
             if (updated.fields?.alias)
               context.characterNames.add(updated.fields.alias);
           } else if (type === "episode") {

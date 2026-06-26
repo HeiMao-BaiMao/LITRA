@@ -85,7 +85,10 @@ function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
         defaultBaseUrl: existing.defaultBaseUrl || defaultProvider.defaultBaseUrl,
         defaultModel: defaultProvider.defaultModel,
         requiresApiKey: existing.requiresApiKey ?? defaultProvider.requiresApiKey,
-        models: mergeDefaultModels(existing.models, defaultProvider.models),
+        models:
+          defaultProvider.id === "sakura"
+            ? defaultProvider.models
+            : mergeDefaultModels(existing.models, defaultProvider.models),
       });
       existingById.delete(defaultProvider.id);
     } else {

@@ -113,6 +113,13 @@ function migrateLegacyModel(provider: Provider, model: string): string {
   return model;
 }
 
+function normalizeProviderModel(provider: Provider, model: string, defaultModel: string, configuredModels: string[]): string {
+  if (provider === "sakura" && configuredModels.length > 0 && !configuredModels.includes(model)) {
+    return defaultModel;
+  }
+  return model;
+}
+
 export async function loadSettings(): Promise<AiSettings> {
   const store = await getStore();
   const storedProvider = await store.get("provider");
@@ -150,10 +157,13 @@ export async function loadSettings(): Promise<AiSettings> {
       if (!baseUrl) baseUrl = legacyBaseUrl;
     }
 
-    if (!model) model = entry?.defaultModel ?? "";
+    const defaultModel = entry?.defaultModel ?? "";
+    const configuredModels = entry?.models?.map((entryModel) => entryModel.id) ?? [];
+    if (!model) model = defaultModel;
     if (!baseUrl) baseUrl = entry?.defaultBaseUrl ?? "";
 
     model = migrateLegacyModel(p, model);
+    model = normalizeProviderModel(p, model, defaultModel, configuredModels);
 
     providerConfigs[p] = { apiKey, baseUrl, model };
   }

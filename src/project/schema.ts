@@ -53,6 +53,7 @@ export interface CustomField {
 export interface Character {
   id: string;
   name: string;
+  reading: string;
   alias: string;
   role: string;
   gender: string;
@@ -125,6 +126,7 @@ export function normalizeCharacter(character: Partial<Character>): Character {
   return {
     id: ensureString(character.id),
     name: ensureString(character.name),
+    reading: ensureString(character.reading),
     alias: ensureString(character.alias),
     role: ensureString(character.role),
     gender: ensureString(character.gender),

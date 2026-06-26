@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -126,9 +126,381 @@ fn extract_custom_fields(fields: &HashMap<String, String>, known_keys: &[&str]) 
         .collect()
 }
 
+fn get_field(fields: &HashMap<String, String>, keys: &[&str]) -> String {
+    for key in keys {
+        if let Some(value) = fields.get(*key) {
+            return value.clone();
+        }
+        if let Some(value) = fields.get(&key.to_lowercase()) {
+            return value.clone();
+        }
+    }
+    String::new()
+}
+
+fn normalize_width(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            let code = c as u32;
+            if (0xff01..=0xff5e).contains(&code) {
+                char::from_u32(code - 0xfee0).unwrap_or(c)
+            } else {
+                c
+            }
+        })
+        .collect::<String>()
+        .to_lowercase()
+}
+
+fn strip_character_identity_affixes(value: &str) -> String {
+    const AFFIXES: &[&str] = &[
+        "大佐",
+        "中佐",
+        "少佐",
+        "大尉",
+        "中尉",
+        "少尉",
+        "軍曹",
+        "隊長",
+        "艦長",
+        "博士",
+        "先生",
+        "さん",
+        "様",
+        "くん",
+        "君",
+        "ちゃん",
+        "殿",
+        "卿",
+        "colonel",
+        "captain",
+        "major",
+        "sir",
+        "lord",
+        "lady",
+        "dr",
+        "mr",
+        "ms",
+        "mrs",
+    ];
+
+    let mut current = value.trim().to_string();
+    let mut changed = true;
+    while changed && !current.is_empty() {
+        changed = false;
+        for affix in AFFIXES {
+            if current.ends_with(affix) && current.len() > affix.len() {
+                current.truncate(current.len() - affix.len());
+                current = current.trim().to_string();
+                changed = true;
+            }
+            if current.starts_with(affix) && current.len() > affix.len() {
+                current = current[affix.len()..].trim().to_string();
+                changed = true;
+            }
+        }
+    }
+    current
+}
+
+fn is_identity_separator(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            ',' | '、'
+                | '，'
+                | ';'
+                | '；'
+                | '/'
+                | '／'
+                | '\\'
+                | '・'
+                | '･'
+                | '.'
+                | '．'
+                | '_'
+                | '-'
+                | '‐'
+                | '‑'
+                | '–'
+                | '—'
+                | '('
+                | ')'
+                | '['
+                | ']'
+                | '（'
+                | '）'
+                | '「'
+                | '」'
+                | '『'
+                | '』'
+                | '【'
+                | '】'
+        )
+}
+
+fn compact_character_identity_key(value: &str) -> String {
+    strip_character_identity_affixes(&normalize_width(value))
+        .chars()
+        .filter(|c| {
+            !is_identity_separator(*c)
+                && *c != '\''
+                && *c != '’'
+                && *c != '"'
+                && *c != '“'
+                && *c != '”'
+        })
+        .collect::<String>()
+}
+
+fn has_character_identity_separator(value: &str) -> bool {
+    value.chars().any(is_identity_separator)
+}
+
+fn has_character_identity_affix(value: &str) -> bool {
+    let normalized = normalize_width(value);
+    let trimmed = normalized.trim();
+    !trimmed.is_empty() && strip_character_identity_affixes(trimmed) != trimmed
+}
+
+fn unique_character_identity_keys(candidates: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    candidates
+        .into_iter()
+        .map(|candidate| compact_character_identity_key(&candidate))
+        .filter(|key| key.chars().count() >= 2 && seen.insert(key.clone()))
+        .collect()
+}
+
+fn character_primary_identity_keys_from_text(value: &str) -> Vec<String> {
+    let normalized = normalize_width(value);
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    unique_character_identity_keys(vec![
+        trimmed.to_string(),
+        strip_character_identity_affixes(trimmed),
+    ])
+}
+
+fn character_identity_keys_from_text(value: &str) -> Vec<String> {
+    let normalized = normalize_width(value);
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut candidates = vec![
+        trimmed.to_string(),
+        strip_character_identity_affixes(trimmed),
+    ];
+    candidates.extend(
+        trimmed
+            .split(is_identity_separator)
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(ToString::to_string),
+    );
+
+    unique_character_identity_keys(candidates)
+}
+
+fn character_reference_identity_keys_from_text(value: &str) -> Vec<String> {
+    let normalized = normalize_width(value);
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if !has_character_identity_separator(trimmed) || has_character_identity_affix(trimmed) {
+        character_identity_keys_from_text(trimmed)
+    } else {
+        character_primary_identity_keys_from_text(trimmed)
+    }
+}
+
+fn character_identity_keys(character: &Value) -> Vec<String> {
+    ["name", "reading", "alias"]
+        .iter()
+        .flat_map(|key| {
+            character[*key]
+                .as_str()
+                .unwrap_or_default()
+                .split(|c| c == '\n' || c == '、' || c == ',')
+        })
+        .flat_map(character_identity_keys_from_text)
+        .collect()
+}
+
+fn insert_character_identity_key(map: &mut HashMap<String, String>, key: String, id: &str) {
+    if key.is_empty() || id.is_empty() {
+        return;
+    }
+    match map.get(&key) {
+        Some(existing) if !existing.is_empty() && existing != id => {
+            map.insert(key, String::new());
+        }
+        None => {
+            map.insert(key, id.to_string());
+        }
+        _ => {}
+    }
+}
+
+fn insert_character_identity_keys(map: &mut HashMap<String, String>, character: &Value) {
+    let id = character["id"].as_str().unwrap_or_default();
+    for key in character_identity_keys(character) {
+        insert_character_identity_key(map, key, id);
+    }
+}
+
+fn find_character_id_by_name(map: &HashMap<String, String>, name: &str) -> Option<String> {
+    for key in character_reference_identity_keys_from_text(name) {
+        if let Some(id) = map.get(&key) {
+            if !id.is_empty() {
+                return Some(id.clone());
+            }
+        }
+    }
+    None
+}
+
+fn character_import_candidate_identity_keys(character: &Value) -> Vec<String> {
+    let mut keys =
+        character_reference_identity_keys_from_text(character["name"].as_str().unwrap_or_default());
+    keys.extend(character_primary_identity_keys_from_text(
+        character["reading"].as_str().unwrap_or_default(),
+    ));
+    keys.extend(
+        character["alias"]
+            .as_str()
+            .unwrap_or_default()
+            .split(|c| c == '\n' || c == '、' || c == ',')
+            .flat_map(character_reference_identity_keys_from_text),
+    );
+    unique_character_identity_keys(keys)
+}
+
+fn find_character_id_by_value(map: &HashMap<String, String>, character: &Value) -> Option<String> {
+    for key in character_import_candidate_identity_keys(character) {
+        if let Some(id) = map.get(&key) {
+            if !id.is_empty() {
+                return Some(id.clone());
+            }
+        }
+    }
+    None
+}
+
+fn append_unique_text(existing: &str, addition: &str) -> String {
+    let addition = addition.trim();
+    if addition.is_empty() {
+        return existing.to_string();
+    }
+    if existing
+        .split(|c| c == '、' || c == ',' || c == '\n')
+        .any(|part| {
+            compact_character_identity_key(part) == compact_character_identity_key(addition)
+        })
+    {
+        return existing.to_string();
+    }
+    if existing.trim().is_empty() {
+        addition.to_string()
+    } else {
+        format!("{}、{}", existing.trim(), addition)
+    }
+}
+
+fn merge_string_field(target: &mut Value, incoming: &Value, key: &str) {
+    let incoming_value = incoming[key].as_str().unwrap_or_default().trim();
+    if incoming_value.is_empty() {
+        return;
+    }
+
+    let current = target[key].as_str().unwrap_or_default().to_string();
+    if current.trim().is_empty() {
+        target[key] = Value::String(incoming_value.to_string());
+    } else if key == "alias" || key == "reading" {
+        target[key] = Value::String(append_unique_text(&current, incoming_value));
+    }
+}
+
+fn merge_character_fields(target: &mut Value, incoming: &Value) {
+    let incoming_name = incoming["name"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let current_name = target["name"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !incoming_name.is_empty()
+        && !current_name.is_empty()
+        && compact_character_identity_key(&incoming_name)
+            != compact_character_identity_key(&current_name)
+    {
+        let alias = target["alias"].as_str().unwrap_or_default().to_string();
+        target["alias"] = Value::String(append_unique_text(&alias, &incoming_name));
+    } else {
+        merge_string_field(target, incoming, "name");
+    }
+
+    for key in [
+        "reading",
+        "alias",
+        "role",
+        "gender",
+        "age",
+        "birthday",
+        "bloodType",
+        "height",
+        "weight",
+        "appearance",
+        "personality",
+        "individuality",
+        "skills",
+        "specialSkills",
+        "upbringing",
+        "background",
+        "notes",
+    ] {
+        merge_string_field(target, incoming, key);
+    }
+
+    if let (Some(target_fields), Some(incoming_fields)) = (
+        target["customFields"].as_array_mut(),
+        incoming["customFields"].as_array(),
+    ) {
+        for field in incoming_fields {
+            let label = field["label"].as_str().unwrap_or_default();
+            let value = field["value"].as_str().unwrap_or_default();
+            if label.is_empty() && value.is_empty() {
+                continue;
+            }
+            let exists = target_fields.iter().any(|existing| {
+                existing["label"].as_str().unwrap_or_default() == label
+                    && existing["value"].as_str().unwrap_or_default() == value
+            });
+            if !exists {
+                target_fields.push(field.clone());
+            }
+        }
+    }
+}
+
 fn build_character(fields: &HashMap<String, String>, body: &str, title: &str) -> Value {
     let known_keys = [
         "name",
+        "reading",
+        "yomigana",
+        "furigana",
+        "kana",
+        "よみがな",
+        "読み仮名",
         "alias",
         "role",
         "gender",
@@ -147,33 +519,26 @@ fn build_character(fields: &HashMap<String, String>, body: &str, title: &str) ->
         "notes",
     ];
 
-    let get = |key: &str| -> String {
-        fields
-            .get(key)
-            .cloned()
-            .or_else(|| fields.get(&key.to_lowercase()).cloned())
-            .unwrap_or_default()
-    };
-
     json!({
         "id": uuid::Uuid::new_v4().to_string(),
-        "name": get("name").is_empty().then(|| title.to_string()).unwrap_or_else(|| get("name")),
-        "alias": get("alias"),
-        "role": get("role"),
-        "gender": get("gender"),
-        "age": get("age"),
-        "birthday": get("birthday"),
-        "bloodType": get("bloodtype"),
-        "height": get("height"),
-        "weight": get("weight"),
-        "appearance": get("appearance"),
-        "personality": get("personality"),
-        "individuality": get("individuality"),
-        "skills": get("skills"),
-        "specialSkills": get("specialskills"),
-        "upbringing": get("upbringing"),
-        "background": get("background"),
-        "notes": get("notes").is_empty().then(|| body.to_string()).unwrap_or_else(|| get("notes")),
+        "name": get_field(fields, &["name"]).is_empty().then(|| title.to_string()).unwrap_or_else(|| get_field(fields, &["name"])),
+        "reading": get_field(fields, &["reading", "yomigana", "furigana", "kana", "よみがな", "読み仮名"]),
+        "alias": get_field(fields, &["alias"]),
+        "role": get_field(fields, &["role"]),
+        "gender": get_field(fields, &["gender"]),
+        "age": get_field(fields, &["age"]),
+        "birthday": get_field(fields, &["birthday"]),
+        "bloodType": get_field(fields, &["bloodtype", "bloodType"]),
+        "height": get_field(fields, &["height"]),
+        "weight": get_field(fields, &["weight"]),
+        "appearance": get_field(fields, &["appearance"]),
+        "personality": get_field(fields, &["personality"]),
+        "individuality": get_field(fields, &["individuality"]),
+        "skills": get_field(fields, &["skills"]),
+        "specialSkills": get_field(fields, &["specialskills", "specialSkills"]),
+        "upbringing": get_field(fields, &["upbringing"]),
+        "background": get_field(fields, &["background"]),
+        "notes": get_field(fields, &["notes"]).is_empty().then(|| body.to_string()).unwrap_or_else(|| get_field(fields, &["notes"])),
         "customFields": extract_custom_fields(fields, &known_keys),
     })
 }
@@ -369,8 +734,7 @@ fn create_relationship_character_if_missing(
         return Ok((None, false));
     }
 
-    let key = name.to_lowercase();
-    if let Some(id) = character_map.get(&key).cloned() {
+    if let Some(id) = find_character_id_by_name(character_map, name) {
         return Ok((Some(id), false));
     }
 
@@ -379,8 +743,9 @@ fn create_relationship_character_if_missing(
         .as_array_mut()
         .ok_or_else(|| "Invalid characters structure".to_string())?
         .push(json!({
-            "id": id,
+            "id": id.clone(),
             "name": name,
+            "reading": "",
             "alias": "",
             "role": "",
             "gender": "",
@@ -399,7 +764,12 @@ fn create_relationship_character_if_missing(
             "notes": relationship_note,
             "customFields": [],
         }));
-    character_map.insert(key, id.clone());
+    let created = characters["characters"]
+        .as_array()
+        .and_then(|arr| arr.last())
+        .cloned()
+        .unwrap_or_else(|| json!({ "id": id, "name": name }));
+    insert_character_identity_keys(character_map, &created);
     Ok((Some(id), true))
 }
 
@@ -407,11 +777,7 @@ fn build_character_name_to_id_map(characters: &Value) -> HashMap<String, String>
     let mut map = HashMap::new();
     if let Some(arr) = characters["characters"].as_array() {
         for character in arr {
-            let id = character["id"].as_str().unwrap_or_default().to_string();
-            let name = character["name"].as_str().unwrap_or_default().to_string();
-            if !id.is_empty() && !name.is_empty() {
-                map.insert(name.to_lowercase(), id);
-            }
+            insert_character_identity_keys(&mut map, character);
         }
     }
     map
@@ -593,16 +959,36 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
         }
     }
 
+    let mut character_map = build_character_name_to_id_map(&characters);
+
     // 1st pass: characters and world entries
     for file in files {
         match file.file_type.as_str() {
             "character" => {
                 let character = build_character(&file.fields, &file.content, &file.title);
-                characters["characters"]
-                    .as_array_mut()
-                    .ok_or_else(|| "Invalid characters structure".to_string())?
-                    .push(character);
-                result.characters += 1;
+                if let Some(existing_id) = find_character_id_by_value(&character_map, &character) {
+                    if let Some(existing) = characters["characters"]
+                        .as_array_mut()
+                        .ok_or_else(|| "Invalid characters structure".to_string())?
+                        .iter_mut()
+                        .find(|item| item["id"].as_str() == Some(existing_id.as_str()))
+                    {
+                        merge_character_fields(existing, &character);
+                        insert_character_identity_keys(&mut character_map, existing);
+                    }
+                } else {
+                    characters["characters"]
+                        .as_array_mut()
+                        .ok_or_else(|| "Invalid characters structure".to_string())?
+                        .push(character);
+                    if let Some(created) = characters["characters"]
+                        .as_array()
+                        .and_then(|arr| arr.last())
+                    {
+                        insert_character_identity_keys(&mut character_map, created);
+                    }
+                    result.characters += 1;
+                }
             }
             "world" => {
                 let entry = build_world_entry(&file.fields, &file.content, &file.title);
@@ -658,7 +1044,6 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
     }
 
     // 5th pass: relationships
-    let mut character_map = build_character_name_to_id_map(&characters);
     let (imported_relationships, skipped_relationships, relationship_characters) =
         import_relationships(
             project_id,
@@ -844,6 +1229,158 @@ mod tests {
         assert_eq!(relationships.len(), 1);
         assert_eq!(relationships[0]["direction"].as_str().unwrap(), "mutual");
         assert_eq!(relationships[0]["description"].as_str().unwrap(), "幼馴染");
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn import_merges_character_name_variants_and_resolves_relationship_aliases() {
+        let project_id = test_project_id();
+
+        let files = vec![
+            ImportFileInput {
+                path: "chars/richard.md".to_string(),
+                filename: "richard.md".to_string(),
+                file_type: "character".to_string(),
+                title: "リチャード・ハートマン".to_string(),
+                content: "名前: リチャード・ハートマン".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "リチャード・ハートマン".to_string());
+                    map.insert("reading".to_string(), "りちゃーど・はーとまん".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+            ImportFileInput {
+                path: "chars/hartmann-colonel.md".to_string(),
+                filename: "hartmann-colonel.md".to_string(),
+                file_type: "character".to_string(),
+                title: "ハートマン大佐".to_string(),
+                content: "ハートマン大佐は厳格な軍人。".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "ハートマン大佐".to_string());
+                    map.insert("alias".to_string(), "Hartmann".to_string());
+                    map.insert("role".to_string(), "大佐".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+            ImportFileInput {
+                path: "chars/emily.md".to_string(),
+                filename: "emily.md".to_string(),
+                file_type: "character".to_string(),
+                title: "エミリー".to_string(),
+                content: "名前: エミリー".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "エミリー".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+            ImportFileInput {
+                path: "relations/hartmann.md".to_string(),
+                filename: "hartmann.md".to_string(),
+                file_type: "relationship".to_string(),
+                title: "ハートマン大佐とエミリー".to_string(),
+                content: "ハートマン大佐はエミリーを指導する。".to_string(),
+                fields: HashMap::new(),
+                episode_title: None,
+                relationships: vec![ImportRelationshipInput {
+                    episode_title: "".to_string(),
+                    character_a_name: "ハートマン大佐".to_string(),
+                    character_b_name: "エミリー".to_string(),
+                    direction: "a-to-b".to_string(),
+                    description: "ハートマン大佐はエミリーを指導する".to_string(),
+                }],
+            },
+        ];
+
+        let result = do_import(&project_id, &files).expect("import failed");
+        assert_eq!(result.characters, 2);
+        assert_eq!(result.relationships, 1);
+
+        let characters = load_characters(&project_id).unwrap();
+        let character_array = characters["characters"].as_array().unwrap();
+        assert_eq!(character_array.len(), 2);
+        let hartmann = character_array
+            .iter()
+            .find(|character| character["name"].as_str() == Some("リチャード・ハートマン"))
+            .expect("formal Hartmann character should remain");
+        assert_eq!(
+            hartmann["reading"].as_str().unwrap(),
+            "りちゃーど・はーとまん"
+        );
+        assert!(hartmann["alias"]
+            .as_str()
+            .unwrap()
+            .contains("ハートマン大佐"));
+        assert!(hartmann["alias"].as_str().unwrap().contains("Hartmann"));
+        assert_eq!(hartmann["role"].as_str().unwrap(), "大佐");
+
+        let rels = load_relationships(&project_id).unwrap();
+        let relationships = rels["groups"][0]["relationships"].as_array().unwrap();
+        assert_eq!(relationships.len(), 1);
+        assert_eq!(
+            relationships[0]["characterAId"].as_str(),
+            hartmann["id"].as_str()
+        );
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn import_keeps_full_same_surname_characters_separate() {
+        let project_id = test_project_id();
+
+        let files = vec![
+            ImportFileInput {
+                path: "chars/richard.md".to_string(),
+                filename: "richard.md".to_string(),
+                file_type: "character".to_string(),
+                title: "リチャード・ハートマン".to_string(),
+                content: "名前: リチャード・ハートマン".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "リチャード・ハートマン".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+            ImportFileInput {
+                path: "chars/emily-hartmann.md".to_string(),
+                filename: "emily-hartmann.md".to_string(),
+                file_type: "character".to_string(),
+                title: "エミリー・ハートマン".to_string(),
+                content: "名前: エミリー・ハートマン".to_string(),
+                fields: {
+                    let mut map = HashMap::new();
+                    map.insert("name".to_string(), "エミリー・ハートマン".to_string());
+                    map
+                },
+                episode_title: None,
+                relationships: Vec::new(),
+            },
+        ];
+
+        let result = do_import(&project_id, &files).expect("import failed");
+        assert_eq!(result.characters, 2);
+
+        let characters = load_characters(&project_id).unwrap();
+        let character_array = characters["characters"].as_array().unwrap();
+        assert_eq!(character_array.len(), 2);
+        assert!(character_array
+            .iter()
+            .any(|character| character["name"].as_str() == Some("リチャード・ハートマン")));
+        assert!(character_array
+            .iter()
+            .any(|character| character["name"].as_str() == Some("エミリー・ハートマン")));
 
         cleanup(&project_id);
     }

@@ -17,7 +17,7 @@ export interface ModelListResult {
  * 取得に失敗した場合は、公式ドキュメントで公開されている既知のモデル一覧を
  * フォールバックとして返す。
  */
-export interface DeepSeekFixedModel {
+export interface FixedModel {
   id: string;
   label: string;
 }
@@ -26,10 +26,35 @@ export interface DeepSeekFixedModel {
  * DeepSeek の固定モデル選択肢。
  * V4 系は thinking がデフォルトで有効。
  */
-export const DEEPSEEK_FIXED_MODELS: DeepSeekFixedModel[] = [
+export const DEEPSEEK_FIXED_MODELS: FixedModel[] = [
   { id: "deepseek-v4-flash", label: "DeepSeek-V4 Flash" },
   { id: "deepseek-v4-pro", label: "DeepSeek-V4 Pro" },
 ];
+
+/**
+ * Sakura AI Engine は当面アプリ側で利用モデルを固定する。
+ */
+export const SAKURA_FIXED_MODELS: FixedModel[] = [
+  { id: "gpt-oss-120b", label: "GPT-OSS 120B" },
+  { id: "preview/Kimi-K2.6", label: "Kimi-K2.6 Preview" },
+  { id: "preview/Qwen3.6-35B-A3B", label: "Qwen3.6 35B A3B Preview" },
+];
+
+function getOpenAiFixedModels(providerId: string, baseUrl: string): string[] | undefined {
+  const isDeepSeek =
+    providerId === "deepseek" || baseUrl.includes("api.deepseek.com");
+  if (isDeepSeek) {
+    return DEEPSEEK_FIXED_MODELS.map((m) => m.id);
+  }
+
+  const isSakura =
+    providerId === "sakura" || baseUrl.includes("api.ai.sakura.ad.jp");
+  if (isSakura) {
+    return SAKURA_FIXED_MODELS.map((m) => m.id);
+  }
+
+  return undefined;
+}
 
 function getOpenAiFallbackModels(
   providerId: string,
@@ -40,6 +65,11 @@ function getOpenAiFallbackModels(
     providerId === "deepseek" || baseUrl.includes("api.deepseek.com");
   if (isDeepSeek) {
     return Array.from(new Set([...configuredModels, ...DEEPSEEK_FIXED_MODELS.map((m) => m.id)]));
+  }
+  const isSakura =
+    providerId === "sakura" || baseUrl.includes("api.ai.sakura.ad.jp");
+  if (isSakura) {
+    return SAKURA_FIXED_MODELS.map((m) => m.id);
   }
   if (configuredModels.length > 0) {
     return configuredModels;
@@ -178,11 +208,16 @@ export async function fetchAvailableModels(
     return { models: [], error: "未知のプロバイダーです。" };
   }
 
+  const configuredModels = getProviderModelIds(entry);
+
+  if (entry.sdkType === "openai") {
+    const fixedModels = getOpenAiFixedModels(entry.id, settings.baseUrl);
+    if (fixedModels) return { models: fixedModels };
+  }
+
   if (providerRequiresApiKey(entry) && !settings.apiKey) {
     return { models: [], error: "API キーが設定されていません。" };
   }
-
-  const configuredModels = getProviderModelIds(entry);
 
   switch (entry.sdkType) {
     case "openai":

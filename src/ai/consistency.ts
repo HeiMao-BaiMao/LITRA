@@ -106,6 +106,7 @@ const BUDGETS = {
 function formatCharacter(character: Character): string {
   const fields: [string, string][] = [
     ["名前", character.name],
+    ["よみがな", character.reading],
     ["別名", character.alias],
     ["役割", character.role],
     ["性別", character.gender],
@@ -196,7 +197,7 @@ function sortCharactersByRelevance(
     .map((character, index) => ({
       character,
       index,
-      score: relevanceScore([character.name, character.alias], text),
+      score: relevanceScore([character.name, character.reading, character.alias], text),
     }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map(({ character }) => character);

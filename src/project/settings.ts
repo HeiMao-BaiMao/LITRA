@@ -51,11 +51,13 @@ export async function saveCharacters(
 export async function createCharacter(
   projectId: string,
   name: string,
+  reading = "",
 ): Promise<Character> {
   const list = await loadCharacters(projectId);
   const character = normalizeCharacter({
     id: crypto.randomUUID(),
     name,
+    reading,
   });
   list.characters.push(character);
   await saveCharacters(projectId, list);

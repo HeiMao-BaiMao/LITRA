@@ -25,8 +25,7 @@ fn world_path(project_id: &str) -> Result<PathBuf, String> {
 fn read_json(path: &PathBuf) -> Result<Value, String> {
     let text = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 fn read_or_empty(path: &PathBuf, empty: Value) -> Value {
@@ -65,6 +64,10 @@ pub fn list_characters(project_id: String) -> Result<Value, String> {
 pub struct CreateCharacterRequest {
     pub project_id: String,
     pub name: String,
+    #[serde(default)]
+    pub reading: Option<String>,
+    #[serde(default)]
+    pub alias: Option<String>,
 }
 
 #[tauri::command]
@@ -76,7 +79,8 @@ pub fn create_character(req: CreateCharacterRequest) -> Result<Value, String> {
     let new_character = json!({
         "id": new_id,
         "name": req.name,
-        "alias": "",
+        "reading": req.reading.unwrap_or_default(),
+        "alias": req.alias.unwrap_or_default(),
         "role": "",
         "gender": "",
         "age": "",
@@ -153,11 +157,14 @@ mod tests {
         let created = create_character(CreateCharacterRequest {
             project_id: project_id.clone(),
             name: "猫田".to_string(),
+            reading: Some("ねこた".to_string()),
+            alias: None,
         })
         .expect("create_character failed");
         let characters = created["characters"].as_array().expect("characters array");
         assert_eq!(characters.len(), 1);
         let id = characters[0]["id"].as_str().unwrap().to_string();
+        assert_eq!(characters[0]["reading"].as_str().unwrap(), "ねこた");
 
         // update birthday
         let updated = update_character(UpdateCharacterRequest {
@@ -172,7 +179,10 @@ mod tests {
         })
         .expect("update_character failed");
         let characters = updated["characters"].as_array().unwrap();
-        let target = characters.iter().find(|c| c["id"].as_str() == Some(&id)).unwrap();
+        let target = characters
+            .iter()
+            .find(|c| c["id"].as_str() == Some(&id))
+            .unwrap();
         assert_eq!(target["birthday"].as_str().unwrap(), "2月23日");
         assert_eq!(target["notes"].as_str().unwrap(), "雨が好き");
 
@@ -210,7 +220,10 @@ mod tests {
             entry_id: id.clone(),
             updates: {
                 let mut map = Map::new();
-                map.insert("geography".to_string(), Value::String("北側の高地".to_string()));
+                map.insert(
+                    "geography".to_string(),
+                    Value::String("北側の高地".to_string()),
+                );
                 map.insert("notes".to_string(), Value::String("深夜も営業".to_string()));
                 map
             },

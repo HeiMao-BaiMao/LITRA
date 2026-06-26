@@ -46,8 +46,7 @@ fn index_dir(project_id: &str) -> Result<PathBuf, String> {
 fn read_json(path: &PathBuf) -> Result<serde_json::Value, String> {
     let text = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 fn build_schema() -> Schema {
@@ -64,16 +63,13 @@ fn open_index_writer(project_id: &str, recreate: bool) -> Result<(Index, IndexWr
     let dir = index_dir(project_id)?;
 
     if recreate && dir.exists() {
-        fs::remove_dir_all(&dir)
-            .map_err(|e| format!("Failed to remove old index: {}", e))?;
+        fs::remove_dir_all(&dir).map_err(|e| format!("Failed to remove old index: {}", e))?;
     }
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create index directory: {}", e))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create index directory: {}", e))?;
 
     let schema = build_schema();
     let index = if recreate || !dir.join("meta.json").exists() {
-        Index::create_in_dir(&dir, schema)
-            .map_err(|e| format!("Failed to create index: {}", e))?
+        Index::create_in_dir(&dir, schema).map_err(|e| format!("Failed to create index: {}", e))?
     } else {
         Index::open_in_dir(&dir).map_err(|e| format!("Failed to open index: {}", e))?
     };
@@ -233,9 +229,7 @@ pub fn search_episodes(req: SearchRequest) -> Result<Vec<SearchResult>, String> 
                 .to_string()
         };
 
-        let snippet = snippet_generator
-            .snippet_from_doc(&doc)
-            .to_html();
+        let snippet = snippet_generator.snippet_from_doc(&doc).to_html();
 
         results.push(SearchResult {
             score,

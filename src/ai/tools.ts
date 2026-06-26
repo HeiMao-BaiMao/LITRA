@@ -159,6 +159,141 @@ function findById<T extends { id: string }>(
   return items.find((item) => item.id === id);
 }
 
+const CHARACTER_IDENTITY_SUFFIXES = [
+  "大佐",
+  "中佐",
+  "少佐",
+  "大尉",
+  "中尉",
+  "少尉",
+  "軍曹",
+  "隊長",
+  "艦長",
+  "博士",
+  "先生",
+  "さん",
+  "様",
+  "くん",
+  "君",
+  "ちゃん",
+  "殿",
+  "卿",
+  "colonel",
+  "captain",
+  "major",
+  "sir",
+  "lord",
+  "lady",
+  "dr",
+  "mr",
+  "ms",
+  "mrs",
+];
+
+function stripCharacterIdentityAffixes(value: string): string {
+  let current = value.trim();
+  let changed = true;
+  while (changed && current.length > 0) {
+    changed = false;
+    for (const affix of CHARACTER_IDENTITY_SUFFIXES) {
+      if (current.endsWith(affix) && current.length > affix.length) {
+        current = current.slice(0, -affix.length).trim();
+        changed = true;
+      }
+      if (current.startsWith(affix) && current.length > affix.length) {
+        current = current.slice(affix.length).trim();
+        changed = true;
+      }
+    }
+  }
+  return current;
+}
+
+function compactCharacterIdentityKey(value: string): string {
+  return stripCharacterIdentityAffixes(value.normalize("NFKC").toLocaleLowerCase())
+    .replace(/[\s,、，.．・･／\/\\_\-‐‑–—'’"“”()[\]（）「」『』【】]/g, "")
+    .trim();
+}
+
+function hasCharacterIdentitySeparator(value: string): boolean {
+  return /[\s,、，;；／\/\\・･.．_\-‐‑–—()[\]（）「」『』【】]/u.test(value);
+}
+
+function hasCharacterIdentityAffix(value: string): boolean {
+  const normalized = value.normalize("NFKC").toLocaleLowerCase().trim();
+  return stripCharacterIdentityAffixes(normalized) !== normalized;
+}
+
+function uniqueCharacterIdentityKeys(values: string[]): string[] {
+  return [...new Set(values.map(compactCharacterIdentityKey).filter((key) => key.length >= 2))];
+}
+
+function characterPrimaryIdentityKeysFromText(value: string | undefined): string[] {
+  if (!value) return [];
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized) return [];
+  return uniqueCharacterIdentityKeys([normalized, stripCharacterIdentityAffixes(normalized)]);
+}
+
+function characterIdentityKeysFromText(value: string | undefined): string[] {
+  if (!value) return [];
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized) return [];
+  const parts = normalized
+    .split(/[\s,、，;；／\/\\・･.．_\-‐‑–—()[\]（）「」『』【】]+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return uniqueCharacterIdentityKeys([normalized, stripCharacterIdentityAffixes(normalized), ...parts]);
+}
+
+function characterReferenceIdentityKeysFromText(value: string | undefined): string[] {
+  if (!value) return [];
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized) return [];
+  if (!hasCharacterIdentitySeparator(normalized) || hasCharacterIdentityAffix(normalized)) {
+    return characterIdentityKeysFromText(normalized);
+  }
+  return characterPrimaryIdentityKeysFromText(normalized);
+}
+
+function characterCandidateIdentityKeys(input: {
+  name: string;
+  reading?: string;
+  alias?: string;
+}): Set<string> {
+  const aliasKeys = (input.alias ?? "")
+    .split(/[\n,、]+/u)
+    .flatMap(characterReferenceIdentityKeysFromText);
+  return new Set([
+    ...characterReferenceIdentityKeysFromText(input.name),
+    ...characterPrimaryIdentityKeysFromText(input.reading),
+    ...aliasKeys,
+  ]);
+}
+
+function characterIdentityKeys(character: Pick<Character, "name" | "reading" | "alias">): Set<string> {
+  return new Set([
+    ...characterIdentityKeysFromText(character.name),
+    ...characterIdentityKeysFromText(character.reading),
+    ...characterIdentityKeysFromText(character.alias),
+  ]);
+}
+
+function findCharacterByIdentityKeys(
+  characters: Character[],
+  keys: Set<string>,
+): Character | undefined {
+  if (keys.size === 0) return undefined;
+  return characters.find((character) => {
+    const existingKeys = characterIdentityKeys(character);
+    for (const key of keys) {
+      if (existingKeys.has(key)) return true;
+    }
+    return false;
+  });
+}
+
 async function rebuildSearchIndexQuietly(projectId: string): Promise<boolean> {
   try {
     await invoke("rebuild_search_index", { projectId });
@@ -787,6 +922,7 @@ export function createSaveEpisodeSummaryAndOneLinerTool(
 
 const CHARACTER_UPDATE_FIELDS = [
   "name",
+  "reading",
   "alias",
   "role",
   "gender",
@@ -835,7 +971,7 @@ export interface SettingsToolDependencies {
 export function createListCharactersTool(deps: SettingsToolDependencies) {
   return tool({
     description:
-      "Lists registered character settings. Inspect IDs, names, aliases, and current fields before updateCharacter or createCharacter.",
+      "Lists registered character settings. Inspect IDs, names, readings, aliases, and current fields before updateCharacter or createCharacter.",
     inputSchema: z.object({}),
     execute: wrapToolExecute("listCharacters", async () => {
       const result = await invoke<{ characters: Character[] }>(
@@ -861,14 +997,14 @@ const updateCharacterInputSchema = z.object({
       ]),
     )
     .describe(
-      "Map of fields to update. Write all descriptive natural-language values in Japanese. Preserve field keys, IDs, established foreign proper nouns, and literal codes. Example: { personality: '慎重だが好奇心が強い', customFields: [{label:'二人称', value:'君'}] }",
+      "Map of fields to update. Use reading for よみがな. Write all descriptive natural-language values in Japanese. Preserve field keys, IDs, established foreign proper nouns, and literal codes. Example: { reading: 'りちゃーど・はーとまん', personality: '慎重だが好奇心が強い', customFields: [{label:'二人称', value:'君'}] }",
     ),
 });
 
 export function createUpdateCharacterTool(deps: SettingsToolDependencies) {
   return tool({
     description:
-      "Partially updates one character. Allowed fields include name, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes, and customFields. All descriptive natural-language values must be Japanese; keep IDs, field keys, literal codes, and established foreign proper nouns unchanged.",
+      "Partially updates one character. Allowed fields include name, reading, alias, role, gender, age, birthday, bloodType, height, weight, appearance, personality, individuality, skills, specialSkills, upbringing, background, notes, and customFields. Use reading for よみがな. All descriptive natural-language values must be Japanese; keep IDs, field keys, literal codes, and established foreign proper nouns unchanged.",
     inputSchema: updateCharacterInputSchema,
     execute: wrapToolExecute(
       "updateCharacter",
@@ -910,6 +1046,14 @@ const createCharacterInputSchema = z.object({
     .describe(
       "Name of the new character. Preserve the established proper-name spelling; do not translate a foreign proper name merely to satisfy the Japanese prose rule.",
     ),
+  reading: z
+    .string()
+    .optional()
+    .describe("よみがな for the character name when known. Use kana when available; omit when unknown."),
+  alias: z
+    .string()
+    .optional()
+    .describe("Known alternate names, titles, spellings, or forms of address for the same person. Preserve established proper nouns."),
 });
 
 export function createCreateCharacterTool(deps: SettingsToolDependencies) {
@@ -941,26 +1085,47 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
 
   return tool({
     description:
-      "Creates a new character record. Before calling, use listCharacters and check names, aliases, spacing, width variants, and obvious spelling variants. Call at most once per person. Do not create when the same person already exists.",
+      "Creates a new character record. Before calling, use listCharacters and check names, readings, aliases, titles, surnames, spacing, width variants, English/Japanese spellings, and obvious spelling variants. Call at most once per person. Do not create when the same person already exists.",
     inputSchema: createCharacterInputSchema,
-    execute: wrapToolExecute("createCharacter", async ({ name }) => {
+    execute: wrapToolExecute("createCharacter", async ({ name, reading, alias }) => {
       const validation = validateStringField("name", name);
       if (!validation.success) {
         return {
           error: `createCharacter の入力が不正です: ${validation.error}`,
         };
       }
+      const readingValidation = reading == null ? undefined : validateStringField("reading", reading);
+      if (readingValidation && !readingValidation.success) {
+        return {
+          error: `createCharacter の入力が不正です: ${readingValidation.error}`,
+        };
+      }
+      const aliasValidation = alias == null ? undefined : validateStringField("alias", alias);
+      if (aliasValidation && !aliasValidation.success) {
+        return {
+          error: `createCharacter の入力が不正です: ${aliasValidation.error}`,
+        };
+      }
 
       const normalizedName = validation.data.trim();
+      const normalizedReading = readingValidation?.success ? readingValidation.data.trim() : "";
+      const normalizedAlias = aliasValidation?.success ? aliasValidation.data.trim() : "";
       if (!normalizedName) {
         return {
           error: "createCharacter の入力が不正です: 名前を空にはできません。",
         };
       }
-      const nameKey = normalizeNameKey(normalizedName);
+      const identityKeys = characterCandidateIdentityKeys({
+        name: normalizedName,
+        reading: normalizedReading,
+        alias: normalizedAlias,
+      });
+      const nameKey = [...identityKeys][0] ?? normalizeNameKey(normalizedName);
 
       return await serializeCreation(async () => {
-        const alreadyCreated = createdInThisRun.get(nameKey);
+        const alreadyCreated = [...identityKeys]
+          .map((key) => createdInThisRun.get(key))
+          .find((character): character is Character => character != null);
         if (alreadyCreated) {
           return {
             success: true,
@@ -977,12 +1142,10 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
             projectId: deps.projectId,
           },
         );
-        const existing = current.characters.find(
-          (character) => normalizeNameKey(character.name) === nameKey,
-        );
+        const existing = findCharacterByIdentityKeys(current.characters, identityKeys);
         if (existing) {
           deps.onUpdateCharacters(current.characters);
-          createdInThisRun.set(nameKey, existing);
+          for (const key of identityKeys) createdInThisRun.set(key, existing);
           return {
             success: true,
             created: false,
@@ -998,15 +1161,19 @@ export function createCreateCharacterTool(deps: SettingsToolDependencies) {
             req: {
               projectId: deps.projectId,
               name: normalizedName,
+              ...(normalizedReading ? { reading: normalizedReading } : {}),
+              ...(normalizedAlias ? { alias: normalizedAlias } : {}),
             },
           },
         );
         deps.onUpdateCharacters(result.characters);
         const character =
           result.characters.find(
-            (item) => normalizeNameKey(item.name) === nameKey,
+            (item) => characterIdentityKeys(item).has(nameKey),
           ) ?? result.characters[result.characters.length - 1];
-        if (character) createdInThisRun.set(nameKey, character);
+        if (character) {
+          for (const key of identityKeys) createdInThisRun.set(key, character);
+        }
         return {
           success: true,
           created: true,

@@ -42,10 +42,14 @@ const reviewSchema = z.object({
         .describe(
           "Name change. Preserve an established proper-name spelling; omit when unchanged.",
         ),
+      reading: z
+        .string()
+        .optional()
+        .describe("よみがな for the character name. Use kana when explicitly supported."),
       alias: z
         .string()
         .optional()
-        .describe("Japanese alias description or established proper name."),
+        .describe("Japanese alias description, title form, alternate spelling, or established proper name."),
       role: z.string().optional().describe("Japanese role description."),
       gender: z
         .string()
@@ -189,6 +193,124 @@ function formatRelationshipMap(
     .join("\n\n");
 }
 
+const CHARACTER_IDENTITY_SUFFIXES = [
+  "大佐",
+  "中佐",
+  "少佐",
+  "大尉",
+  "中尉",
+  "少尉",
+  "軍曹",
+  "隊長",
+  "艦長",
+  "博士",
+  "先生",
+  "さん",
+  "様",
+  "くん",
+  "君",
+  "ちゃん",
+  "殿",
+  "卿",
+  "colonel",
+  "captain",
+  "major",
+  "sir",
+  "lord",
+  "lady",
+  "dr",
+  "mr",
+  "ms",
+  "mrs",
+];
+
+function stripCharacterIdentityAffixes(value: string): string {
+  let current = value.trim();
+  let changed = true;
+  while (changed && current.length > 0) {
+    changed = false;
+    for (const affix of CHARACTER_IDENTITY_SUFFIXES) {
+      if (current.endsWith(affix) && current.length > affix.length) {
+        current = current.slice(0, -affix.length).trim();
+        changed = true;
+      }
+      if (current.startsWith(affix) && current.length > affix.length) {
+        current = current.slice(affix.length).trim();
+        changed = true;
+      }
+    }
+  }
+  return current;
+}
+
+function hasCharacterIdentitySeparator(value: string): boolean {
+  return /[\s,、，;；／\/\\・･.．_\-‐‑–—()[\]（）「」『』【】]/u.test(value);
+}
+
+function hasCharacterIdentityAffix(value: string): boolean {
+  const normalized = value.normalize("NFKC").toLocaleLowerCase().trim();
+  return stripCharacterIdentityAffixes(normalized) !== normalized;
+}
+
+function compactCharacterIdentityKey(value: string): string {
+  return stripCharacterIdentityAffixes(value)
+    .replace(/[\s,、，.．・･／\/\\_\-‐‑–—'’"“”()[\]（）「」『』【】]/g, "")
+    .trim();
+}
+
+function uniqueCharacterIdentityKeys(values: string[]): string[] {
+  return [...new Set(values.map(compactCharacterIdentityKey).filter((key) => key.length >= 2))];
+}
+
+function characterPrimaryIdentityKeysFromText(value: string | undefined): string[] {
+  if (!value) return [];
+  const normalized = value.normalize("NFKC").toLocaleLowerCase().trim();
+  if (!normalized) return [];
+  return uniqueCharacterIdentityKeys([normalized, stripCharacterIdentityAffixes(normalized)]);
+}
+
+function characterIdentityKeysFromText(value: string | undefined): string[] {
+  if (!value) return [];
+  const normalized = value.normalize("NFKC").toLocaleLowerCase().trim();
+  if (!normalized) return [];
+  const parts = normalized
+    .split(/[\s,、，;；／\/\\・･.．_\-‐‑–—()[\]（）「」『』【】]+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return uniqueCharacterIdentityKeys([normalized, stripCharacterIdentityAffixes(normalized), ...parts]);
+}
+
+function characterReferenceIdentityKeysFromText(value: string | undefined): string[] {
+  if (!value) return [];
+  const normalized = value.normalize("NFKC").toLocaleLowerCase().trim();
+  if (!normalized) return [];
+  if (!hasCharacterIdentitySeparator(normalized) || hasCharacterIdentityAffix(normalized)) {
+    return characterIdentityKeysFromText(normalized);
+  }
+  return characterPrimaryIdentityKeysFromText(normalized);
+}
+
+function buildCharacterNameToIdMap(characters: Character[]): Map<string, string> {
+  const map = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const character of characters) {
+    for (const key of [
+      ...characterIdentityKeysFromText(character.name),
+      ...characterIdentityKeysFromText(character.reading),
+      ...characterIdentityKeysFromText(character.alias),
+    ]) {
+      const existing = map.get(key);
+      if (existing && existing !== character.id) {
+        ambiguous.add(key);
+        map.delete(key);
+      } else if (!ambiguous.has(key)) {
+        map.set(key, character.id);
+      }
+    }
+  }
+  return map;
+}
+
 function buildReviewPrompt(params: {
   characters: Character[];
   worldEntries: WorldEntry[];
@@ -201,7 +323,7 @@ function buildReviewPrompt(params: {
   const characterLines = params.characters
     .map(
       (c) =>
-        `- ${c.name} (${c.role || "役割未設定"}): ${limitText(c.notes || c.appearance || c.personality || "（説明なし）", 120)}`,
+        `- ${c.name} / よみがな:${c.reading || "未設定"} / 別名:${c.alias || "未設定"} (${c.role || "役割未設定"}): ${limitText(c.notes || c.appearance || c.personality || "（説明なし）", 120)}`,
     )
     .join("\n");
 
@@ -256,6 +378,8 @@ CURRENT EPISODE MEMOS:
 ${episodeMemoLines || "（なし）"}
 
 CORRECTION RULES:
+- Treat names, readings, aliases, surnames, ranks/titles, forms of address, and English/Japanese spelling variants as possible references to the same character only when evidence is clear.
+- When a newly imported character appears to duplicate an existing character, update the existing character's empty reading/alias/details instead of implying that a separate character should exist.
 - Fill an empty character field only when other project data explicitly supports the value.
 - Add only clearly missing relationships.
 - Correct a relationship direction or description only when explicit evidence shows it is wrong.
@@ -375,16 +499,18 @@ export async function reviewAndFixImportedData(
 
   // 人間関係追加
   if (review.relationshipsToCreate.length > 0) {
-    const characterNameToId = new Map(
-      characters.map((c) => [c.name.toLowerCase(), c.id] as const),
-    );
+    const characterNameToId = buildCharacterNameToIdMap(characters);
     const episodeTitleToId = new Map(
       episodes.map((ep) => [ep.title.toLowerCase(), ep.id] as const),
     );
 
     for (const rel of review.relationshipsToCreate) {
-      const aId = characterNameToId.get(rel.characterAName.toLowerCase());
-      const bId = characterNameToId.get(rel.characterBName.toLowerCase());
+      const aId = characterReferenceIdentityKeysFromText(rel.characterAName)
+        .map((key) => characterNameToId.get(key))
+        .find((id): id is string => typeof id === "string");
+      const bId = characterReferenceIdentityKeysFromText(rel.characterBName)
+        .map((key) => characterNameToId.get(key))
+        .find((id): id is string => typeof id === "string");
       if (!aId || !bId || aId === bId) continue;
 
       const episodeId = rel.episodeTitle

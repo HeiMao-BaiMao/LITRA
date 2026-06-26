@@ -19,8 +19,7 @@ fn project_memos_path(project_id: &str) -> Result<PathBuf, String> {
 fn read_json(path: &PathBuf) -> Result<Value, String> {
     let text = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 fn read_or_empty(path: &PathBuf, empty: Value) -> Value {
@@ -81,7 +80,12 @@ pub fn list_project_memos(project_id: String) -> Result<Vec<ProjectMemo>, String
             .as_str()
             .unwrap_or(&Utc::now().to_rfc3339())
             .to_string();
-        result.push(ProjectMemo { id, title, content, updated_at });
+        result.push(ProjectMemo {
+            id,
+            title,
+            content,
+            updated_at,
+        });
     }
 
     Ok(result)

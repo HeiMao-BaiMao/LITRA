@@ -190,43 +190,33 @@
       "models": [
         {
           "id": "gpt-oss-120b",
-          "label": "gpt-oss-120b",
-          "temperature": 1.0,
+          "label": "GPT-OSS 120B",
+          "temperature": 0.7,
           "maxTokens": 32000,
-          "maxContextTokens": 128000,
-          "topP": 1.0
+          "maxContextTokens": 131072,
+          "topP": 0.95,
+          "frequencyPenalty": 0.1,
+          "presencePenalty": 0
         },
         {
           "id": "preview/Kimi-K2.6",
           "label": "Kimi-K2.6 Preview",
-          "temperature": 1.0,
+          "temperature": 0.85,
           "maxTokens": 16000,
-          "maxContextTokens": 128000,
-          "topP": 1.0
+          "maxContextTokens": 262144,
+          "topP": 0.95,
+          "frequencyPenalty": 0.15,
+          "presencePenalty": 0.05
         },
         {
-          "id": "Qwen3-Coder-480B-A35B-Instruct-FP8",
-          "label": "Qwen3-Coder 480B",
-          "temperature": 1.0,
-          "maxTokens": 32768,
-          "maxContextTokens": 65536,
-          "topP": 1.0
-        },
-        {
-          "id": "Qwen3-Coder-30B-A3B-Instruct",
-          "label": "Qwen3-Coder 30B",
-          "temperature": 1.0,
+          "id": "preview/Qwen3.6-35B-A3B",
+          "label": "Qwen3.6 35B A3B Preview",
+          "temperature": 0.65,
           "maxTokens": 24576,
-          "maxContextTokens": 65536,
-          "topP": 1.0
-        },
-        {
-          "id": "llm-jp-3.1-8x13b-instruct4",
-          "label": "llm-jp-3.1 8x13B",
-          "temperature": 1.0,
-          "maxTokens": 16384,
-          "maxContextTokens": 32768,
-          "topP": 1.0
+          "maxContextTokens": 1010000,
+          "topP": 0.9,
+          "frequencyPenalty": 0.05,
+          "presencePenalty": 0
         }
       ]
     },

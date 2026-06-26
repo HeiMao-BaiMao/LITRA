@@ -19,7 +19,7 @@ import {
   getProviderSpecificSettings,
 } from "./settings.ts";
 import { applyImport, classifyFilesWithAI, type AiImportCandidate } from "./project/import.ts";
-import { state, type ProjectView } from "./state.ts";
+import { state, type ChatTransportMetadata, type ProjectView } from "./state.ts";
 import {
   streamChat,
   streamContinuation,
@@ -77,6 +77,7 @@ import {
   setChatSyncCallback,
   updateMessageContent,
   updateLastAssistantChunk,
+  updateLastAssistantThinking,
 } from "./ui/chat.ts";
 import { renderChatMessageHtml } from "./markdown.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
@@ -124,9 +125,11 @@ import { bindAutoResize } from "./ui/auto-resize.ts";
 import { fetchAvailableModels } from "./ai/model-list.ts";
 import {
   getProviderEntry,
+  getProviderModelDefaults,
   getProviderModelIds,
   loadProviderConfig,
   providerRequiresApiKey,
+  type ProviderModelDefaults,
   type ProviderConfig,
 } from "./providers/config.ts";
 import {
@@ -190,6 +193,7 @@ let episodeSummaries: EpisodeSummaryMap = { summaries: {} };
 let episodeMemos: EpisodeMemoMap = { memos: {} };
 let projectMemos: ProjectMemo[] = [];
 let currentMemoId: string | null = null;
+let chatMessageInFlight = false;
 
 let pendingImportFiles: File[] = [];
 let pendingImportCandidates: AiImportCandidate[] = [];
@@ -255,6 +259,75 @@ function getPromptContextBudgets(settings: AiSettings = currentSettings): Prompt
     chatMessage: scaled(0.14, 4000, 36000),
     chatHistory: scaled(0.35, 10000, 90000),
   };
+}
+
+function applyRuntimeModelDefaults(settings: AiSettings, defaults: ProviderModelDefaults | undefined): AiSettings {
+  if (!defaults) return settings;
+
+  return {
+    ...settings,
+    temperature: defaults.temperature ?? settings.temperature,
+    maxTokens: defaults.maxTokens ?? settings.maxTokens,
+    maxContextTokens: defaults.maxContextTokens ?? settings.maxContextTokens,
+    topP: defaults.topP,
+    topK: defaults.topK,
+    frequencyPenalty: defaults.frequencyPenalty,
+    presencePenalty: defaults.presencePenalty,
+    openaiReasoningEffort: settings.provider === "openai" ? defaults.openaiReasoningEffort : undefined,
+    deepseekReasoningEffort: settings.provider === "deepseek" ? defaults.deepseekReasoningEffort : undefined,
+    anthropicThinkingEnabled: settings.provider === "anthropic" ? defaults.anthropicThinkingEnabled : undefined,
+    anthropicThinkingBudget: settings.provider === "anthropic" ? defaults.anthropicThinkingBudget : undefined,
+  };
+}
+
+function resolveChatRunSettings(settings: AiSettings): AiSettings {
+  const resolved = resolveChatSettings(settings);
+  const entry = getProviderEntry(providerConfig, resolved.provider);
+  return applyRuntimeModelDefaults(resolved, getProviderModelDefaults(entry, resolved.model));
+}
+
+function getProviderProtocol(settings: AiSettings): string {
+  switch (settings.provider) {
+    case "sakura":
+    case "openai":
+    case "llamacpp":
+      return "responses";
+    case "plamo":
+    case "deepseek":
+      return "chat-completions";
+    case "anthropic":
+    case "google":
+      return settings.provider;
+  }
+}
+
+function annotateLastAssistantRun(
+  run: StreamRunResult,
+  settings: AiSettings,
+  kind: ChatTransportMetadata["kind"],
+): void {
+  for (let i = state.chatMessages.length - 1; i >= 0; i--) {
+    const message = state.chatMessages[i];
+    if (message.role !== "assistant" || isToolResultLog(message.content)) continue;
+
+    const createdAt = new Date().toISOString();
+    message.id ??= `${createdAt}-${i}`;
+    message.createdAt ??= createdAt;
+    message.transport = {
+      provider: settings.provider,
+      model: settings.model,
+      baseUrl: settings.baseUrl,
+      protocol: getProviderProtocol(settings),
+      responseId: run.response?.id,
+      responseModelId: run.response?.modelId,
+      finishReason: run.finishReason,
+      maxTokens: settings.maxTokens,
+      maxContextTokens: settings.maxContextTokens,
+      createdAt,
+      kind,
+    };
+    return;
+  }
 }
 
 let memoCollapsedBeforeDetach = false;
@@ -354,7 +427,7 @@ function validateSettings(): boolean {
 }
 
 function validateChatSettings(): boolean {
-  const chatSettings = resolveChatSettings(currentSettings);
+  const chatSettings = resolveChatRunSettings(currentSettings);
   const entry = getProviderEntry(providerConfig, chatSettings.provider);
   if (providerRequiresApiKey(entry) && !chatSettings.apiKey) {
     window.alert(`${entry?.name ?? chatSettings.provider} の API キーを設定してください。`);
@@ -744,6 +817,14 @@ function appendAssistantChunk(chunk: string): void {
   updateLastAssistantChunk(chunk);
 }
 
+function appendAssistantThinking(chunk: string): void {
+  const lastMessage = state.chatMessages[state.chatMessages.length - 1];
+  if (!lastMessage || lastMessage.role !== "assistant" || isToolResultLog(lastMessage.content)) {
+    appendMessage("assistant", "");
+  }
+  updateLastAssistantThinking(chunk);
+}
+
 function appendToolInterruptedFallback(): void {
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
   if (lastMessage?.role === "assistant" && !isToolResultLog(lastMessage.content) && lastMessage.content.trim()) {
@@ -765,10 +846,13 @@ async function streamChatOnce(
   return await streamChat({
     settings,
     messages,
-    settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+    settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined, settings),
     tools: allowTools ? createAiTools() : undefined,
     onChunk: (chunk) => {
       appendAssistantChunk(chunk);
+    },
+    onReasoning: (chunk) => {
+      appendAssistantThinking(chunk);
     },
     onToolEvent: allowTools ? handleToolEvent : undefined,
     abortSignal: controller.signal,
@@ -800,7 +884,7 @@ async function streamChatWithAutoContinuation(
         `ツール未実行のため再試行 ${toolCallRetryCount}/${CHAT_TOOL_CALL_RETRY_LIMIT}`,
       );
       messages = [
-        ...buildChatMessagesForModel(),
+        ...buildChatMessagesForModel(settings),
         {
           role: "user",
           content: `${CHAT_TOOL_CALL_RETRY_PROMPT}\n\n【直前に生成された未実行の説明文】\n${limitPromptText(missedText, 4000, "head")}`,
@@ -817,7 +901,7 @@ async function streamChatWithAutoContinuation(
 
     console.warn("[phenex] chat output hit maxOutputTokens; auto-continuing");
     messages = [
-      ...buildChatMessagesForModel(),
+      ...buildChatMessagesForModel(settings),
       { role: "user", content: CHAT_LENGTH_CONTINUATION_PROMPT },
     ];
     run = await streamChatOnce(messages, controller, false, settings);
@@ -827,8 +911,8 @@ async function streamChatWithAutoContinuation(
   return run;
 }
 
-function buildChatMessagesForModel(): ModelMessage[] {
-  const budgets = getPromptContextBudgets();
+function buildChatMessagesForModel(settings: AiSettings = currentSettings): ModelMessage[] {
+  const budgets = getPromptContextBudgets(settings);
   const naturalMessages = state.chatMessages.filter(
     (message) =>
       message.content.trim().length > 0 &&
@@ -1485,6 +1569,9 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
       },
+      onReasoning: (chunk) => {
+        appendAssistantThinking(chunk);
+      },
       onToolEvent: handleToolEvent,
       abortSignal: controller.signal,
     });
@@ -1675,8 +1762,8 @@ function handleSelectProjectMemo(id: string | null): void {
   syncProjectMemosToWindow();
 }
 
-function buildSettingsContext(currentEpisodeId?: string): string {
-  const budgets = getPromptContextBudgets();
+function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = currentSettings): string {
+  const budgets = getPromptContextBudgets(settings);
   const recentConversation = state.chatMessages
     .filter((message) => !isToolResultLog(message.content))
     .slice(-4)
@@ -1696,7 +1783,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
     .map((character, index) => ({
       character,
       index,
-      score: scoreTerms([character.name, character.alias]),
+      score: scoreTerms([character.name, character.reading, character.alias]),
     }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map(({ character }) => character);
@@ -1726,6 +1813,7 @@ function buildSettingsContext(currentEpisodeId?: string): string {
     .map((c) => {
       const fixed: [string, string][] = [
         ["名前", c.name],
+        ["よみがな", c.reading],
         ["別名", c.alias],
         ["役割", c.role],
         ["性別", c.gender],
@@ -2124,15 +2212,19 @@ async function handleFeedback(): Promise<void> {
   appendMessage("user", `選択部分へのフィードバックをお願いします。\n\n${selection}`);
   const controller = startGeneration();
   try {
-    await streamFeedback({
+    const run = await streamFeedback({
       settings: currentSettings,
       selection,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
       },
+      onReasoning: (chunk) => {
+        appendAssistantThinking(chunk);
+      },
       abortSignal: controller.signal,
     });
+    annotateLastAssistantRun(run, currentSettings, "feedback");
     await saveCurrentChat();
   } catch (error) {
     if (error instanceof Error && error.name !== "AbortError") {
@@ -2144,7 +2236,9 @@ async function handleFeedback(): Promise<void> {
 }
 
 async function handleChatMessage(): Promise<void> {
-  const chatSettings = resolveChatSettings(currentSettings);
+  if (chatMessageInFlight) return;
+  chatMessageInFlight = true;
+  const chatSettings = resolveChatRunSettings(currentSettings);
   console.log(
     "[phenex] handleChatMessage start",
     JSON.stringify({
@@ -2159,17 +2253,23 @@ async function handleChatMessage(): Promise<void> {
   try {
     // 空応答の場合でも UI に何か表示できるよう、事前に空のアシスタント返答枠を用意する
     const lastMsg = state.chatMessages[state.chatMessages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.content.trim().length > 0) {
+    if (
+      !lastMsg ||
+      lastMsg.role !== "assistant" ||
+      lastMsg.content.trim().length > 0 ||
+      (lastMsg.thinking?.trim().length ?? 0) > 0
+    ) {
       appendMessage("assistant", "");
     }
 
-    const messages = buildChatMessagesForModel();
+    const messages = buildChatMessagesForModel(chatSettings);
     console.log("[phenex] streaming chat with messages:", messages.length);
 
     const run = await streamChatWithAutoContinuation(messages, controller, chatSettings);
     if (run.stoppedAfterToolActivity) {
       appendToolInterruptedFallback();
     }
+    annotateLastAssistantRun(run, chatSettings, "chat");
 
     const lastMessage = state.chatMessages[state.chatMessages.length - 1];
     if (lastMessage?.role === "assistant" && lastMessage.content.trim().length === 0) {
@@ -2177,7 +2277,7 @@ async function handleChatMessage(): Promise<void> {
       const container = getElements().chatMessages;
       const lastEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
       if (lastEl) {
-        renderChatMessageHtml(lastEl, lastMessage.content);
+        renderChatMessageHtml(lastEl, lastMessage.content, lastMessage.thinking);
       }
       syncChatToWindow();
       await saveCurrentChat();
@@ -2193,6 +2293,7 @@ async function handleChatMessage(): Promise<void> {
       window.alert(`エラー: ${String(error)}`);
     }
   } finally {
+    chatMessageInFlight = false;
     setGenerating(false);
   }
 }
@@ -2216,6 +2317,7 @@ async function handleChatCommand(message: string): Promise<boolean> {
 
 async function handleChatSubmit(): Promise<void> {
   if (!validateProject() || !validateChatSettings()) return;
+  if (state.isGenerating || chatMessageInFlight) return;
 
   if (state.currentEpisodeId) {
     await saveCurrentEpisode();
@@ -2600,6 +2702,7 @@ async function init(): Promise<void> {
 
   listen<{ content: string }>("chat-send", async (event) => {
     if (!validateProject() || !validateChatSettings()) return;
+    if (state.isGenerating || chatMessageInFlight) return;
     const content = event.payload.content.trim();
     if (await handleChatCommand(content)) return;
     appendMessage("user", content);

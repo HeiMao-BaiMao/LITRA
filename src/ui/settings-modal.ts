@@ -13,13 +13,28 @@ import {
   type ProviderConfig,
   type ProviderEntry,
 } from "../providers/config.ts";
-import { DEEPSEEK_FIXED_MODELS } from "../ai/model-list.ts";
+import { DEEPSEEK_FIXED_MODELS, SAKURA_FIXED_MODELS, type FixedModel } from "../ai/model-list.ts";
 
 let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = null;
 let modalProviderConfig: ProviderConfig | null = null;
 let modalCurrentProvider: Provider = "openai";
 
 const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo"];
+
+function getFixedModelOptions(provider: Provider): FixedModel[] | undefined {
+  switch (provider) {
+    case "deepseek":
+      return DEEPSEEK_FIXED_MODELS;
+    case "sakura":
+      return SAKURA_FIXED_MODELS;
+    default:
+      return undefined;
+  }
+}
+
+function isFixedModelProvider(provider: Provider): boolean {
+  return getFixedModelOptions(provider) !== undefined;
+}
 
 function captureProviderConfig(provider: Provider): void {
   if (!modalProviderConfigs) return;
@@ -29,7 +44,7 @@ function captureProviderConfig(provider: Provider): void {
     settingModel,
     settingModelSelect,
   } = getElements();
-  const model = provider === "deepseek" ? settingModelSelect.value.trim() : settingModel.value.trim();
+  const model = isFixedModelProvider(provider) ? settingModelSelect.value.trim() : settingModel.value.trim();
   modalProviderConfigs[provider] = {
     apiKey: settingApiKey.value.trim(),
     baseUrl: settingBaseUrl.value.trim(),
@@ -124,34 +139,37 @@ function updateAdvancedVisibility(provider: Provider): void {
   }
 }
 
-function populateDeepSeekModelSelect(currentModel: string): void {
+function populateFixedModelSelect(provider: Provider, currentModel: string): void {
   const { settingModelSelect } = getElements();
+  const fixedModels = getFixedModelOptions(provider);
   settingModelSelect.innerHTML = "";
-  for (const { id, label } of DEEPSEEK_FIXED_MODELS) {
+  if (!fixedModels) return;
+
+  for (const { id, label } of fixedModels) {
     const option = document.createElement("option");
     option.value = id;
     option.textContent = label;
     settingModelSelect.appendChild(option);
   }
-  settingModelSelect.value = DEEPSEEK_FIXED_MODELS.some((m) => m.id === currentModel)
+  settingModelSelect.value = fixedModels.some((m) => m.id === currentModel)
     ? currentModel
-    : DEEPSEEK_FIXED_MODELS[0]?.id ?? "";
+    : fixedModels[0]?.id ?? "";
 }
 
 function updateModelInputMode(provider: Provider): void {
   const { settingModel, settingModelSelect } = getElements();
-  const isDeepSeek = provider === "deepseek";
+  const isFixed = isFixedModelProvider(provider);
 
-  settingModel.classList.toggle("hidden", isDeepSeek);
-  settingModelSelect.classList.toggle("hidden", !isDeepSeek);
+  settingModel.classList.toggle("hidden", isFixed);
+  settingModelSelect.classList.toggle("hidden", !isFixed);
 }
 
 function updateModelFetchState(provider: Provider): void {
   const { btnFetchModels } = getElements();
-  const isDeepSeek = provider === "deepseek";
+  const isFixed = isFixedModelProvider(provider);
 
-  btnFetchModels.disabled = isDeepSeek;
-  btnFetchModels.textContent = isDeepSeek ? "DeepSeek は固定" : "取得";
+  btnFetchModels.disabled = isFixed;
+  btnFetchModels.textContent = isFixed ? "モデルは固定" : "取得";
 }
 
 function setSamplingControlsEnabled(enabled: boolean): void {
@@ -263,7 +281,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   updateModelFetchState(settings.provider);
   updateModelInputMode(settings.provider);
   updateSamplingControlsVisibility(settings.provider);
-  populateDeepSeekModelSelect(modalProviderConfigs[settings.provider].model);
+  populateFixedModelSelect(settings.provider, modalProviderConfigs[settings.provider].model);
   populateConfiguredModelList(getProviderEntry(config, settings.provider));
 }
 
@@ -363,7 +381,7 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     updateModelFetchState(provider);
     updateModelInputMode(provider);
     updateSamplingControlsVisibility(provider);
-    populateDeepSeekModelSelect(modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
+    populateFixedModelSelect(provider, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
     populateConfiguredModelList(entry);
     applyModelDefaults(entry, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
   });

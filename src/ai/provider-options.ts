@@ -16,6 +16,7 @@ export function buildProviderOptions(
       return {
         openai: {
           reasoningEffort: settings.openaiReasoningEffort,
+          reasoningSummary: "detailed",
         },
       };
     }
@@ -47,6 +48,17 @@ export function buildProviderOptions(
       }
       return { deepseek: options };
     }
+    case "sakura":
+      return {
+        openai: {
+          // Sakura AI Engine の Responses API は OpenAI 互換だが、
+          // 本家 OpenAI の永続化状態や並列 tool call に依存しない形へ寄せる。
+          store: false,
+          parallelToolCalls: false,
+          strictJsonSchema: false,
+          reasoningSummary: "detailed",
+        },
+      };
     default:
       return undefined;
   }

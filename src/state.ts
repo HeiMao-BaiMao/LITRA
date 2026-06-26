@@ -1,7 +1,25 @@
+export interface ChatTransportMetadata {
+  provider: string;
+  model: string;
+  baseUrl?: string;
+  protocol?: string;
+  responseId?: string;
+  responseModelId?: string;
+  finishReason?: string;
+  maxTokens?: number;
+  maxContextTokens?: number;
+  createdAt: string;
+  kind?: "chat" | "feedback" | "summary" | "continuation" | "rewrite";
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  thinking?: string;
   excludeFromContext?: boolean;
+  id?: string;
+  createdAt?: string;
+  transport?: ChatTransportMetadata;
 }
 
 export type ProjectView = "episode" | "characters" | "world" | "relationships" | "memos";

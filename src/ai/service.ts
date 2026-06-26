@@ -27,17 +27,23 @@ function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
 function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
   const providerOptions = buildProviderOptions(settings, toolsEnabled);
   const ignoreSampling = isDeepSeekThinkingEnabled(settings, toolsEnabled);
+  const ignorePenalty = settings.provider === "sakura";
   return {
     ...(!ignoreSampling && settings.topP !== undefined && { topP: settings.topP }),
     ...(!ignoreSampling && settings.topK !== undefined && { topK: settings.topK }),
-    ...(!ignoreSampling && settings.frequencyPenalty !== undefined && {
+    ...(!ignoreSampling && !ignorePenalty && settings.frequencyPenalty !== undefined && {
       frequencyPenalty: settings.frequencyPenalty,
     }),
-    ...(!ignoreSampling && settings.presencePenalty !== undefined && {
+    ...(!ignoreSampling && !ignorePenalty && settings.presencePenalty !== undefined && {
       presencePenalty: settings.presencePenalty,
     }),
     ...(providerOptions && { providerOptions }),
   };
+}
+
+function hasTools(tools: ToolSet | undefined): tools is ToolSet {
+  if (tools == null || Object.keys(tools).length === 0) return false;
+  return true;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -56,10 +62,17 @@ function normalizeOptionalRange(
 export interface StreamRunResult {
   textChunkCount: number;
   textCharCount: number;
+  reasoningChunkCount: number;
+  reasoningCharCount: number;
   toolCallCount: number;
   toolResultCount: number;
   toolErrorCount: number;
   finishReason?: string;
+  response?: {
+    id: string;
+    modelId: string;
+    timestamp?: string;
+  };
   stoppedAfterToolResult: boolean;
   stoppedAfterToolActivity: boolean;
   pendingToolCallIds: string[];
@@ -92,23 +105,59 @@ export type StreamToolEvent =
       error: unknown;
     };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getStringField(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+function extractReasoningChunk(part: unknown): string | undefined {
+  if (!isRecord(part)) return undefined;
+  const type = part.type;
+  if (type !== "reasoning-delta" && type !== "reasoning") return undefined;
+  return getStringField(part, ["text", "delta", "textDelta"]);
+}
+
 async function consumeStream(
   result: {
     fullStream: AsyncIterable<TextStreamPart<ToolSet>>;
   },
   onChunk: (chunk: string) => void,
   onToolEvent?: (event: StreamToolEvent) => void,
+  onReasoning?: (chunk: string) => void,
 ): Promise<StreamRunResult> {
   let chunkCount = 0;
   let charCount = 0;
+  let reasoningChunkCount = 0;
+  let reasoningCharCount = 0;
   let toolCallCount = 0;
   let toolResultCount = 0;
   let toolErrorCount = 0;
   let finishReason: string | undefined;
-  let lastSignificantPart: "text" | "tool-input" | "tool-call" | "tool-result" | "tool-error" | undefined;
+  let response: StreamRunResult["response"];
+  let lastSignificantPart: "text" | "reasoning" | "tool-input" | "tool-call" | "tool-result" | "tool-error" | undefined;
   const pendingToolCallIds = new Set<string>();
 
   for await (const part of result.fullStream) {
+    const reasoningChunk = extractReasoningChunk(part);
+    if (reasoningChunk !== undefined) {
+      if (!reasoningChunk) continue;
+      reasoningChunkCount++;
+      reasoningCharCount += reasoningChunk.length;
+      lastSignificantPart = "reasoning";
+      if (reasoningChunkCount <= 3 || reasoningChunkCount % 10 === 0) {
+        console.log(`[phenex:ai] reasoning chunk #${reasoningChunkCount}:`, reasoningChunk.slice(0, 80));
+      }
+      onReasoning?.(reasoningChunk);
+      continue;
+    }
+
     switch (part.type) {
       case "text-delta": {
         const chunk = part.text;
@@ -179,6 +228,16 @@ async function consumeStream(
         finishReason = part.finishReason;
         break;
       }
+      case "finish-step": {
+        response = {
+          id: part.response.id,
+          modelId: part.response.modelId,
+          timestamp: part.response.timestamp instanceof Date
+            ? part.response.timestamp.toISOString()
+            : undefined,
+        };
+        break;
+      }
       case "error": {
         throw part.error;
       }
@@ -189,10 +248,13 @@ async function consumeStream(
   return {
     textChunkCount: chunkCount,
     textCharCount: charCount,
+    reasoningChunkCount,
+    reasoningCharCount,
     toolCallCount,
     toolResultCount,
     toolErrorCount,
     finishReason,
+    response,
     stoppedAfterToolResult: lastSignificantPart === "tool-result" || lastSignificantPart === "tool-error",
     stoppedAfterToolActivity:
       lastSignificantPart === "tool-input" ||
@@ -207,6 +269,7 @@ export interface StreamChatOptions {
   settings: AiSettings;
   messages: ModelMessage[];
   onChunk: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
   tools?: ToolSet;
@@ -219,6 +282,7 @@ export interface StreamContinuationOptions {
   settings: AiSettings;
   context: string;
   onChunk: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
   tools?: ToolSet;
@@ -230,6 +294,7 @@ export interface StreamRewriteOptions {
   selection: string;
   context: string;
   onChunk: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
 }
@@ -238,6 +303,7 @@ export interface StreamFeedbackOptions {
   settings: AiSettings;
   selection: string;
   onChunk: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
 }
@@ -327,10 +393,11 @@ export async function streamChat({
   toolChoice,
   stopWhen,
   onToolEvent,
+  onReasoning,
 }: StreamChatOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const toolsEnabled = tools != null && Object.keys(tools).length > 0;
+    const toolsEnabled = hasTools(tools);
     let assistantText = "";
     const wrappedOnChunk = (chunk: string) => {
       assistantText += chunk;
@@ -338,7 +405,7 @@ export async function streamChat({
     };
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
 
-    const result = streamText({
+    const result = streamText<ToolSet>({
       model: createModel(s),
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
       messages,
@@ -346,16 +413,17 @@ export async function streamChat({
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
-      toolChoice,
+      toolChoice: toolsEnabled ? toolChoice : undefined,
       stopWhen: stopWhen ?? (toolsEnabled ? isLoopFinished() : undefined),
       ...buildAdvancedOptions(s, toolsEnabled),
     });
 
-    const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent);
+    const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent, onReasoning);
 
     // ツールが有効なのにツール呼び出しがなく、かつ通常終了した場合は検証する
     if (
       toolsEnabled &&
+      s.provider !== "sakura" &&
       runResult.toolCallCount === 0 &&
       runResult.finishReason !== "tool-calls" &&
       !abortSignal?.aborted
@@ -373,7 +441,7 @@ export async function streamChat({
               "まだ必要なツールを呼び出していないようです。先にツールを呼び出してから、必要であれば説明を続けてください。",
           },
         ];
-        const retryResult = streamText({
+        const retryResult = streamText<ToolSet>({
           model: createModel(s),
           system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames }),
           messages: retryMessages,
@@ -382,10 +450,10 @@ export async function streamChat({
           abortSignal,
           tools,
           toolChoice: "required",
-          stopWhen: isLoopFinished(),
+          stopWhen: isLoopFinished() as StopCondition<ToolSet>,
           ...buildAdvancedOptions(s, toolsEnabled),
         });
-        return await consumeStream(retryResult, onChunk, onToolEvent);
+        return await consumeStream(retryResult, onChunk, onToolEvent, onReasoning);
       }
     }
 
@@ -404,12 +472,14 @@ export async function streamContinuation({
   settingsContext,
   tools,
   onToolEvent,
+  onReasoning,
 }: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const toolsEnabled = tools != null && Object.keys(tools).length > 0;
+    const toolsEnabled = hasTools(tools);
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
-    const result = streamText({
+
+    const result = streamText<ToolSet>({
       model: createModel(s),
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
       prompt: buildContinuationPrompt(context),
@@ -421,7 +491,7 @@ export async function streamContinuation({
       ...buildAdvancedOptions(s, toolsEnabled),
     });
 
-    return await consumeStream(result, onChunk, onToolEvent);
+    return await consumeStream(result, onChunk, onToolEvent, onReasoning);
   } catch (error) {
     console.error("streamContinuation error:", error);
     throw error;
@@ -435,10 +505,11 @@ export async function streamRewrite({
   onChunk,
   abortSignal,
   settingsContext,
+  onReasoning,
 }: StreamRewriteOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const result = streamText({
+    const result = streamText<ToolSet>({
       model: createModel(s),
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false }),
       prompt: buildRewritePrompt(selection, context),
@@ -448,7 +519,7 @@ export async function streamRewrite({
       ...buildAdvancedOptions(s, false),
     });
 
-    return await consumeStream(result, onChunk);
+    return await consumeStream(result, onChunk, undefined, onReasoning);
   } catch (error) {
     console.error("streamRewrite error:", error);
     throw error;
@@ -461,10 +532,11 @@ export async function streamFeedback({
   onChunk,
   abortSignal,
   settingsContext,
+  onReasoning,
 }: StreamFeedbackOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const result = streamText({
+    const result = streamText<ToolSet>({
       model: createModel(s),
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false }),
       prompt: buildFeedbackPrompt(selection),
@@ -474,7 +546,7 @@ export async function streamFeedback({
       ...buildAdvancedOptions(s, false),
     });
 
-    return await consumeStream(result, onChunk);
+    return await consumeStream(result, onChunk, undefined, onReasoning);
   } catch (error) {
     console.error("streamFeedback error:", error);
     throw error;
