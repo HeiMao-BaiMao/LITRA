@@ -2,16 +2,35 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "child-windows",
   "description": "Capabilities for detached memo/chat windows",
-  "windows": ["memo", "chat", "summary", "settings", "projectMemos"],
+  "windows": ["memo", "chat", "summary", "settings", "projectMemos", "genre-library", "genre-chat-*"],
   "permissions": [
     "core:default",
     "core:window:allow-set-focus",
     "core:window:allow-scale-factor",
     "core:webview:allow-set-webview-zoom",
+    "core:webview:allow-create-webview-window",
     "store:default",
     "fs:default",
     "fs:allow-appconfig-read",
     "fs:allow-appconfig-write",
-    "fs:allow-appconfig-meta"
+    "fs:allow-appconfig-meta",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-read-dir",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-rename",
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPCONFIG" },
+        { "path": "$APPCONFIG/**" },
+        { "path": "$APPDATA" },
+        { "path": "$APPDATA/**" },
+        { "path": "$DOCUMENT/phenex" },
+        { "path": "$DOCUMENT/phenex/**" }
+      ]
+    }
   ]
 }
