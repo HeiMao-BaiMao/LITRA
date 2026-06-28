@@ -1,0 +1,301 @@
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::fs;
+use std::path::PathBuf;
+use tantivy::collector::TopDocs;
+use tantivy::query::QueryParser;
+use tantivy::schema::{Schema, Value, STORED, TEXT};
+use tantivy::snippet::SnippetGenerator;
+use tantivy::{Index, IndexWriter, ReloadPolicy, TantivyDocument};
+
+const DEFAULT_LIMIT: usize = 10;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreSearchResult {
+    pub score: f32,
+    pub genre_id: String,
+    pub doc_id: String,
+    pub doc_type: String,
+    pub title: String,
+    pub snippet: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreRebuildResult {
+    pub success: bool,
+    pub message: String,
+    pub indexed_documents: usize,
+}
+
+fn documents_dir() -> Result<PathBuf, String> {
+    dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
+}
+
+fn genre_dir(genre_id: &str) -> Result<PathBuf, String> {
+    Ok(documents_dir()?.join("phenex/genres").join(genre_id))
+}
+
+fn index_dir(genre_id: &str) -> Result<PathBuf, String> {
+    let base = dirs::data_dir()
+        .or_else(dirs::document_dir)
+        .ok_or_else(|| "App data directory not found".to_string())?;
+    Ok(base.join("phenex/genre-index").join(genre_id))
+}
+
+fn read_json(path: &PathBuf) -> Result<serde_json::Value, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+}
+
+fn build_schema() -> Schema {
+    let mut builder = Schema::builder();
+    builder.add_text_field("id", TEXT | STORED);
+    builder.add_text_field("genre_id", TEXT | STORED);
+    builder.add_text_field("doc_type", TEXT | STORED);
+    builder.add_text_field("title", TEXT | STORED);
+    builder.add_text_field("content", TEXT);
+    builder.build()
+}
+
+fn open_index_writer(genre_id: &str, recreate: bool) -> Result<(Index, IndexWriter), String> {
+    let dir = index_dir(genre_id)?;
+
+    if recreate && dir.exists() {
+        fs::remove_dir_all(&dir).map_err(|e| format!("Failed to remove old index: {}", e))?;
+    }
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create index directory: {}", e))?;
+
+    let schema = build_schema();
+    let index = if recreate || !dir.join("meta.json").exists() {
+        Index::create_in_dir(&dir, schema).map_err(|e| format!("Failed to create index: {}", e))?
+    } else {
+        Index::open_in_dir(&dir).map_err(|e| format!("Failed to open index: {}", e))?
+    };
+
+    let writer = index
+        .writer(50_000_000)
+        .map_err(|e| format!("Failed to create index writer: {}", e))?;
+
+    Ok((index, writer))
+}
+
+#[tauri::command]
+pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult, String> {
+    let base = genre_dir(&genre_id)?;
+
+    let sources_path = base.join("sources").join("index.json");
+    let sources = if sources_path.exists() {
+        read_json(&sources_path).unwrap_or_else(|_| json!({ "sources": [] }))
+    } else {
+        json!({ "sources": [] })
+    };
+
+    let knowledge_path = base.join("knowledge").join("index.json");
+    let knowledge = if knowledge_path.exists() {
+        read_json(&knowledge_path).unwrap_or_else(|_| json!({ "items": [], "candidates": [] }))
+    } else {
+        json!({ "items": [], "candidates": [] })
+    };
+
+    let (index, mut index_writer) = open_index_writer(&genre_id, true)?;
+    let schema = index.schema();
+    let id_field = schema
+        .get_field("id")
+        .map_err(|e| format!("Schema field 'id' not found: {}", e))?;
+    let genre_id_field = schema
+        .get_field("genre_id")
+        .map_err(|e| format!("Schema field 'genre_id' not found: {}", e))?;
+    let doc_type_field = schema
+        .get_field("doc_type")
+        .map_err(|e| format!("Schema field 'doc_type' not found: {}", e))?;
+    let title_field = schema
+        .get_field("title")
+        .map_err(|e| format!("Schema field 'title' not found: {}", e))?;
+    let content_field = schema
+        .get_field("content")
+        .map_err(|e| format!("Schema field 'content' not found: {}", e))?;
+
+    let mut indexed = 0usize;
+
+    for source in sources["sources"].as_array().unwrap_or(&Vec::new()) {
+        let source_id = source["id"].as_str().unwrap_or_default();
+        let title = source["title"].as_str().unwrap_or_default();
+        let segments_dir = base.join("sources").join("segments").join(&source_id);
+
+        if segments_dir.exists() {
+            let mut entries: Vec<PathBuf> = fs::read_dir(&segments_dir)
+                .map_err(|e| format!("Failed to read segments dir: {}", e))?
+                .filter_map(|entry| entry.ok().map(|e| e.path()))
+                .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+                .collect();
+            entries.sort();
+
+            let mut content = String::new();
+            for entry in entries {
+                if let Ok(segment) = read_json(&entry) {
+                    if let Some(text) = segment["content"].as_str() {
+                        if !content.is_empty() {
+                            content.push('\n');
+                        }
+                        content.push_str(text);
+                    }
+                }
+            }
+
+            if !content.is_empty() {
+                let mut doc = TantivyDocument::default();
+                doc.add_text(id_field, &format!("source-{}-fullText", source_id));
+                doc.add_text(genre_id_field, &genre_id);
+                doc.add_text(doc_type_field, "source");
+                doc.add_text(title_field, title);
+                doc.add_text(content_field, &content);
+                index_writer
+                    .add_document(doc)
+                    .map_err(|e| format!("Failed to add document: {}", e))?;
+                indexed += 1;
+            }
+        }
+
+        let analysis_path = base.join("sources").join("analyses").join(format!("{}.json", source_id));
+        if analysis_path.exists() {
+            if let Ok(analysis) = read_json(&analysis_path) {
+                let summary = analysis["synthesizedAnalysis"]["summary"]
+                    .as_str()
+                    .unwrap_or_default();
+                if !summary.is_empty() {
+                    let mut doc = TantivyDocument::default();
+                    doc.add_text(id_field, &format!("source-{}-analysis", source_id));
+                    doc.add_text(genre_id_field, &genre_id);
+                    doc.add_text(doc_type_field, "analysis");
+                    doc.add_text(title_field, &format!("{} の分析", title));
+                    doc.add_text(content_field, summary);
+                    index_writer
+                        .add_document(doc)
+                        .map_err(|e| format!("Failed to add document: {}", e))?;
+                    indexed += 1;
+                }
+            }
+        }
+    }
+
+    for item in knowledge["items"].as_array().unwrap_or(&Vec::new()) {
+        let item_id = item["id"].as_str().unwrap_or_default();
+        let title = item["title"].as_str().unwrap_or_default();
+        let statement = item["statement"].as_str().unwrap_or_default();
+        let explanation = item["explanation"].as_str().unwrap_or_default();
+        let status = item["status"].as_str().unwrap_or_default();
+        if status != "active" {
+            continue;
+        }
+
+        let content = format!("{}\n{}", statement, explanation);
+        if !content.trim().is_empty() {
+            let mut doc = TantivyDocument::default();
+            doc.add_text(id_field, &format!("knowledge-{}", item_id));
+            doc.add_text(genre_id_field, &genre_id);
+            doc.add_text(doc_type_field, "knowledge");
+            doc.add_text(title_field, title);
+            doc.add_text(content_field, &content);
+            index_writer
+                .add_document(doc)
+                .map_err(|e| format!("Failed to add document: {}", e))?;
+            indexed += 1;
+        }
+    }
+
+    index_writer
+        .commit()
+        .map_err(|e| format!("Failed to commit index: {}", e))?;
+
+    Ok(GenreRebuildResult {
+        success: true,
+        message: format!("ジャンル検索インデックスを再構築しました（{}件）。", indexed),
+        indexed_documents: indexed,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreSearchRequest {
+    pub genre_id: String,
+    pub query: String,
+    pub limit: Option<usize>,
+}
+
+#[tauri::command]
+pub fn search_genre(req: GenreSearchRequest) -> Result<Vec<GenreSearchResult>, String> {
+    let dir = index_dir(&req.genre_id)?;
+    if !dir.exists() || !dir.join("meta.json").exists() {
+        rebuild_genre_search_index(req.genre_id.clone())?;
+    }
+
+    let index =
+        Index::open_in_dir(&dir).map_err(|e| format!("Failed to open search index: {}", e))?;
+    let schema = index.schema();
+    let content_field = schema
+        .get_field("content")
+        .map_err(|e| format!("Schema field 'content' not found: {}", e))?;
+    let title_field = schema
+        .get_field("title")
+        .map_err(|e| format!("Schema field 'title' not found: {}", e))?;
+
+    let reader = index
+        .reader_builder()
+        .reload_policy(ReloadPolicy::OnCommitWithDelay)
+        .try_into()
+        .map_err(|e| format!("Failed to create index reader: {}", e))?;
+    let searcher = reader.searcher();
+
+    let query_parser = QueryParser::for_index(&index, vec![content_field, title_field]);
+    let parsed_query = query_parser
+        .parse_query(&req.query)
+        .map_err(|e| format!("Failed to parse query: {}", e))?;
+
+    let limit = req.limit.unwrap_or(DEFAULT_LIMIT).min(50);
+    let top_docs = searcher
+        .search(&parsed_query, &TopDocs::with_limit(limit))
+        .map_err(|e| format!("Failed to search index: {}", e))?;
+
+    let snippet_generator = SnippetGenerator::create(&searcher, &*parsed_query, content_field)
+        .map_err(|e| format!("Failed to create snippet generator: {}", e))?;
+
+    let id_field = schema
+        .get_field("id")
+        .map_err(|e| format!("Schema field 'id' not found: {}", e))?;
+    let genre_id_field = schema
+        .get_field("genre_id")
+        .map_err(|e| format!("Schema field 'genre_id' not found: {}", e))?;
+    let doc_type_field = schema
+        .get_field("doc_type")
+        .map_err(|e| format!("Schema field 'doc_type' not found: {}", e))?;
+
+    let mut results = Vec::new();
+    for (score, doc_address) in top_docs {
+        let doc: TantivyDocument = searcher
+            .doc(doc_address)
+            .map_err(|e| format!("Failed to retrieve document: {}", e))?;
+
+        let get_text = |field| {
+            doc.get_first(field)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+
+        let snippet = snippet_generator.snippet_from_doc(&doc).to_html();
+
+        results.push(GenreSearchResult {
+            score,
+            genre_id: get_text(genre_id_field),
+            doc_id: get_text(id_field),
+            doc_type: get_text(doc_type_field),
+            title: get_text(title_field),
+            snippet,
+        });
+    }
+
+    Ok(results)
+}

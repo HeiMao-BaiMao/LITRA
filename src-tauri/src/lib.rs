@@ -1,3 +1,5 @@
+mod genre_search;
+mod genre_windows;
 mod import;
 mod project_memo;
 mod search;
@@ -12,6 +14,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
+            genre_search::rebuild_genre_search_index,
+            genre_search::search_genre,
+            genre_windows::open_genre_chat_window,
             import::import_files,
             project_memo::list_project_memos,
             project_memo::create_project_memo,
