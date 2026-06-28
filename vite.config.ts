@@ -37,6 +37,8 @@ export default defineConfig(() => ({
         chat: resolve(import.meta.dirname, "chat-window.html"),
         summary: resolve(import.meta.dirname, "summary-window.html"),
         settings: resolve(import.meta.dirname, "settings-window.html"),
+        "genre-library": resolve(import.meta.dirname, "genre-library.html"),
+        "genre-chat": resolve(import.meta.dirname, "genre-chat-window.html"),
       },
     },
   },

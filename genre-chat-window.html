@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title id="genre-chat-title">ジャンルAIチャット - Phenex</title>
+    <script type="module" src="/src/genre-chat-window.ts" defer></script>
+  </head>
+
+  <body class="detachable-window">
+    <div id="genre-chat-app" class="genre-chat-app">
+      <aside id="thread-sidebar" class="thread-sidebar">
+        <div class="thread-sidebar-header">
+          <h2>スレッド</h2>
+        </div>
+        <div id="thread-list" class="thread-list"></div>
+      </aside>
+
+      <main class="genre-chat-main-wrapper">
+        <header class="genre-chat-header">
+          <h2 id="genre-chat-genre-name">ジャンルAIチャット</h2>
+        </header>
+        <div id="genre-chat-main" class="genre-chat-main"></div>
+      </main>
+    </div>
+  </body>
+</html>
