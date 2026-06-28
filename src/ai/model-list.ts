@@ -40,6 +40,19 @@ export const SAKURA_FIXED_MODELS: FixedModel[] = [
   { id: "preview/Qwen3.6-35B-A3B", label: "Qwen3.6 35B A3B Preview" },
 ];
 
+/**
+ * OpenCode Go はアプリ側で利用モデルを半固定にする。
+ * MiniMax M3 は Anthropic 互換、それ以外は OpenAI chat completions 互換。
+ */
+export const OPENCODE_GO_FIXED_MODELS: FixedModel[] = [
+  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+  { id: "minimax-m3", label: "MiniMax M3" },
+  { id: "mimo-v2.5", label: "MiMo-V2.5" },
+  { id: "mimo-v2.5-pro", label: "MiMo-V2.5-Pro" },
+  { id: "glm-5.2", label: "GLM-5.2" },
+];
+
 function getOpenAiFixedModels(providerId: string, baseUrl: string): string[] | undefined {
   const isDeepSeek =
     providerId === "deepseek" || baseUrl.includes("api.deepseek.com");
@@ -51,6 +64,12 @@ function getOpenAiFixedModels(providerId: string, baseUrl: string): string[] | u
     providerId === "sakura" || baseUrl.includes("api.ai.sakura.ad.jp");
   if (isSakura) {
     return SAKURA_FIXED_MODELS.map((m) => m.id);
+  }
+
+  const isOpenCodeGo =
+    providerId === "opencode" || baseUrl.includes("opencode.ai/zen/go");
+  if (isOpenCodeGo) {
+    return OPENCODE_GO_FIXED_MODELS.map((m) => m.id);
   }
 
   return undefined;
@@ -70,6 +89,11 @@ function getOpenAiFallbackModels(
     providerId === "sakura" || baseUrl.includes("api.ai.sakura.ad.jp");
   if (isSakura) {
     return SAKURA_FIXED_MODELS.map((m) => m.id);
+  }
+  const isOpenCodeGo =
+    providerId === "opencode" || baseUrl.includes("opencode.ai/zen/go");
+  if (isOpenCodeGo) {
+    return OPENCODE_GO_FIXED_MODELS.map((m) => m.id);
   }
   if (configuredModels.length > 0) {
     return configuredModels;

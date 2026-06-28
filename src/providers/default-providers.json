@@ -237,6 +237,76 @@
           "topP": 1.0
         }
       ]
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode Go",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://opencode.ai/zen/go/v1",
+      "defaultModel": "deepseek-v4-flash",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash",
+          "temperature": 0.3,
+          "maxTokens": 32768,
+          "maxContextTokens": 68000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro",
+          "temperature": 0.25,
+          "maxTokens": 32768,
+          "maxContextTokens": 82000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "minimax-m3",
+          "label": "MiniMax M3",
+          "temperature": 0.3,
+          "maxTokens": 32768,
+          "maxContextTokens": 56000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "mimo-v2.5",
+          "label": "MiMo-V2.5",
+          "temperature": 0.35,
+          "maxTokens": 32768,
+          "maxContextTokens": 71500,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "mimo-v2.5-pro",
+          "label": "MiMo-V2.5-Pro",
+          "temperature": 0.3,
+          "maxTokens": 32768,
+          "maxContextTokens": 86000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "glm-5.2",
+          "label": "GLM-5.2",
+          "temperature": 0.2,
+          "maxTokens": 32768,
+          "maxContextTokens": 52000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        }
+      ]
     }
   ]
 }

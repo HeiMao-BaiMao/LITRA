@@ -86,7 +86,7 @@ function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
         defaultModel: defaultProvider.defaultModel,
         requiresApiKey: existing.requiresApiKey ?? defaultProvider.requiresApiKey,
         models:
-          defaultProvider.id === "sakura"
+          defaultProvider.id === "sakura" || defaultProvider.id === "opencode"
             ? defaultProvider.models
             : mergeDefaultModels(existing.models, defaultProvider.models),
       });

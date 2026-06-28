@@ -13,13 +13,18 @@ import {
   type ProviderConfig,
   type ProviderEntry,
 } from "../providers/config.ts";
-import { DEEPSEEK_FIXED_MODELS, SAKURA_FIXED_MODELS, type FixedModel } from "../ai/model-list.ts";
+import {
+  DEEPSEEK_FIXED_MODELS,
+  OPENCODE_GO_FIXED_MODELS,
+  SAKURA_FIXED_MODELS,
+  type FixedModel,
+} from "../ai/model-list.ts";
 
 let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = null;
 let modalProviderConfig: ProviderConfig | null = null;
 let modalCurrentProvider: Provider = "openai";
 
-const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo"];
+const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode"];
 
 function getFixedModelOptions(provider: Provider): FixedModel[] | undefined {
   switch (provider) {
@@ -27,6 +32,8 @@ function getFixedModelOptions(provider: Provider): FixedModel[] | undefined {
       return DEEPSEEK_FIXED_MODELS;
     case "sakura":
       return SAKURA_FIXED_MODELS;
+    case "opencode":
+      return OPENCODE_GO_FIXED_MODELS;
     default:
       return undefined;
   }

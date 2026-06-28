@@ -8,7 +8,7 @@ import {
 import { clearPanelRatios } from "./layout-store.ts";
 import { clearWindowState } from "./window/bounds.ts";
 
-export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura" | "plamo";
+export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura" | "plamo" | "opencode";
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -43,7 +43,7 @@ const STORE_NAME = "phenex-settings.json";
 
 const DEFAULT_PROVIDER: Provider = "openai";
 
-const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo"];
+const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode"];
 
 async function getStore(): Promise<Store> {
   return load(STORE_NAME, { defaults: {}, autoSave: true });
@@ -95,7 +95,8 @@ function isProvider(value: unknown): value is Provider {
     value === "google" ||
     value === "llamacpp" ||
     value === "sakura" ||
-    value === "plamo"
+    value === "plamo" ||
+    value === "opencode"
   );
 }
 

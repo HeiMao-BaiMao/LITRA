@@ -14,6 +14,7 @@ const FLOAT_PARAMETER_KEYS = new Set([
 
 const PLAMO_API_HOST = "api.platform.preferredai.jp";
 const SAKURA_API_HOST = "api.ai.sakura.ad.jp";
+const OPENCODE_GO_ANTHROPIC_MODELS = new Set(["minimax-m3"]);
 const PLAMO_UNSUPPORTED_SCHEMA_KEYS = new Set(["$schema", "propertyNames"]);
 const SAKURA_RETRY_STATUS_CODES = new Set([429, 439]);
 const SAKURA_MIN_REQUEST_INTERVAL_MS = 2500;
@@ -417,6 +418,11 @@ export function createModel(settings: AiSettings) {
       }
       return openai(settings.model);
     }
+    case "opencode":
+      if (OPENCODE_GO_ANTHROPIC_MODELS.has(settings.model)) {
+        return createAnthropic(common)(settings.model);
+      }
+      return createOpenAI(common).chat(settings.model);
     case "anthropic":
       return createAnthropic(common)(settings.model);
     case "deepseek":

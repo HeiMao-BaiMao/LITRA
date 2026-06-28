@@ -307,6 +307,7 @@ function getProviderProtocol(settings: AiSettings): string {
       return "responses";
     case "plamo":
     case "deepseek":
+    case "opencode":
       return "chat-completions";
     case "anthropic":
     case "google":
@@ -2701,6 +2702,7 @@ async function init(): Promise<void> {
         llamacpp: { apiKey: "", baseUrl: "", model: "" },
         sakura: { apiKey: "", baseUrl: "", model: "" },
         plamo: { apiKey: "", baseUrl: "", model: "" },
+        opencode: { apiKey: "", baseUrl: "", model: "" },
       },
       temperature: 0.7,
       maxTokens: 8192,
