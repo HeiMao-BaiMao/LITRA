@@ -111,6 +111,8 @@ const baseToolGuidancePrompt = `TOOL-USE RULES:
 - Use write tools only for changes explicitly or clearly requested by the user. Never overwrite unknown values with guesses or empty strings.
 - Printing tool arguments as ordinary text does not execute a tool. Make an actual tool call.
 - If a tool fails, do not report success. State the cause and the next required action briefly in Japanese.
+- After a tool succeeds and directly answers the user's request, report the result to the user. Do not call the same tool again with the same input in the same run.
+- When a write tool result includes editSummary or editedLineRanges, use that for one concise post-change report instead of restating expectedText, replacementText, or other tool arguments.
 - Do not execute the same write twice. Retry only the failed scope.
 
 ${persistedJapaneseRule}`;
@@ -137,11 +139,14 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
   ) {
     sections.push(`EPISODE TEXT EDITING:
 1. Use findEpisodeLines or getEpisodeLines to inspect current text and line numbers. Never guess line numbers.
-2. Copy expectedText exactly from the retrieved source, character for character. Do not include line-number prefixes.
-3. Use editEpisode for one contiguous range and editEpisodeBatch for multiple non-contiguous ranges.
-4. All editEpisodeBatch ranges must refer to the same pre-edit version of the manuscript.
-5. On expectedText mismatch, re-read only the failed range and retry with the latest exact text.
-6. replacementText must be Japanese fiction or Japanese editorial text unless the user explicitly requested another language. expectedText must remain an exact copy of the source language.`);
+2. Ask the user before editing only when the target range, intended change, or canon impact is ambiguous or high-risk. Do not ask for confirmation after each individual edit when the requested changes are clear.
+3. Copy expectedText exactly from the retrieved source, character for character. Do not include line-number prefixes.
+4. Use editEpisode for one contiguous range and editEpisodeBatch for multiple non-contiguous ranges.
+5. For multiple clear non-contiguous ranges, collect all edits from the same pre-edit manuscript and call editEpisodeBatch once. Do not chain repeated editEpisode calls for each range.
+6. All editEpisodeBatch ranges must refer to the same pre-edit version of the manuscript.
+7. On expectedText mismatch, re-read only the failed range and retry with the latest exact text.
+8. After a successful edit, report editSummary or editedLineRanges once. Do not print expectedText/replacementText unless the user asks.
+9. replacementText must be Japanese fiction or Japanese editorial text unless the user explicitly requested another language. expectedText must remain an exact copy of the source language.`);
   }
 
   if (
@@ -277,6 +282,7 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
     sections.push(`CONSISTENCY CHECKING:
 - Use checkConsistency for contradictions in canon, chronology, causality, character state, forms of address, relationships, or scene continuity.
 - Put the user's specified character, setting, scene, or question into focus.
+- After checkConsistency returns success, report its summary and issues. Do not run checkConsistency again for the same episode/focus, and do not run rebuildSearchIndex unless the consistency result explicitly says required evidence was missing.
 - Return the report in Japanese.`);
   }
 

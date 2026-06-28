@@ -4,6 +4,7 @@ mod import;
 mod project_memo;
 mod search;
 mod settings;
+mod storage;
 mod tools;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

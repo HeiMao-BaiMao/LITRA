@@ -1,8 +1,13 @@
+use crate::storage::{
+    project_characters_path as characters_path, project_episodes_dir as episodes_dir,
+    project_episodes_list_path as episodes_list_path,
+    project_memos_list_path as project_memos_path, project_memos_path as memos_path,
+    project_relationships_path as relationships_path, project_world_path as world_path,
+    read_or_empty, write_json, write_text,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,79 +47,6 @@ pub struct ImportResult {
     pub project_memos: usize,
     pub relationships: usize,
     pub skipped_relationships: usize,
-}
-
-fn documents_dir() -> Result<PathBuf, String> {
-    dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
-}
-
-fn project_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(documents_dir()?.join("phenex/projects").join(project_id))
-}
-
-fn settings_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("settings"))
-}
-
-fn episodes_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("episodes"))
-}
-
-fn characters_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(settings_dir(project_id)?.join("characters.json"))
-}
-
-fn world_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(settings_dir(project_id)?.join("world.json"))
-}
-
-fn episodes_list_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("episodes.json"))
-}
-
-fn memos_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("memos.json"))
-}
-
-fn project_memos_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("project-memos.json"))
-}
-
-fn relationships_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("relationships.json"))
-}
-
-fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
-    }
-    Ok(())
-}
-
-fn read_json(path: &PathBuf) -> Result<Value, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
-}
-
-fn read_or_empty(path: &PathBuf, empty: Value) -> Value {
-    if path.exists() {
-        read_json(path).unwrap_or(empty)
-    } else {
-        empty
-    }
-}
-
-fn write_json(path: &PathBuf, value: &Value) -> Result<(), String> {
-    ensure_parent_dir(path).map_err(|e| format!("Failed to prepare {}: {}", path.display(), e))?;
-    fs::write(path, serde_json::to_string_pretty(value).unwrap())
-        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
-}
-
-fn write_text(path: &PathBuf, content: &str) -> Result<(), String> {
-    ensure_parent_dir(path).map_err(|e| format!("Failed to prepare {}: {}", path.display(), e))?;
-    fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
 fn extract_custom_fields(fields: &HashMap<String, String>, known_keys: &[&str]) -> Vec<Value> {
@@ -1062,6 +994,9 @@ fn do_import(project_id: &str, files: &[ImportFileInput]) -> Result<ImportResult
 
 #[cfg(test)]
 mod tests {
+    use crate::storage::project_dir;
+    use std::fs;
+
     use super::*;
 
     fn test_project_id() -> String {

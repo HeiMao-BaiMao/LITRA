@@ -88,6 +88,10 @@ import {
   updateLastAssistantChunk,
   updateLastAssistantThinking,
 } from "./ui/chat.ts";
+import {
+  populateChatModelOptions,
+  populateChatProviderOptions,
+} from "./ui/chat-window-common.ts";
 import { renderChatMessageHtml } from "./markdown.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
@@ -217,7 +221,7 @@ const CHAT_LENGTH_CONTINUATION_PROMPT =
   "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを書いてください。前置き、見出し、注釈は不要です。";
 const CHAT_TOOL_CALL_RETRY_LIMIT = 3;
 const CHAT_TOOL_CALL_RETRY_PROMPT =
-  "直前の応答は、必要なツール呼び出しに到達しないまま説明文で終わっています。説明、手順、expectedText/replacementText の表示を続けず、直ちに必要なツールを呼び出してください。本文編集では findEpisodeLines または getEpisodeLines で確認し、単一範囲なら editEpisode、複数の離れた範囲なら editEpisodeBatch を呼び出してください。ユーザーへの文章回答はツール実行後だけにしてください。";
+  "直前の応答は、必要なツール呼び出しに到達しないまま説明文で終わっています。説明、手順、expectedText/replacementText の表示を続けず、直ちに必要なツールを呼び出してください。本文編集では findEpisodeLines または getEpisodeLines で確認し、単一範囲なら editEpisode、明確な複数範囲なら editEpisodeBatch を1回だけ呼び出してください。曖昧または高リスクな編集だけ事前確認し、範囲ごとの逐次確認はしないでください。ユーザーへの文章回答はツール実行後に editSummary または editedLineRanges を使って一度だけ行ってください。";
 
 interface PromptContextBudgets {
   settingsField: number;
@@ -1040,164 +1044,169 @@ function syncSettingsToWindow(): void {
   });
 }
 
-async function openMemoWindow(): Promise<void> {
-  const existing = await WebviewWindow.getByLabel("memo");
+type ManagedWindowOptions = ConstructorParameters<typeof WebviewWindow>[1];
+
+async function openManagedWindow(
+  label: string,
+  options: ManagedWindowOptions,
+  lifecycle: {
+    beforeCreate?: () => void;
+    onCreated?: () => void;
+    onDestroyed?: () => void;
+    syncDelayMs?: number;
+  } = {},
+): Promise<void> {
+  const existing = await WebviewWindow.getByLabel(label);
   if (existing) {
     await existing.setFocus();
     return;
   }
 
-  memoCollapsedBeforeDetach = state.memoCollapsed;
-  state.memoDetached = true;
-  applyPanelVisibility();
-  void saveWindowDetached("memo", true);
+  lifecycle.beforeCreate?.();
 
-  const webview = new WebviewWindow("memo", {
-    url: "memo-window.html",
-    title: "覚え書き - Phenex",
-    width: 420,
-    height: 640,
-    minWidth: 280,
-    minHeight: 320,
-    dragDropEnabled: false,
-  });
+  const webview = new WebviewWindow(label, options);
 
   webview.once("tauri://created", () => {
-    setTimeout(() => syncMemoToWindow(), 500);
-    void applyWindowBounds(webview, "memo");
-    trackWindowBounds(webview, "memo");
+    if (lifecycle.onCreated) {
+      setTimeout(lifecycle.onCreated, lifecycle.syncDelayMs ?? 500);
+    }
+    void applyWindowBounds(webview, label);
+    trackWindowBounds(webview, label);
   });
 
   webview.once("tauri://destroyed", () => {
     if (!isMainClosing) {
-      state.memoDetached = false;
-      state.memoCollapsed = memoCollapsedBeforeDetach;
-      applyPanelVisibility();
-      void saveWindowDetached("memo", false);
+      lifecycle.onDestroyed?.();
     }
   });
+}
+
+async function openMemoWindow(): Promise<void> {
+  await openManagedWindow(
+    "memo",
+    {
+      url: "memo-window.html",
+      title: "覚え書き - Phenex",
+      width: 420,
+      height: 640,
+      minWidth: 280,
+      minHeight: 320,
+      dragDropEnabled: false,
+    },
+    {
+      beforeCreate: () => {
+        memoCollapsedBeforeDetach = state.memoCollapsed;
+        state.memoDetached = true;
+        applyPanelVisibility();
+        void saveWindowDetached("memo", true);
+      },
+      onCreated: syncMemoToWindow,
+      onDestroyed: () => {
+        state.memoDetached = false;
+        state.memoCollapsed = memoCollapsedBeforeDetach;
+        applyPanelVisibility();
+        void saveWindowDetached("memo", false);
+      },
+    },
+  );
 }
 
 async function openChatWindow(): Promise<void> {
-  const existing = await WebviewWindow.getByLabel("chat");
-  if (existing) {
-    await existing.setFocus();
-    return;
-  }
-
-  chatCollapsedBeforeDetach = state.chatCollapsed;
-  state.chatDetached = true;
-  applyPanelVisibility();
-  void saveWindowDetached("chat", true);
-
-  const webview = new WebviewWindow("chat", {
-    url: "chat-window.html",
-    title: "AI チャット - Phenex",
-    width: 480,
-    height: 640,
-    minWidth: 200,
-    minHeight: 320,
-    dragDropEnabled: false,
-  });
-
-  webview.once("tauri://created", () => {
-    setTimeout(() => {
-      syncChatToWindow();
-      syncChatSettingsToWindow();
-    }, 500);
-    void applyWindowBounds(webview, "chat");
-    trackWindowBounds(webview, "chat");
-  });
-
-  webview.once("tauri://destroyed", () => {
-    if (!isMainClosing) {
-      state.chatDetached = false;
-      state.chatCollapsed = chatCollapsedBeforeDetach;
-      applyPanelVisibility();
-      void saveWindowDetached("chat", false);
-    }
-  });
+  await openManagedWindow(
+    "chat",
+    {
+      url: "chat-window.html",
+      title: "AI チャット - Phenex",
+      width: 480,
+      height: 640,
+      minWidth: 200,
+      minHeight: 320,
+      dragDropEnabled: false,
+    },
+    {
+      beforeCreate: () => {
+        chatCollapsedBeforeDetach = state.chatCollapsed;
+        state.chatDetached = true;
+        applyPanelVisibility();
+        void saveWindowDetached("chat", true);
+      },
+      onCreated: () => {
+        syncChatToWindow();
+        syncChatSettingsToWindow();
+      },
+      onDestroyed: () => {
+        state.chatDetached = false;
+        state.chatCollapsed = chatCollapsedBeforeDetach;
+        applyPanelVisibility();
+        void saveWindowDetached("chat", false);
+      },
+    },
+  );
 }
 
 async function openSummaryWindow(): Promise<void> {
-  const existing = await WebviewWindow.getByLabel("summary");
-  if (existing) {
-    await existing.setFocus();
-    return;
-  }
-
-  state.summaryDetached = true;
-  applyPanelVisibility();
-  void saveWindowDetached("summary", true);
-
-  const webview = new WebviewWindow("summary", {
-    url: "summary-window.html",
-    title: "エピソード要約 - Phenex",
-    width: 420,
-    height: 640,
-    minWidth: 280,
-    minHeight: 320,
-    dragDropEnabled: false,
-  });
-
-  webview.once("tauri://created", () => {
-    setTimeout(() => syncSummaryToWindow(), 500);
-    void applyWindowBounds(webview, "summary");
-    trackWindowBounds(webview, "summary");
-  });
-
-  webview.once("tauri://destroyed", () => {
-    if (!isMainClosing) {
-      state.summaryDetached = false;
-      applyPanelVisibility();
-      void saveWindowDetached("summary", false);
-    }
-  });
+  await openManagedWindow(
+    "summary",
+    {
+      url: "summary-window.html",
+      title: "エピソード要約 - Phenex",
+      width: 420,
+      height: 640,
+      minWidth: 280,
+      minHeight: 320,
+      dragDropEnabled: false,
+    },
+    {
+      beforeCreate: () => {
+        state.summaryDetached = true;
+        applyPanelVisibility();
+        void saveWindowDetached("summary", true);
+      },
+      onCreated: syncSummaryToWindow,
+      onDestroyed: () => {
+        state.summaryDetached = false;
+        applyPanelVisibility();
+        void saveWindowDetached("summary", false);
+      },
+    },
+  );
 }
 
 async function openSettingsWindow(): Promise<void> {
-  const existing = await WebviewWindow.getByLabel("settings");
-  if (existing) {
-    await existing.setFocus();
-    return;
-  }
+  await openManagedWindow(
+    "settings",
+    {
+      url: "settings-window.html",
+      title: "設定 - Phenex",
+      width: 640,
+      height: 700,
+      minWidth: 420,
+      minHeight: 420,
+      dragDropEnabled: false,
+    },
+    {
+      beforeCreate: () => {
+        state.settingsDetached = true;
+        applyPanelVisibility();
+        void saveWindowDetached("settings", true);
 
-  state.settingsDetached = true;
-  applyPanelVisibility();
-  void saveWindowDetached("settings", true);
-
-  if (state.currentView === "episode") {
-    state.currentView = "characters";
-  }
-  setView(state.currentView);
-  renderSettingsView();
-  syncSettingsToWindow();
-
-  const webview = new WebviewWindow("settings", {
-    url: "settings-window.html",
-    title: "設定 - Phenex",
-    width: 640,
-    height: 700,
-    minWidth: 420,
-    minHeight: 420,
-    dragDropEnabled: false,
-  });
-
-  webview.once("tauri://created", () => {
-    setTimeout(() => syncSettingsToWindow(), 500);
-    void applyWindowBounds(webview, "settings");
-    trackWindowBounds(webview, "settings");
-  });
-
-  webview.once("tauri://destroyed", () => {
-    if (!isMainClosing) {
-      state.settingsDetached = false;
-      applyPanelVisibility();
-      setView(state.currentView);
-      renderSettingsView();
-      void saveWindowDetached("settings", false);
-    }
-  });
+        if (state.currentView === "episode") {
+          state.currentView = "characters";
+        }
+        setView(state.currentView);
+        renderSettingsView();
+        syncSettingsToWindow();
+      },
+      onCreated: syncSettingsToWindow,
+      onDestroyed: () => {
+        state.settingsDetached = false;
+        applyPanelVisibility();
+        setView(state.currentView);
+        renderSettingsView();
+        void saveWindowDetached("settings", false);
+      },
+    },
+  );
 }
 
 function syncProjectMemosToWindow(): void {
@@ -1205,51 +1214,37 @@ function syncProjectMemosToWindow(): void {
 }
 
 async function openProjectMemosWindow(): Promise<void> {
-  const existing = await WebviewWindow.getByLabel("projectMemos");
-  if (existing) {
-    await existing.setFocus();
-    return;
-  }
-
-  state.memosDetached = true;
-  applyPanelVisibility();
-  renderMemosView();
-  void saveWindowDetached("projectMemos", true);
-
-  const webview = new WebviewWindow("projectMemos", {
-    url: "project-memo-window.html",
-    title: "メモ - Phenex",
-    width: 480,
-    height: 640,
-    minWidth: 280,
-    minHeight: 320,
-    dragDropEnabled: false,
-  });
-
-  webview.once("tauri://created", () => {
-    setTimeout(() => syncProjectMemosToWindow(), 500);
-    void applyWindowBounds(webview, "projectMemos");
-    trackWindowBounds(webview, "projectMemos");
-  });
-
-  webview.once("tauri://destroyed", () => {
-    if (!isMainClosing) {
-      state.memosDetached = false;
-      applyPanelVisibility();
-      renderMemosView();
-      void saveWindowDetached("projectMemos", false);
-    }
-  });
+  await openManagedWindow(
+    "projectMemos",
+    {
+      url: "project-memo-window.html",
+      title: "メモ - Phenex",
+      width: 480,
+      height: 640,
+      minWidth: 280,
+      minHeight: 320,
+      dragDropEnabled: false,
+    },
+    {
+      beforeCreate: () => {
+        state.memosDetached = true;
+        applyPanelVisibility();
+        renderMemosView();
+        void saveWindowDetached("projectMemos", true);
+      },
+      onCreated: syncProjectMemosToWindow,
+      onDestroyed: () => {
+        state.memosDetached = false;
+        applyPanelVisibility();
+        renderMemosView();
+        void saveWindowDetached("projectMemos", false);
+      },
+    },
+  );
 }
 
 async function openGenreLibraryWindow(): Promise<void> {
-  const existing = await WebviewWindow.getByLabel("genre-library");
-  if (existing) {
-    await existing.setFocus();
-    return;
-  }
-
-  const webview = new WebviewWindow("genre-library", {
+  await openManagedWindow("genre-library", {
     url: "genre-library.html",
     title: "ジャンルライブラリ - Phenex",
     width: 960,
@@ -1262,11 +1257,6 @@ async function openGenreLibraryWindow(): Promise<void> {
     closable: true,
     decorations: true,
     dragDropEnabled: false,
-  });
-
-  webview.once("tauri://created", () => {
-    void applyWindowBounds(webview, "genre-library");
-    trackWindowBounds(webview, "genre-library");
   });
 }
 
@@ -2386,25 +2376,12 @@ async function handleChatSubmit(): Promise<void> {
 
 function renderChatProviderOptions(): void {
   const { chatProviderSelect } = getElements();
-  chatProviderSelect.innerHTML = "";
-  for (const provider of providerConfig.providers) {
-    const option = document.createElement("option");
-    option.value = provider.id;
-    option.textContent = provider.name;
-    chatProviderSelect.appendChild(option);
-  }
+  populateChatProviderOptions(chatProviderSelect, providerConfig);
 }
 
 function renderChatModelOptions(providerId: Provider): void {
   const { chatModelSelect } = getElements();
-  const entry = getProviderEntry(providerConfig, providerId);
-  chatModelSelect.innerHTML = "";
-  for (const model of entry?.models ?? []) {
-    const option = document.createElement("option");
-    option.value = model.id;
-    option.textContent = model.label ?? model.id;
-    chatModelSelect.appendChild(option);
-  }
+  populateChatModelOptions(chatModelSelect, providerConfig, providerId);
 }
 
 function updateChatSelectorsFromSettings(): void {

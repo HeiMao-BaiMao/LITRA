@@ -1,4 +1,4 @@
-import { generateObject, isLoopFinished, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
+import { generateObject, isLoopFinished, stepCountIs, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
 import { buildProviderOptions } from "./provider-options.ts";
 import {
@@ -12,6 +12,8 @@ import {
 import type { AiSettings } from "../settings.ts";
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
+const TOOL_LOOP_MAX_STEPS = 6;
+const DUPLICATE_TOOL_CALL_INPUT_LIMIT = 2;
 
 function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean): boolean {
   // DeepSeek の thinking モードはツール呼び出しと両立しない。
@@ -44,6 +46,58 @@ function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
 function hasTools(tools: ToolSet | undefined): tools is ToolSet {
   if (tools == null || Object.keys(tools).length === 0) return false;
   return true;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+function duplicateToolCallInputCountIs(limit: number): StopCondition<any> {
+  return ({ steps }) => {
+    const counts = new Map<string, number>();
+    for (const step of steps) {
+      for (const toolCall of step.toolCalls) {
+        const key = `${toolCall.toolName}:${stableStringify(toolCall.input)}`;
+        const nextCount = (counts.get(key) ?? 0) + 1;
+        if (nextCount >= limit) {
+          console.warn("[phenex:ai] stopping repeated tool call loop:", {
+            toolName: toolCall.toolName,
+            repeatedCalls: nextCount,
+          });
+          return true;
+        }
+        counts.set(key, nextCount);
+      }
+    }
+    return false;
+  };
+}
+
+function toolLoopStopConditions(
+  stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>,
+): Array<StopCondition<ToolSet>> {
+  const base = Array.isArray(stopWhen)
+    ? stopWhen
+    : stopWhen
+      ? [stopWhen]
+      : [isLoopFinished() as StopCondition<ToolSet>];
+  return [
+    ...base,
+    stepCountIs(TOOL_LOOP_MAX_STEPS) as StopCondition<ToolSet>,
+    duplicateToolCallInputCountIs(DUPLICATE_TOOL_CALL_INPUT_LIMIT) as StopCondition<ToolSet>,
+  ];
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -121,7 +175,14 @@ function extractReasoningChunk(part: unknown): string | undefined {
   if (!isRecord(part)) return undefined;
   const type = part.type;
   if (type !== "reasoning-delta" && type !== "reasoning") return undefined;
-  return getStringField(part, ["text", "delta", "textDelta"]);
+  return getStringField(part, ["delta", "text", "textDelta"]);
+}
+
+function extractTextChunk(part: unknown): string | undefined {
+  if (!isRecord(part)) return undefined;
+  const type = part.type;
+  if (type !== "text-delta" && type !== "text") return undefined;
+  return getStringField(part, ["delta", "text", "textDelta"]);
 }
 
 async function consumeStream(
@@ -158,19 +219,20 @@ async function consumeStream(
       continue;
     }
 
-    switch (part.type) {
-      case "text-delta": {
-        const chunk = part.text;
-        if (!chunk) break;
-        chunkCount++;
-        charCount += chunk.length;
-        lastSignificantPart = "text";
-        if (chunkCount <= 3 || chunkCount % 10 === 0) {
-          console.log(`[phenex:ai] text chunk #${chunkCount}:`, chunk.slice(0, 80));
-        }
-        onChunk(chunk);
-        break;
+    const textChunk = extractTextChunk(part);
+    if (textChunk !== undefined) {
+      if (!textChunk) continue;
+      chunkCount++;
+      charCount += textChunk.length;
+      lastSignificantPart = "text";
+      if (chunkCount <= 3 || chunkCount % 10 === 0) {
+        console.log(`[phenex:ai] text chunk #${chunkCount}:`, textChunk.slice(0, 80));
       }
+      onChunk(textChunk);
+      continue;
+    }
+
+    switch (part.type) {
       case "tool-input-start": {
         lastSignificantPart = "tool-input";
         pendingToolCallIds.add(part.id);
@@ -274,7 +336,7 @@ export interface StreamChatOptions {
   settingsContext?: string;
   tools?: ToolSet;
   toolChoice?: "auto" | "none" | "required";
-  stopWhen?: StopCondition<ToolSet>;
+  stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
   onToolEvent?: (event: StreamToolEvent) => void;
 }
 
@@ -414,7 +476,7 @@ export async function streamChat({
       abortSignal,
       tools,
       toolChoice: toolsEnabled ? toolChoice : undefined,
-      stopWhen: stopWhen ?? (toolsEnabled ? isLoopFinished() : undefined),
+      stopWhen: toolsEnabled ? toolLoopStopConditions(stopWhen) : stopWhen,
       ...buildAdvancedOptions(s, toolsEnabled),
     });
 
@@ -450,7 +512,7 @@ export async function streamChat({
           abortSignal,
           tools,
           toolChoice: "required",
-          stopWhen: isLoopFinished() as StopCondition<ToolSet>,
+          stopWhen: toolLoopStopConditions(isLoopFinished() as StopCondition<ToolSet>),
           ...buildAdvancedOptions(s, toolsEnabled),
         });
         return await consumeStream(retryResult, onChunk, onToolEvent, onReasoning);
@@ -487,7 +549,7 @@ export async function streamContinuation({
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
-      stopWhen: toolsEnabled ? isLoopFinished() : undefined,
+      stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
       ...buildAdvancedOptions(s, toolsEnabled),
     });
 

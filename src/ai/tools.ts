@@ -392,6 +392,74 @@ interface BatchEditItemResponse {
   replacementLineCount: number;
 }
 
+interface EditLineRangeSummary {
+  index?: number;
+  startLine: number;
+  endLine: number;
+  replacementLineCount: number;
+}
+
+interface FailedEditLineRangeSummary extends EditLineRangeSummary {
+  message: string;
+}
+
+function formatEditLineRange(
+  range: Pick<EditLineRangeSummary, "startLine" | "endLine">,
+): string {
+  return range.startLine === range.endLine
+    ? `${range.startLine}行目`
+    : `${range.startLine}-${range.endLine}行`;
+}
+
+function formatEditLineRanges(
+  ranges: Array<Pick<EditLineRangeSummary, "startLine" | "endLine">>,
+): string {
+  const labels = ranges.map(formatEditLineRange);
+  if (labels.length <= 8) return labels.join(", ");
+  return `${labels.slice(0, 8).join(", ")} ほか${labels.length - 8}件`;
+}
+
+function toEditLineRangeSummary(
+  item: Pick<
+    BatchEditItemResponse,
+    "index" | "startLine" | "endLine" | "replacementLineCount"
+  >,
+): EditLineRangeSummary {
+  return {
+    index: item.index,
+    startLine: item.startLine,
+    endLine: item.endLine,
+    replacementLineCount: item.replacementLineCount,
+  };
+}
+
+function buildAppliedEditSummary(
+  appliedEdits: number,
+  editedLineRanges: EditLineRangeSummary[],
+  batch: boolean,
+): string {
+  const prefix = batch
+    ? `${appliedEdits}件の編集を一括適用しました`
+    : "1件の編集を適用しました";
+  const ranges =
+    editedLineRanges.length > 0
+      ? `: ${formatEditLineRanges(editedLineRanges)}`
+      : "";
+  return `${prefix}${ranges}。`;
+}
+
+function buildRejectedEditSummary(
+  message: string,
+  failedLineRanges: FailedEditLineRangeSummary[],
+): string {
+  if (failedLineRanges.length === 0) {
+    return `編集は適用されませんでした。${message}`;
+  }
+  return `編集は適用されませんでした: ${formatEditLineRanges(
+    failedLineRanges,
+  )}。${message}`;
+}
+
 const editInputSchema = z
   .object({
     episodeId: z
@@ -427,7 +495,7 @@ const editInputSchema = z
 export function createEditEpisodeTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "Replaces a line range only when expectedText exactly matches the current manuscript. Line numbers are 1-based and must be within the episode. Use getEpisodeLines first when uncertain. expectedText must preserve every character, line break, space, and width variant. replacementText must contain the final replacement; write natural-language prose in Japanese unless exact source preservation or an explicit user request requires otherwise.",
+      "Replaces a line range only when expectedText exactly matches the current manuscript. Line numbers are 1-based and must be within the episode. Use getEpisodeLines first when uncertain. expectedText must preserve every character, line break, space, and width variant. replacementText must contain the final replacement; write natural-language prose in Japanese unless exact source preservation or an explicit user request requires otherwise. On success, report editSummary or editedLineRanges once instead of restating tool arguments.",
 
     inputSchema: editInputSchema,
     execute: wrapToolExecute(
@@ -462,6 +530,20 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
         const searchIndexUpdated = result.success
           ? await rebuildSearchIndexQuietly(deps.projectId)
           : false;
+        const replacementLineCount = replacementText.split("\n").length;
+        const editedLineRanges: EditLineRangeSummary[] = result.success
+          ? [{ startLine, endLine, replacementLineCount }]
+          : [];
+        const failedLineRanges: FailedEditLineRangeSummary[] = result.success
+          ? []
+          : [
+              {
+                startLine,
+                endLine,
+                replacementLineCount,
+                message: result.message,
+              },
+            ];
         return {
           success: result.success,
           message: result.message,
@@ -472,7 +554,12 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
               : undefined,
           applied: result.success,
           editedLineRange: { startLine, endLine },
-          replacementLineCount: replacementText.split("\n").length,
+          editedLineRanges,
+          failedLineRanges,
+          replacementLineCount,
+          editSummary: result.success
+            ? buildAppliedEditSummary(1, editedLineRanges, false)
+            : buildRejectedEditSummary(result.message, failedLineRanges),
           searchIndexUpdated,
         };
       },
@@ -497,7 +584,7 @@ const batchEditInputSchema = z.object({
 export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "Atomically replaces multiple non-contiguous ranges in one episode. Every expectedText must exactly match the current text, including line breaks, spacing, and width variants. All ranges use 1-based line numbers from the same pre-edit manuscript and must not overlap. Use getEpisodeLines first when uncertain. All replacementText values must be Japanese natural-language prose unless exact source preservation or an explicit user request requires otherwise.",
+      "Atomically replaces multiple non-contiguous ranges in one episode. Use this instead of repeated editEpisode calls when multiple clear ranges are requested. Every expectedText must exactly match the current text, including line breaks, spacing, and width variants. All ranges use 1-based line numbers from the same pre-edit manuscript and must not overlap. Use getEpisodeLines first when uncertain. All replacementText values must be Japanese natural-language prose unless exact source preservation or an explicit user request requires otherwise. On success, report editSummary or editedLineRanges once instead of asking for per-range confirmation.",
     inputSchema: batchEditInputSchema,
     execute: wrapToolExecute(
       "editEpisodeBatch",
@@ -523,18 +610,31 @@ export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
         const searchIndexUpdated = result.success
           ? await rebuildSearchIndexQuietly(deps.projectId)
           : false;
+        const editResults = result.editResults.map((item) => ({
+          ...item,
+          actualText:
+            item.actualText != null ? limitToolText(item.actualText) : undefined,
+        }));
+        const editedLineRanges = editResults
+          .filter((item) => item.success)
+          .map(toEditLineRangeSummary);
+        const failedLineRanges: FailedEditLineRangeSummary[] = editResults
+          .filter((item) => !item.success)
+          .map((item) => ({
+            ...toEditLineRangeSummary(item),
+            message: item.message,
+          }));
         return {
           success: result.success,
           message: result.message,
           totalLines: result.totalLines,
           appliedEdits: result.appliedEdits,
-          editResults: result.editResults.map((item) => ({
-            ...item,
-            actualText:
-              item.actualText != null
-                ? limitToolText(item.actualText)
-                : undefined,
-          })),
+          editResults,
+          editedLineRanges,
+          failedLineRanges,
+          editSummary: result.success
+            ? buildAppliedEditSummary(result.appliedEdits, editedLineRanges, true)
+            : buildRejectedEditSummary(result.message, failedLineRanges),
           searchIndexUpdated,
         };
       },

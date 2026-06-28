@@ -1,8 +1,11 @@
+use crate::storage::{
+    project_episodes_dir as episodes_dir, project_episodes_list_path as episode_list_path,
+    project_summaries_path as summary_file_path, read_json, write_json, write_text,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::borrow::Cow;
 use std::fs;
-use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,53 +73,8 @@ pub struct BatchEditResult {
     pub edit_results: Vec<BatchEditItemResult>,
 }
 
-fn documents_dir() -> Result<PathBuf, String> {
-    dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
-}
-
-fn project_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(documents_dir()?.join("phenex/projects").join(project_id))
-}
-
-fn episodes_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("episodes"))
-}
-
-fn episode_list_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("episodes.json"))
-}
-
 fn normalize_newlines(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
-}
-
-fn summary_file_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("summaries.json"))
-}
-
-fn read_json(path: &PathBuf) -> Result<serde_json::Value, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
-}
-
-fn ensure_parent_dir(path: &PathBuf) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
-    }
-    Ok(())
-}
-
-fn write_text(path: &PathBuf, content: &str) -> Result<(), String> {
-    ensure_parent_dir(path)?;
-    fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path.display(), e))
-}
-
-fn write_json(path: &PathBuf, value: &serde_json::Value) -> Result<(), String> {
-    ensure_parent_dir(path)?;
-    fs::write(path, serde_json::to_string_pretty(value).unwrap())
-        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
 fn find_episode_file_name(
@@ -804,6 +762,8 @@ pub fn save_episode_one_liner(req: SaveOneLinerRequest) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::storage::project_dir;
+
     use super::*;
     use std::fs;
 

@@ -1,49 +1,8 @@
+use crate::storage::{
+    project_characters_path as characters_path, project_world_path as world_path, read_or_empty,
+    write_json,
+};
 use serde_json::{json, Map, Value};
-use std::fs;
-use std::path::PathBuf;
-
-fn documents_dir() -> Result<PathBuf, String> {
-    dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
-}
-
-fn project_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(documents_dir()?.join("phenex/projects").join(project_id))
-}
-
-fn settings_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(project_id)?.join("settings"))
-}
-
-fn characters_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(settings_dir(project_id)?.join("characters.json"))
-}
-
-fn world_path(project_id: &str) -> Result<PathBuf, String> {
-    Ok(settings_dir(project_id)?.join("world.json"))
-}
-
-fn read_json(path: &PathBuf) -> Result<Value, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
-}
-
-fn read_or_empty(path: &PathBuf, empty: Value) -> Value {
-    if path.exists() {
-        read_json(path).unwrap_or(empty)
-    } else {
-        empty
-    }
-}
-
-fn write_json(path: &PathBuf, value: &Value) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create dir {}: {}", parent.display(), e))?;
-    }
-    fs::write(path, serde_json::to_string_pretty(value).unwrap())
-        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
-}
 
 fn merge_updates(target: &mut Value, updates: Map<String, Value>) {
     if let Some(obj) = target.as_object_mut() {
@@ -137,6 +96,9 @@ pub fn update_character(req: UpdateCharacterRequest) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::storage::project_dir;
+    use std::fs;
+
     use super::*;
 
     fn test_project_id() -> String {

@@ -1,7 +1,7 @@
+use crate::storage::{project_dir, project_search_index_dir as index_dir, read_json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{Schema, Value, STORED, TEXT};
@@ -26,27 +26,6 @@ pub struct RebuildResult {
     pub success: bool,
     pub message: String,
     pub indexed_documents: usize,
-}
-
-fn documents_dir() -> Result<PathBuf, String> {
-    dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
-}
-
-fn project_dir(project_id: &str) -> Result<PathBuf, String> {
-    Ok(documents_dir()?.join("phenex/projects").join(project_id))
-}
-
-fn index_dir(project_id: &str) -> Result<PathBuf, String> {
-    let base = dirs::data_dir()
-        .or_else(dirs::document_dir)
-        .ok_or_else(|| "App data directory not found".to_string())?;
-    Ok(base.join("phenex/index").join(project_id))
-}
-
-fn read_json(path: &PathBuf) -> Result<serde_json::Value, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 fn build_schema() -> Schema {

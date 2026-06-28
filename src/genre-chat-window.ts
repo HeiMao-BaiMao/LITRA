@@ -6,7 +6,17 @@ import { applyStoredRatio, createVerticalResizer } from "./ui/resizable.ts";
 import { bindAutoResize } from "./ui/auto-resize.ts";
 import { showError, showInfo } from "./ui/common.ts";
 import { renderThreadList } from "./ui/genres/thread-list.ts";
-import { renderMarkdown } from "./markdown.ts";
+import {
+  bindChatSubmitShortcut,
+  populateChatModelOptions,
+  populateChatProviderOptions,
+  queryChatMessagesContainer,
+  queryChatWindowControls,
+  renderChatMessageContent,
+  renderChatMessageList,
+  setChatGeneratingState,
+  takeChatInputValue,
+} from "./ui/chat-window-common.ts";
 import {
   loadSettings,
   resolveChatSettings,
@@ -145,24 +155,13 @@ async function setupChatControls(): Promise<void> {
   selectedProvider = resolved.provider;
   selectedModel = resolved.model;
 
-  const providerSelect = document.querySelector<HTMLSelectElement>("#chat-provider");
-  const modelSelect = document.querySelector<HTMLSelectElement>("#chat-model");
-  const form = document.querySelector<HTMLFormElement>("#chat-form");
-  const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
-  const btnSend = document.querySelector<HTMLButtonElement>("#btn-send");
-  const btnCancel = document.querySelector<HTMLButtonElement>("#btn-cancel");
+  const controls = queryChatWindowControls();
+  if (!controls) return;
+  const { providerSelect, modelSelect, form, input, btnCancel } = controls;
 
-  if (!providerSelect || !modelSelect || !form || !input || !btnSend || !btnCancel) return;
-
-  for (const provider of providerConfig.providers) {
-    const option = document.createElement("option");
-    option.value = provider.id;
-    option.textContent = provider.name;
-    providerSelect.appendChild(option);
-  }
-
+  populateChatProviderOptions(providerSelect, providerConfig);
   providerSelect.value = selectedProvider;
-  renderChatModelOptions(modelSelect, selectedProvider);
+  populateChatModelOptions(modelSelect, providerConfig, selectedProvider);
   modelSelect.value = selectedModel;
 
   providerSelect.addEventListener("change", () => {
@@ -172,7 +171,7 @@ async function setupChatControls(): Promise<void> {
     const fallbackModel =
       getProviderModelIds(getProviderEntry(providerConfig ?? { providers: [] }, provider))[0] ?? "";
     selectedModel = defaults.model || fallbackModel;
-    renderChatModelOptions(modelSelect, provider);
+    populateChatModelOptions(modelSelect, providerConfig ?? { providers: [] }, provider);
     modelSelect.value = selectedModel;
   });
 
@@ -182,10 +181,8 @@ async function setupChatControls(): Promise<void> {
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const text = input.value.trim();
+    const text = takeChatInputValue(input, resetInputHeight);
     if (!text) return;
-    input.value = "";
-    resetInputHeight?.();
     void sendMessage(text);
   });
 
@@ -219,42 +216,16 @@ async function setupChatControls(): Promise<void> {
     }
   });
 
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      form.requestSubmit();
-    }
-  });
+  bindChatSubmitShortcut(input, form);
 
   btnCancel.addEventListener("click", () => {
     stopStreaming();
   });
 }
 
-function renderChatModelOptions(select: HTMLSelectElement, providerId: Provider): void {
-  select.innerHTML = "";
-  const entry = getProviderEntry(providerConfig ?? { providers: [] }, providerId);
-  for (const model of entry?.models ?? []) {
-    const option = document.createElement("option");
-    option.value = model.id;
-    option.textContent = model.label ?? model.id;
-    select.appendChild(option);
-  }
-}
-
 function setGeneratingState(isGenerating: boolean): void {
-  const form = document.querySelector<HTMLFormElement>("#chat-form");
-  const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
-  const btnSend = document.querySelector<HTMLButtonElement>("#btn-send");
-  const btnCancel = document.querySelector<HTMLButtonElement>("#btn-cancel");
-  if (form) form.classList.toggle("is-generating", isGenerating);
-  if (input) input.disabled = isGenerating;
-  if (btnSend) btnSend.disabled = isGenerating;
-  if (btnCancel) {
-    btnCancel.disabled = !isGenerating;
-    btnCancel.classList.toggle("hidden", !isGenerating);
-    btnCancel.classList.toggle("is-active", isGenerating);
-  }
+  const controls = queryChatWindowControls();
+  if (controls) setChatGeneratingState(controls, isGenerating);
 }
 
 async function loadGenre(genreId: string): Promise<void> {
@@ -524,21 +495,21 @@ async function sendMessage(content: string): Promise<void> {
     });
 
     let assistantContent = "";
+    let assistantThinking = "";
     const toolEvents: StreamToolEvent[] = [];
     const appendChunk = (chunk: string) => {
       assistantContent += chunk;
-      updateStreamingMessage(assistantContent);
+      updateStreamingMessage(assistantContent, assistantThinking);
     };
     const handleToolEvent = (event: StreamToolEvent) => {
       toolEvents.push(event);
       if (!assistantContent.trim()) {
-        updateStreamingMessage(toolEventStatus(event));
+        updateStreamingMessage(toolEventStatus(event), assistantThinking);
       }
     };
-    const handleReasoning = () => {
-      if (!assistantContent.trim()) {
-        updateStreamingMessage("（考え中...）");
-      }
+    const handleReasoning = (chunk: string) => {
+      assistantThinking += chunk;
+      updateStreamingMessage(assistantContent, assistantThinking);
     };
 
     let streamResult: StreamRunResult = await streamChat({
@@ -613,6 +584,7 @@ async function sendMessage(content: string): Promise<void> {
       threadId: state.currentThreadId,
       role: "assistant",
       content: finalContent,
+      thinking: assistantThinking.trim() ? assistantThinking : undefined,
       provider: settings.provider,
       model: settings.model,
       finishReason: streamResult.finishReason,
@@ -652,7 +624,7 @@ function stopStreaming(): void {
   renderMessages();
 }
 
-function updateStreamingMessage(content: string): void {
+function updateStreamingMessage(content: string, thinking?: string): void {
   const container = document.getElementById("chat-messages");
   if (!container) return;
 
@@ -661,27 +633,27 @@ function updateStreamingMessage(content: string): void {
     state.messages[existingIndex] = {
       ...state.messages[existingIndex],
       content,
+      thinking,
     };
+  } else {
+    state.messages = [
+      ...state.messages,
+      {
+        id: "streaming",
+        threadId: state.currentThreadId ?? "",
+        role: "assistant",
+        content,
+        thinking,
+        createdAt: new Date().toISOString(),
+      },
+    ];
   }
 
-  const assistantMessages = Array.from(container.querySelectorAll<HTMLElement>(".chat-message.assistant"));
-  const bubble = assistantMessages[assistantMessages.length - 1];
+  const bubble = container.querySelector<HTMLElement>('.chat-message[data-message-id="streaming"]');
   if (bubble) {
-    bubble.innerHTML = renderMarkdown(content);
+    renderChatMessageContent(bubble, content, thinking);
     container.scrollTop = container.scrollHeight;
   } else {
-    if (existingIndex === -1) {
-      state.messages = [
-        ...state.messages,
-        {
-          id: "streaming",
-          threadId: state.currentThreadId ?? "",
-          role: "assistant",
-          content,
-          createdAt: new Date().toISOString(),
-        },
-      ];
-    }
     renderMessages();
   }
 }
@@ -693,15 +665,11 @@ function formatBytes(bytes: number): string {
 }
 
 function renderMessages(): void {
-  const container = document.getElementById("chat-messages");
+  const container = queryChatMessagesContainer();
   if (!container) return;
 
-  container.innerHTML = "";
-  for (const message of state.messages) {
-    const el = document.createElement("div");
-    el.className = `chat-message ${message.role}`;
-    el.innerHTML = renderMarkdown(message.content);
-
+  renderChatMessageList(container, state.messages, {
+    afterRender: (el, message) => {
     if (message.attachments?.length) {
       const attachmentList = document.createElement("div");
       attachmentList.className = "chat-attachments";
@@ -729,10 +697,8 @@ function renderMessages(): void {
       candidates.textContent = `提案中の候補: ${referencedCandidateCount}件`;
       el.appendChild(candidates);
     }
-
-    container.appendChild(el);
-  }
-  container.scrollTop = container.scrollHeight;
+    },
+  });
 }
 
 window.addEventListener("DOMContentLoaded", () => {

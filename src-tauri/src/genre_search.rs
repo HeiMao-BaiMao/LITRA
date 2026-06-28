@@ -1,3 +1,4 @@
+use crate::storage::{genre_dir, genre_search_index_dir as index_dir, read_json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -27,27 +28,6 @@ pub struct GenreRebuildResult {
     pub success: bool,
     pub message: String,
     pub indexed_documents: usize,
-}
-
-fn documents_dir() -> Result<PathBuf, String> {
-    dirs::document_dir().ok_or_else(|| "Documents directory not found".to_string())
-}
-
-fn genre_dir(genre_id: &str) -> Result<PathBuf, String> {
-    Ok(documents_dir()?.join("phenex/genres").join(genre_id))
-}
-
-fn index_dir(genre_id: &str) -> Result<PathBuf, String> {
-    let base = dirs::data_dir()
-        .or_else(dirs::document_dir)
-        .ok_or_else(|| "App data directory not found".to_string())?;
-    Ok(base.join("phenex/genre-index").join(genre_id))
-}
-
-fn read_json(path: &PathBuf) -> Result<serde_json::Value, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 fn build_schema() -> Schema {
@@ -159,7 +139,10 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
             }
         }
 
-        let analysis_path = base.join("sources").join("analyses").join(format!("{}.json", source_id));
+        let analysis_path = base
+            .join("sources")
+            .join("analyses")
+            .join(format!("{}.json", source_id));
         if analysis_path.exists() {
             if let Ok(analysis) = read_json(&analysis_path) {
                 let summary = analysis["synthesizedAnalysis"]["summary"]
@@ -212,7 +195,10 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
 
     Ok(GenreRebuildResult {
         success: true,
-        message: format!("ジャンル検索インデックスを再構築しました（{}件）。", indexed),
+        message: format!(
+            "ジャンル検索インデックスを再構築しました（{}件）。",
+            indexed
+        ),
         indexed_documents: indexed,
     })
 }
