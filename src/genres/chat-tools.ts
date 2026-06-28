@@ -14,7 +14,7 @@ import { generateObject } from "ai";
 import { createModel } from "../ai/provider.ts";
 import { buildProviderOptions } from "../ai/provider-options.ts";
 import type { AiSettings } from "../settings.ts";
-import { loadGenre } from "./repository.ts";
+import { loadGenre, updateGenre } from "./repository.ts";
 
 export interface GenreChatToolDependencies {
   genreId: string;
@@ -107,6 +107,32 @@ function createReadGenreChatAttachmentTool(deps: GenreChatToolDependencies) {
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) };
       }
+    }),
+  });
+}
+
+function createUpdateGenreUserDefinitionTool(deps: GenreChatToolDependencies) {
+  return tool({
+    description: "Updates the genre's userDefinition field. Use this to store structured definitions, taxonomies, or matrices provided by the user.",
+    inputSchema: z.object({
+      userDefinition: z.string().describe("The new userDefinition content in markdown or plain text."),
+    }),
+    execute: wrapToolExecute("updateGenreUserDefinition", async ({ userDefinition }) => {
+      await updateGenre(deps.genreId, { userDefinition });
+      return { success: true, message: "userDefinition を更新しました。" };
+    }),
+  });
+}
+
+function createUpdateGenreNotesTool(deps: GenreChatToolDependencies) {
+  return tool({
+    description: "Updates the genre's notes field. Use this to store expansion plans, undeveloped areas, or working memos.",
+    inputSchema: z.object({
+      notes: z.string().describe("The new notes content in markdown or plain text."),
+    }),
+    execute: wrapToolExecute("updateGenreNotes", async ({ notes }) => {
+      await updateGenre(deps.genreId, { notes });
+      return { success: true, message: "notes を更新しました。" };
     }),
   });
 }
@@ -554,6 +580,8 @@ export function createGenreChatTools(deps: GenreChatToolDependencies): ToolSet {
   return {
     readGenreChatHistory: createReadGenreChatHistoryTool(deps),
     readGenreChatAttachment: createReadGenreChatAttachmentTool(deps),
+    updateGenreUserDefinition: createUpdateGenreUserDefinitionTool(deps),
+    updateGenreNotes: createUpdateGenreNotesTool(deps),
     listGenreSources: createListGenreSourcesTool(deps),
     readGenreSourceMetadata: createReadGenreSourceMetadataTool(deps),
     readGenreSourceSegment: createReadGenreSourceSegmentTool(deps),
