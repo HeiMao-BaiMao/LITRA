@@ -1,23 +1,26 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, emit } from "@tauri-apps/api/event";
-import { loadWindowBounds, saveWindowBoundsOnResize } from "./window-bounds.ts";
-import { initializeTheme, setupThemeListener } from "./theme.ts";
+import { applyWindowBounds, trackWindowBounds } from "./window/bounds.ts";
 import { showError, showInfo } from "./ui/common.ts";
 import { renderThreadList } from "./ui/genres/thread-list.ts";
 import { renderGenreChat } from "./ui/genres/genre-chat.ts";
-import { loadAiSettings } from "./settings.ts";
+import { loadSettings, resolveChatSettings } from "./settings.ts";
+import { streamChat } from "./ai/service.ts";
+import { buildGenreChatMessages } from "./genres/chat-context.ts";
+import { loadGenreKnowledge } from "./genres/knowledge.ts";
 import * as repository from "./genres/repository.ts";
 import * as chat from "./genres/chat.ts";
-import { streamGenreChatMessage } from "./genres/chat-context.ts";
 import type { Genre, GenreChatThread, GenreChatMessage } from "./genres/schema.ts";
 import {
   GENRE_CHAT_SYNC,
   GENRE_CHAT_SEND,
   GENRE_CHAT_STOP,
   GENRE_SELECTED,
+  type GenreChatSyncPayload,
   type GenreChatSendPayload,
-  type GenreSelectedPayload,
+  type GenreSelectedEvent,
 } from "./genres/events.ts";
+import { listenDpiZoom } from "./window/dpi-scale.ts";
 
 interface ChatState {
   genreId: string | null;
@@ -40,11 +43,10 @@ const state: ChatState = {
 let currentAbortController: AbortController | null = null;
 
 async function init(): Promise<void> {
-  initializeTheme();
-  setupThemeListener();
-  await loadWindowBounds("genre-chat");
-  saveWindowBoundsOnResize("genre-chat");
-
+  const win = getCurrentWindow();
+  await applyWindowBounds(win, "genre-chat");
+  trackWindowBounds(win, "genre-chat");
+  void listenDpiZoom();
   setupEventListeners();
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -56,19 +58,12 @@ async function init(): Promise<void> {
 }
 
 function setupEventListeners(): void {
-  listen<GenreSelectedPayload>(GENRE_SELECTED, async (event) => {
-    if (event.payload.genreId) {
-      await loadGenre(event.payload.genreId);
-    }
+  listen<GenreSelectedEvent>(GENRE_SELECTED, async (event) => {
+    await loadGenre(event.payload.genreId);
   });
 
   listen<GenreChatSendPayload>(GENRE_CHAT_SEND, async (event) => {
-    if (event.payload.genreId && event.payload.genreId !== state.genreId) {
-      await loadGenre(event.payload.genreId);
-    }
-    if (event.payload.message) {
-      await sendMessage(event.payload.message);
-    }
+    await sendMessage(event.payload.content);
   });
 
   listen(GENRE_CHAT_STOP, () => {
@@ -101,7 +96,7 @@ async function loadGenre(genreId: string): Promise<void> {
 async function refreshThreads(): Promise<void> {
   if (!state.genreId) return;
   try {
-    state.threads = await chat.loadThreads(state.genreId);
+    state.threads = await chat.listGenreChatThreads(state.genreId);
     const container = document.getElementById("thread-list");
     if (container) {
       renderThreadList(container, state.threads, state.currentThreadId, {
@@ -129,7 +124,8 @@ async function loadCurrentThread(): Promise<void> {
   }
 
   try {
-    state.messages = await chat.loadMessages(state.genreId, state.currentThreadId);
+    const document = await chat.loadGenreChatThread(state.genreId, state.currentThreadId);
+    state.messages = document.messages;
     renderMessages();
   } catch (error) {
     showError("メッセージの読み込みに失敗しました", error);
@@ -139,7 +135,7 @@ async function loadCurrentThread(): Promise<void> {
 async function createThread(): Promise<void> {
   if (!state.genreId) return;
   try {
-    const thread = await chat.createThread(state.genreId, "新規スレッド");
+    const thread = await chat.createGenreChatThread(state.genreId, "新規スレッド");
     state.currentThreadId = thread.id;
     await refreshThreads();
     await loadCurrentThread();
@@ -151,7 +147,7 @@ async function createThread(): Promise<void> {
 async function renameThread(threadId: string, title: string): Promise<void> {
   if (!state.genreId) return;
   try {
-    await chat.renameThread(state.genreId, threadId, title);
+    await chat.updateThreadTitle(state.genreId, threadId, title);
     await refreshThreads();
   } catch (error) {
     showError("スレッド名の変更に失敗しました", error);
@@ -178,7 +174,7 @@ async function deleteThread(threadId: string): Promise<void> {
   if (!window.confirm("このスレッドを削除しますか？")) return;
 
   try {
-    await chat.deleteThread(state.genreId, threadId);
+    await chat.deleteGenreChatThread(state.genreId, threadId);
     if (state.currentThreadId === threadId) {
       state.currentThreadId = null;
       state.messages = [];
@@ -201,7 +197,7 @@ async function sendMessage(content: string): Promise<void> {
     return;
   }
 
-  const settings = loadAiSettings();
+  const settings = resolveChatSettings(await loadSettings());
   if (!settings.apiKey) {
     showError("AI設定でAPIキーを設定してください");
     return;
@@ -209,37 +205,60 @@ async function sendMessage(content: string): Promise<void> {
 
   try {
     if (!state.currentThreadId) {
-      const thread = await chat.createThread(state.genreId, content.slice(0, 30));
+      const thread = await chat.createGenreChatThread(state.genreId, content.slice(0, 30));
       state.currentThreadId = thread.id;
       await refreshThreads();
     }
 
-    await chat.appendUserMessage(state.genreId, state.currentThreadId, content);
-    state.messages = await chat.loadMessages(state.genreId, state.currentThreadId);
+    const userDocument = await chat.loadGenreChatThread(state.genreId, state.currentThreadId);
+    const userUpdatedDocument = chat.appendMessage(userDocument, {
+      threadId: state.currentThreadId,
+      role: "user",
+      content,
+    });
+    await chat.saveGenreChatThread(state.genreId, userUpdatedDocument);
+
+    state.messages = userUpdatedDocument.messages;
     renderMessages();
 
     state.isStreaming = true;
     currentAbortController = new AbortController();
     renderMessages();
 
+    const knowledge = await loadGenreKnowledge(state.genreId);
+    const modelMessages = buildGenreChatMessages(state.genre, knowledge, state.messages);
+
     let assistantContent = "";
-    await streamGenreChatMessage(
-      state.genreId,
-      state.currentThreadId,
+    const streamResult = await streamChat({
       settings,
-      (chunk) => {
+      messages: modelMessages,
+      onChunk: (chunk) => {
         assistantContent += chunk;
         updateStreamingMessage(assistantContent);
       },
-      currentAbortController.signal,
-    );
+      abortSignal: currentAbortController.signal,
+    });
 
-    state.messages = await chat.loadMessages(state.genreId, state.currentThreadId);
+    const assistantDocument = await chat.loadGenreChatThread(state.genreId, state.currentThreadId);
+    const assistantUpdatedDocument = chat.appendMessage(assistantDocument, {
+      threadId: state.currentThreadId,
+      role: "assistant",
+      content: assistantContent,
+      provider: settings.provider,
+      model: settings.model,
+      finishReason: streamResult.finishReason,
+    });
+    await chat.saveGenreChatThread(state.genreId, assistantUpdatedDocument);
+
+    state.messages = assistantUpdatedDocument.messages;
     state.isStreaming = false;
     currentAbortController = null;
     renderMessages();
 
-    await emit(GENRE_CHAT_SYNC, { genreId: state.genreId } satisfies { genreId: string });
+    await emit(GENRE_CHAT_SYNC, {
+      messages: state.messages,
+      isGenerating: false,
+    } satisfies GenreChatSyncPayload);
   } catch (error) {
     state.isStreaming = false;
     currentAbortController = null;
@@ -273,11 +292,10 @@ function updateStreamingMessage(content: string): void {
       ...state.messages,
       {
         id: "streaming",
+        threadId: state.currentThreadId ?? "",
         role: "assistant",
         content,
-        createdAt: Date.now(),
-        quotedSegments: [],
-        pendingCandidateIds: [],
+        createdAt: new Date().toISOString(),
       },
     ];
     renderMessages();

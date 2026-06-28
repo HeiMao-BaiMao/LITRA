@@ -1,26 +1,33 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { loadWindowBounds, saveWindowBoundsOnResize } from "./window-bounds.ts";
-import { initializeTheme, setupThemeListener } from "./theme.ts";
+import { applyWindowBounds, loadWindowBounds, trackWindowBounds } from "./window/bounds.ts";
 import { setupCollapsibleSidebar } from "./ui/collapsible-sidebar.ts";
-import type { GenreLibrary, GenreSource, Genre, GenreKnowledgeItem, GenreKnowledgeCandidate } from "./genres/schema.ts";
+import { listenDpiZoom } from "./window/dpi-scale.ts";
+import type {
+  Genre,
+  GenreIndexEntry,
+  GenreKnowledgeCandidate,
+  GenreKnowledgeItem,
+  GenreSource,
+} from "./genres/schema.ts";
 import * as repository from "./genres/repository.ts";
 import * as sources from "./genres/sources.ts";
 import * as knowledge from "./genres/knowledge.ts";
 import * as analyzer from "./genres/analyzer.ts";
-import { loadAiSettings } from "./settings.ts";
+import { extractSegmentContent } from "./genres/segmentation.ts";
+import { loadSettings, resolveChatSettings } from "./settings.ts";
 import { showError, showInfo, registerSpinner } from "./ui/common.ts";
 import { renderGenreList } from "./ui/genres/genre-list.ts";
-import { renderGenreOverview } from "./ui/genres/genre-overview.ts";
-import { renderSourceList } from "./ui/genres/source-list.ts";
+import { renderGenreOverview, type GenreOverviewActions } from "./ui/genres/genre-overview.ts";
+import { renderSourceList, type SourceListActions } from "./ui/genres/source-list.ts";
 import { renderAnalysisReview } from "./ui/genres/analysis-review.ts";
-import { renderKnowledgeEditor } from "./ui/genres/knowledge-editor.ts";
+import { renderKnowledgeEditor, type KnowledgeEditorActions } from "./ui/genres/knowledge-editor.ts";
 import {
   GENRE_LIBRARY_READY,
   GENRE_SELECTED,
   GENRE_CHAT_SYNC,
-  type GenreSelectedPayload,
+  type GenreSelectedEvent,
   type GenreChatSyncPayload,
 } from "./genres/events.ts";
 
@@ -28,7 +35,7 @@ const SIDEBAR_MIN_WIDTH = 180;
 const SIDEBAR_MAX_WIDTH = 400;
 
 interface LibraryState {
-  genres: GenreLibrary[];
+  genres: GenreIndexEntry[];
   currentGenreId: string | null;
   currentSourceId: string | null;
   currentTab: "overview" | "sources" | "analysis" | "knowledge";
@@ -46,10 +53,15 @@ const state: LibraryState = {
 let analysisAbortController: AbortController | null = null;
 
 async function init(): Promise<void> {
-  initializeTheme();
-  setupThemeListener();
-  await loadWindowBounds("genre-library");
-  saveWindowBoundsOnResize("genre-library");
+  void listenDpiZoom();
+
+  const win = getCurrentWindow();
+  const bounds = await loadWindowBounds("genre-library");
+  if (bounds) {
+    await applyWindowBounds(win, "genre-library");
+  }
+  trackWindowBounds(win, "genre-library");
+
   setupCollapsibleSidebar("sidebar", "sidebar-toggle", {
     minWidth: SIDEBAR_MIN_WIDTH,
     maxWidth: SIDEBAR_MAX_WIDTH,
@@ -74,7 +86,7 @@ function setupTabs(): void {
     document.getElementById(`tab-${tab}`)?.addEventListener("click", () => {
       state.currentTab = tab;
       updateTabUI();
-      renderCurrentTab();
+      void renderCurrentTab();
     });
   }
 }
@@ -88,7 +100,7 @@ function updateTabUI(): void {
 }
 
 function setupEventListeners(): void {
-  listen<GenreSelectedPayload>(GENRE_SELECTED, async (event) => {
+  listen<GenreSelectedEvent>(GENRE_SELECTED, async (event) => {
     if (event.payload.genreId) {
       await selectGenre(event.payload.genreId);
     }
@@ -107,7 +119,7 @@ async function refreshGenreList(): Promise<void> {
     state.genres = await repository.listGenres();
     const container = document.getElementById("genre-list");
     if (container) {
-      renderGenreList(container, state.genres, {
+      renderGenreList(container, state.genres, state.currentGenreId, {
         onSelect: selectGenre,
         onCreate: createGenre,
         onRename: renameGenre,
@@ -133,33 +145,23 @@ async function refreshCurrentGenre(): Promise<void> {
 
   try {
     const genre = await repository.loadGenre(state.currentGenreId);
-    if (!genre) {
-      showError("ジャンルが見つかりません");
-      return;
-    }
+    const sourceList = await sources.listGenreSources(state.currentGenreId);
+    const knowledgeDoc = await knowledge.loadGenreKnowledge(state.currentGenreId);
 
-    const sourceIndex = await sources.loadSourceIndex(state.currentGenreId);
-    const knowledgeStore = await knowledge.loadKnowledgeStore(state.currentGenreId);
-
-    renderCurrentTabWithData(genre, sourceIndex.sources, knowledgeStore.items, knowledgeStore.candidates);
+    await renderCurrentTabWithData(genre, sourceList, knowledgeDoc.items, knowledgeDoc.candidates);
   } catch (error) {
     showError("ジャンルデータの読み込みに失敗しました", error);
   }
 }
 
 function updateGenreSelectionUI(): void {
-  const containers = [
-    document.getElementById("genre-list"),
-    document.getElementById("main-content"),
-  ];
+  const container = document.getElementById("genre-list");
+  if (!container) return;
 
-  for (const container of containers) {
-    if (!container) continue;
-    const items = container.querySelectorAll(".genre-list-item");
-    items.forEach((item) => {
-      item.classList.toggle("selected", item.getAttribute("data-genre-id") === state.currentGenreId);
-    });
-  }
+  const items = container.querySelectorAll(".genre-list-item");
+  items.forEach((item) => {
+    item.classList.toggle("selected", item.getAttribute("data-genre-id") === state.currentGenreId);
+  });
 
   const main = document.getElementById("main-content");
   if (main) {
@@ -167,9 +169,9 @@ function updateGenreSelectionUI(): void {
   }
 }
 
-function renderCurrentTab(): void {
+async function renderCurrentTab(): Promise<void> {
   if (!state.currentGenreId) return;
-  refreshCurrentGenre();
+  await refreshCurrentGenre();
 }
 
 async function renderCurrentTabWithData(
@@ -184,21 +186,25 @@ async function renderCurrentTabWithData(
 
   switch (state.currentTab) {
     case "overview": {
-      renderGenreOverview(container, genre, {
-        onEdit: () => editGenreOverview(genre),
-      });
+      const actions: GenreOverviewActions = {
+        onSave: (updates) => void saveGenreOverview(genre.id, updates),
+      };
+      renderGenreOverview(container, genre, actions);
       break;
     }
     case "sources": {
-      renderSourceList(container, sourceList, {
-        onSelect: (sourceId) => {
+      const actions: SourceListActions = {
+        onSelect: (sourceId: string) => {
           state.currentSourceId = sourceId;
-          refreshCurrentGenre();
+          state.currentTab = "analysis";
+          updateTabUI();
+          void renderCurrentTab();
         },
         onImport: importSource,
         onDelete: deleteSource,
         onView: viewSource,
-      });
+      };
+      renderSourceList(container, sourceList, actions);
       break;
     }
     case "analysis": {
@@ -206,11 +212,14 @@ async function renderCurrentTabWithData(
         ? sourceList.find((s) => s.id === state.currentSourceId)
         : sourceList[0];
       if (source) {
-        const analysis = await sources.loadAnalysis(genre.id, source.id);
-        renderAnalysisReview(container, source, analysis, {
-          onAnalyze: () => analyzeSource(source.id),
-          onAcceptCandidate: (candidateId) => acceptCandidate(candidateId),
-          onRejectCandidate: (candidateId) => rejectCandidate(candidateId),
+        state.currentSourceId = source.id;
+        const full = await sources.loadGenreSource(genre.id, source.id);
+        const analyses = await analyzer.listAnalysisRuns(genre.id);
+        const latest = analyses[0];
+        renderAnalysisReview(container, source, latest, full.segments, {
+          onAnalyze: () => void analyzeSource(source.id),
+          onAcceptCandidate: (candidateId: string) => void acceptCandidate(candidateId),
+          onRejectCandidate: (candidateId: string) => void rejectCandidate(candidateId),
         });
       } else {
         container.innerHTML = `<p class="empty-state">資料をインポートしてください。</p>`;
@@ -218,16 +227,17 @@ async function renderCurrentTabWithData(
       break;
     }
     case "knowledge": {
-      renderKnowledgeEditor(container, items, candidates, {
-        onAcceptCandidate: acceptCandidate,
-        onRejectCandidate: rejectCandidate,
-        onHoldCandidate: holdCandidate,
-        onCreateItem: () => createKnowledgeItem(genre.id),
-        onEditItem: (itemId) => editKnowledgeItem(genre.id, itemId),
-        onDisableItem: (itemId) => disableKnowledgeItem(genre.id, itemId),
-        onEnableItem: (itemId) => enableKnowledgeItem(genre.id, itemId),
-        onDeleteItem: (itemId) => deleteKnowledgeItem(genre.id, itemId),
-      });
+      const actions: KnowledgeEditorActions = {
+        onAcceptCandidate: (candidateId: string) => void acceptCandidate(candidateId),
+        onRejectCandidate: (candidateId: string) => void rejectCandidate(candidateId),
+        onHoldCandidate: (candidateId: string) => void holdCandidate(candidateId),
+        onCreateItem: () => void createKnowledgeItem(genre.id),
+        onEditItem: (itemId: string) => void editKnowledgeItem(genre.id, itemId),
+        onDisableItem: (itemId: string) => void disableKnowledgeItem(genre.id, itemId),
+        onEnableItem: (itemId: string) => void enableKnowledgeItem(genre.id, itemId),
+        onDeleteItem: (itemId: string) => void deleteKnowledgeItem(genre.id, itemId),
+      };
+      renderKnowledgeEditor(container, items, candidates, actions);
       break;
     }
   }
@@ -238,7 +248,7 @@ async function createGenre(): Promise<void> {
   if (!name || !name.trim()) return;
 
   try {
-    const genre = await repository.createGenre(name.trim());
+    const genre = await repository.createGenre({ name: name.trim() });
     await refreshGenreList();
     await selectGenre(genre.id);
     showInfo(`ジャンル「${genre.name}」を作成しました`);
@@ -249,11 +259,7 @@ async function createGenre(): Promise<void> {
 
 async function renameGenre(genreId: string, name: string): Promise<void> {
   try {
-    const genre = await repository.loadGenre(genreId);
-    if (!genre) return;
-    genre.name = name;
-    genre.updatedAt = Date.now();
-    await repository.saveGenre(genre);
+    await repository.updateGenre(genreId, { name });
     await refreshGenreList();
   } catch (error) {
     showError("ジャンル名の変更に失敗しました", error);
@@ -280,19 +286,12 @@ async function deleteGenre(genreId: string): Promise<void> {
   }
 }
 
-async function editGenreOverview(genre: Genre): Promise<void> {
-  const name = window.prompt("ジャンル名", genre.name);
-  if (name === null) return;
-
-  const description = window.prompt("説明", genre.description);
-  if (description === null) return;
-
-  genre.name = name.trim() || genre.name;
-  genre.description = description.trim();
-  genre.updatedAt = Date.now();
-
+async function saveGenreOverview(
+  genreId: string,
+  updates: Parameters<GenreOverviewActions["onSave"]>[0],
+): Promise<void> {
   try {
-    await repository.saveGenre(genre);
+    await repository.updateGenre(genreId, updates);
     await refreshGenreList();
     await refreshCurrentGenre();
   } catch (error) {
@@ -313,8 +312,11 @@ async function importSource(): Promise<void> {
   if (!content || !content.trim()) return;
 
   try {
-    const source = await sources.addSource(state.currentGenreId, title.trim(), content.trim());
-    state.currentSourceId = source.id;
+    const source = await sources.createGenreSource(state.currentGenreId, {
+      title: title.trim(),
+      content: content.trim(),
+    });
+    state.currentSourceId = source.metadata.id;
     state.currentTab = "analysis";
     updateTabUI();
     await refreshCurrentGenre();
@@ -329,7 +331,7 @@ async function deleteSource(sourceId: string): Promise<void> {
   if (!window.confirm("この資料を削除しますか？")) return;
 
   try {
-    await sources.deleteSource(state.currentGenreId, sourceId);
+    await sources.deleteGenreSource(state.currentGenreId, sourceId);
     if (state.currentSourceId === sourceId) {
       state.currentSourceId = null;
     }
@@ -343,15 +345,9 @@ async function viewSource(sourceId: string): Promise<void> {
   if (!state.currentGenreId) return;
 
   try {
-    const source = await sources.loadSource(state.currentGenreId, sourceId);
-    if (!source) {
-      showError("資料が見つかりません");
-      return;
-    }
-
-    const segments = await sources.loadSourceSegments(state.currentGenreId, sourceId);
-    const joined = segments.map((s) => s.content).join("\n\n---\n\n");
-    window.alert(`${source.title}\n\n${joined.substring(0, 2000)}${joined.length > 2000 ? "..." : ""}`);
+    const source = await sources.loadGenreSource(state.currentGenreId, sourceId);
+    const joined = source.segments.map((s) => extractSegmentContent(source.content, s)).join("\n\n---\n\n");
+    window.alert(`${source.metadata.title}\n\n${joined.substring(0, 2000)}${joined.length > 2000 ? "..." : ""}`);
   } catch (error) {
     showError("資料の表示に失敗しました", error);
   }
@@ -369,7 +365,7 @@ async function analyzeSource(sourceId: string): Promise<void> {
   if (!state.currentGenreId) return;
   if (state.isAnalyzing) return;
 
-  const settings = loadAiSettings();
+  const settings = await loadSettings();
   if (!settings.apiKey) {
     showError("AI設定でAPIキーを設定してください");
     return;
@@ -383,11 +379,11 @@ async function analyzeSource(sourceId: string): Promise<void> {
     await analyzer.analyzeSource(
       state.currentGenreId,
       sourceId,
-      settings,
-      (progress) => {
+      resolveChatSettings(settings),
+      (event) => {
         const statusEl = document.getElementById("analysis-status");
         if (statusEl) {
-          statusEl.textContent = `分析中: ${progress.currentSegment} / ${progress.totalSegments}`;
+          statusEl.textContent = `分析中: ${event.completedSegments ?? 0} / ${event.totalSegments ?? 0}`;
         }
       },
       analysisAbortController.signal,
@@ -413,7 +409,7 @@ async function analyzeSource(sourceId: string): Promise<void> {
 async function acceptCandidate(candidateId: string): Promise<void> {
   if (!state.currentGenreId) return;
   try {
-    await knowledge.acceptCandidate(state.currentGenreId, candidateId);
+    await knowledge.acceptKnowledgeCandidate(state.currentGenreId, candidateId);
     await refreshCurrentGenre();
   } catch (error) {
     showError("候補の採用に失敗しました", error);
@@ -423,7 +419,7 @@ async function acceptCandidate(candidateId: string): Promise<void> {
 async function rejectCandidate(candidateId: string): Promise<void> {
   if (!state.currentGenreId) return;
   try {
-    await knowledge.rejectCandidate(state.currentGenreId, candidateId);
+    await knowledge.rejectKnowledgeCandidate(state.currentGenreId, candidateId);
     await refreshCurrentGenre();
   } catch (error) {
     showError("候補の却下に失敗しました", error);
@@ -433,7 +429,7 @@ async function rejectCandidate(candidateId: string): Promise<void> {
 async function holdCandidate(candidateId: string): Promise<void> {
   if (!state.currentGenreId) return;
   try {
-    await knowledge.holdCandidate(state.currentGenreId, candidateId);
+    await knowledge.holdKnowledgeCandidate(state.currentGenreId, candidateId);
     await refreshCurrentGenre();
   } catch (error) {
     showError("候補の保留に失敗しました", error);
@@ -448,7 +444,11 @@ async function createKnowledgeItem(genreId: string): Promise<void> {
   if (!statement || !statement.trim()) return;
 
   try {
-    await knowledge.addManualItem(genreId, title.trim(), statement.trim());
+    await knowledge.createKnowledgeItem(genreId, {
+      title: title.trim(),
+      statement: statement.trim(),
+      category: "definition",
+    });
     await refreshCurrentGenre();
   } catch (error) {
     showError("知識の追加に失敗しました", error);
@@ -457,8 +457,8 @@ async function createKnowledgeItem(genreId: string): Promise<void> {
 
 async function editKnowledgeItem(genreId: string, itemId: string): Promise<void> {
   try {
-    const store = await knowledge.loadKnowledgeStore(genreId);
-    const item = store.items.find((i) => i.id === itemId);
+    const doc = await knowledge.loadGenreKnowledge(genreId);
+    const item = doc.items.find((i) => i.id === itemId);
     if (!item) return;
 
     const title = window.prompt("タイトル", item.title);
@@ -470,7 +470,7 @@ async function editKnowledgeItem(genreId: string, itemId: string): Promise<void>
     const explanation = window.prompt("補足", item.explanation);
     if (explanation === null) return;
 
-    await knowledge.updateItem(genreId, itemId, {
+    await knowledge.updateKnowledgeItem(genreId, itemId, {
       title: title.trim() || item.title,
       statement: statement.trim() || item.statement,
       explanation: explanation.trim(),
@@ -483,7 +483,7 @@ async function editKnowledgeItem(genreId: string, itemId: string): Promise<void>
 
 async function disableKnowledgeItem(genreId: string, itemId: string): Promise<void> {
   try {
-    await knowledge.disableItem(genreId, itemId);
+    await knowledge.disableKnowledgeItem(genreId, itemId);
     await refreshCurrentGenre();
   } catch (error) {
     showError("知識の無効化に失敗しました", error);
@@ -492,7 +492,7 @@ async function disableKnowledgeItem(genreId: string, itemId: string): Promise<vo
 
 async function enableKnowledgeItem(genreId: string, itemId: string): Promise<void> {
   try {
-    await knowledge.enableItem(genreId, itemId);
+    await knowledge.enableKnowledgeItem(genreId, itemId);
     await refreshCurrentGenre();
   } catch (error) {
     showError("知識の再有効化に失敗しました", error);
@@ -501,7 +501,7 @@ async function enableKnowledgeItem(genreId: string, itemId: string): Promise<voi
 
 async function deleteKnowledgeItem(genreId: string, itemId: string): Promise<void> {
   try {
-    await knowledge.deleteItem(genreId, itemId);
+    await knowledge.deleteKnowledgeItem(genreId, itemId);
     await refreshCurrentGenre();
   } catch (error) {
     showError("知識の削除に失敗しました", error);

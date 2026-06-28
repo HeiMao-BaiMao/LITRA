@@ -25,22 +25,19 @@ export function renderGenreChat(
     bubble.className = "genre-chat-bubble";
     bubble.innerHTML = renderMarkdown(message.content);
 
-    if (message.quotedSegments.length > 0) {
-      const quoteList = document.createElement("div");
-      quoteList.className = "genre-chat-quotes";
-      for (const segment of message.quotedSegments) {
-        const q = document.createElement("div");
-        q.className = "genre-chat-quote";
-        q.textContent = `${segment.title} (#${segment.segmentIndex})`;
-        quoteList.appendChild(q);
-      }
-      bubble.appendChild(quoteList);
+    const referencedSourceCount = message.referencedSourceIds?.length ?? 0;
+    if (referencedSourceCount > 0) {
+      const sourceList = document.createElement("div");
+      sourceList.className = "genre-chat-referenced-sources";
+      sourceList.textContent = `参照資料: ${referencedSourceCount}件`;
+      bubble.appendChild(sourceList);
     }
 
-    if (message.pendingCandidateIds.length > 0) {
+    const referencedCandidateCount = message.referencedCandidateIds?.length ?? 0;
+    if (referencedCandidateCount > 0) {
       const candidates = document.createElement("div");
       candidates.className = "genre-chat-candidates";
-      candidates.textContent = `提案中の候補: ${message.pendingCandidateIds.length}件`;
+      candidates.textContent = `提案中の候補: ${referencedCandidateCount}件`;
       bubble.appendChild(candidates);
     }
 

@@ -11,6 +11,8 @@ export interface GenreOverviewActions {
   }) => void;
 }
 
+type GenreUpdate = Parameters<GenreOverviewActions["onSave"]>[0];
+
 export function renderGenreOverview(
   container: HTMLElement,
   genre: Genre,
@@ -21,7 +23,7 @@ export function renderGenreOverview(
   const form = document.createElement("form");
   form.className = "genre-overview-form";
 
-  const fields: Array<{ label: string; key: keyof Genre; multiline: boolean }> = [
+  const fields: Array<{ label: string; key: keyof GenreUpdate; multiline: boolean }> = [
     { label: "ジャンル名", key: "name", multiline: false },
     { label: "別名（カンマ区切り）", key: "aliases", multiline: false },
     { label: "説明", key: "description", multiline: true },
@@ -51,14 +53,14 @@ export function renderGenreOverview(
     }
 
     input.addEventListener("change", () => {
-      const updates: GenreOverviewActions["onSave"] extends (u: infer U) => void ? U : never = {};
+      const updates: GenreUpdate = {};
       if (field.key === "aliases" || field.key === "tags") {
-        updates[field.key] = (input as HTMLInputElement).value
+        updates[field.key] = (input as HTMLInputElement | HTMLTextAreaElement).value
           .split(",")
           .map((v) => v.trim())
           .filter(Boolean);
       } else {
-        updates[field.key] = (input as HTMLInputElement).value;
+        updates[field.key] = (input as HTMLInputElement | HTMLTextAreaElement).value;
       }
       actions.onSave(updates);
     });

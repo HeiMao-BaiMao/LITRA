@@ -1,7 +1,102 @@
-import type { GenreAnalysisRun, GenreSegmentAnalysis } from "../../genres/schema.ts";
+import type {
+  GenreAnalysisRun,
+  GenreSegmentAnalysis,
+  GenreSource,
+  GenreSourceSegment,
+} from "../../genres/schema.ts";
 
 export interface AnalysisReviewActions {
-  onAcceptCandidate: (candidateDescription: string) => void;
+  onAnalyze: () => void;
+  onAcceptCandidate: (candidateId: string) => void;
+  onRejectCandidate: (candidateId: string) => void;
+}
+
+export function renderAnalysisReview(
+  container: HTMLElement,
+  source: GenreSource,
+  run: GenreAnalysisRun | undefined,
+  segments: GenreSourceSegment[],
+  actions: AnalysisReviewActions,
+): void {
+  container.innerHTML = "";
+  container.className = "analysis-review";
+
+  const summary = document.createElement("div");
+  summary.className = "analysis-summary";
+
+  const title = document.createElement("h3");
+  title.textContent = source.title;
+  summary.appendChild(title);
+
+  const meta = document.createElement("div");
+  meta.className = "analysis-segment-header";
+  meta.textContent = [
+    source.author ? `作者: ${source.author}` : null,
+    `役割: ${source.sourceRole}`,
+    `好み: ${source.preference}`,
+    `文字数: ${source.characterCount.toLocaleString()}`,
+  ]
+    .filter((value): value is string => value !== null)
+    .join(" · ");
+  summary.appendChild(meta);
+
+  const status = document.createElement("div");
+  status.className = "analysis-status";
+  if (!run) {
+    status.textContent = "分析: 未実行";
+  } else {
+    status.textContent = `分析: ${run.status} · ${run.model} · ${new Date(run.startedAt).toLocaleString()}`;
+  }
+  summary.appendChild(status);
+
+  const btnAnalyze = document.createElement("button");
+  btnAnalyze.type = "button";
+  btnAnalyze.textContent = run?.status === "running" ? "分析中..." : "資料を分析";
+  btnAnalyze.disabled = run?.status === "running";
+  btnAnalyze.addEventListener("click", actions.onAnalyze);
+  summary.appendChild(btnAnalyze);
+
+  container.appendChild(summary);
+
+  if (!run) {
+    return;
+  }
+
+  const runContainer = document.createElement("div");
+  renderAnalysisList(runContainer, [run]);
+  container.appendChild(runContainer);
+
+  if (run.segmentResults.length === 0) {
+    return;
+  }
+
+  const segmentSection = document.createElement("div");
+  segmentSection.className = "analysis-segment-list";
+
+  const sectionTitle = document.createElement("h4");
+  sectionTitle.textContent = "セグメント分析";
+  segmentSection.appendChild(sectionTitle);
+
+  for (const segmentAnalysis of run.segmentResults) {
+    const segment = segments.find((s) => s.id === segmentAnalysis.segmentId);
+    const wrapper = document.createElement("div");
+    wrapper.className = "analysis-segment";
+
+    const header = document.createElement("div");
+    header.className = "analysis-segment-header";
+    header.textContent = segment?.heading
+      ? `${segment.ordinal + 1}. ${segment.heading}`
+      : `セグメント ${segmentAnalysis.segmentId}`;
+    wrapper.appendChild(header);
+
+    const segmentContainer = document.createElement("div");
+    renderSegmentAnalysis(segmentContainer, segmentAnalysis);
+    wrapper.appendChild(segmentContainer);
+
+    segmentSection.appendChild(wrapper);
+  }
+
+  container.appendChild(segmentSection);
 }
 
 export function renderAnalysisList(

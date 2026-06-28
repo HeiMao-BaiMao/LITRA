@@ -1,9 +1,9 @@
 import type { GenreSource } from "../../genres/schema.ts";
 
 export interface SourceListActions {
-  onCreate: () => void;
   onSelect: (sourceId: string) => void;
-  onAnalyze: (sourceId: string) => void;
+  onImport: () => void;
+  onView: (sourceId: string) => void;
   onDelete: (sourceId: string) => void;
 }
 
@@ -37,11 +37,11 @@ export function renderSourceList(
   const header = document.createElement("div");
   header.className = "source-list-header";
 
-  const btnCreate = document.createElement("button");
-  btnCreate.type = "button";
-  btnCreate.textContent = "＋ 資料を追加";
-  btnCreate.addEventListener("click", actions.onCreate);
-  header.appendChild(btnCreate);
+  const btnImport = document.createElement("button");
+  btnImport.type = "button";
+  btnImport.textContent = "＋ 資料を追加";
+  btnImport.addEventListener("click", actions.onImport);
+  header.appendChild(btnImport);
 
   container.appendChild(header);
 
@@ -60,11 +60,10 @@ export function renderSourceList(
     const actionsEl = document.createElement("div");
     actionsEl.className = "source-list-item-actions";
 
-    const btnAnalyze = document.createElement("button");
-    btnAnalyze.type = "button";
-    btnAnalyze.textContent = source.analysisStatus === "running" ? "分析中..." : "分析";
-    btnAnalyze.disabled = source.analysisStatus === "running";
-    btnAnalyze.addEventListener("click", () => actions.onAnalyze(source.id));
+    const btnView = document.createElement("button");
+    btnView.type = "button";
+    btnView.textContent = "表示";
+    btnView.addEventListener("click", () => actions.onView(source.id));
 
     const btnDelete = document.createElement("button");
     btnDelete.type = "button";
@@ -75,7 +74,7 @@ export function renderSourceList(
       }
     });
 
-    actionsEl.appendChild(btnAnalyze);
+    actionsEl.appendChild(btnView);
     actionsEl.appendChild(btnDelete);
 
     el.appendChild(title);
