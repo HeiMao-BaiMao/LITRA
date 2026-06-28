@@ -430,36 +430,14 @@ async function sendMessage(content: string): Promise<void> {
     });
 
     const assistantDocument = await chat.loadGenreChatThread(state.genreId, state.currentThreadId);
-    const assistantMessageId = crypto.randomUUID();
-
-    let assistantContentToSave = assistantContent;
-    let assistantAttachments: GenreChatMessage["attachments"] | undefined;
-    if (state.currentThreadId && (detectNovelText(assistantContent) || detectLongText(assistantContent))) {
-      const attachmentType = detectNovelText(assistantContent) ? "novel_text" : "long_text";
-      const attachmentName = attachmentType === "novel_text" ? "生成された小説本文" : "生成された長文テキスト";
-      const attachment = await saveChatAttachment(
-        state.genreId,
-        state.currentThreadId,
-        assistantMessageId,
-        {
-          name: attachmentName,
-          type: attachmentType,
-          content: assistantContent,
-        },
-      );
-      assistantAttachments = [attachment];
-      assistantContentToSave = `[${attachmentName}は添付ファイルに保存されました]\n\n${extractAttachmentPreview(assistantContent)}`;
-    }
-
     const assistantUpdatedDocument = chat.appendMessage(assistantDocument, {
-      id: assistantMessageId,
+      id: crypto.randomUUID(),
       threadId: state.currentThreadId,
       role: "assistant",
-      content: assistantContentToSave,
+      content: assistantContent,
       provider: settings.provider,
       model: settings.model,
       finishReason: streamResult.finishReason,
-      attachments: assistantAttachments,
     });
     await chat.saveGenreChatThread(state.genreId, assistantUpdatedDocument);
 
