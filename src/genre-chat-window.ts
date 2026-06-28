@@ -26,13 +26,19 @@ import { createGenreChatTools } from "./genres/chat-tools.ts";
 import { loadGenreKnowledge } from "./genres/knowledge.ts";
 import * as repository from "./genres/repository.ts";
 import * as chat from "./genres/chat.ts";
+import { createGenreSource } from "./genres/sources.ts";
+import {
+  type Genre,
+  type GenreChatThread,
+  type GenreChatMessage,
+} from "./genres/schema.ts";
 import {
   detectLongText,
   detectNovelText,
   extractAttachmentPreview,
   saveChatAttachment,
 } from "./genres/chat-attachments.ts";
-import type { Genre, GenreChatThread, GenreChatMessage } from "./genres/schema.ts";
+
 import {
   GENRE_CHAT_SYNC,
   GENRE_CHAT_SEND,
@@ -173,6 +179,36 @@ async function setupChatControls(): Promise<void> {
     input.value = "";
     resetInputHeight?.();
     void sendMessage(text);
+  });
+
+  const btnRegisterSource = document.querySelector<HTMLButtonElement>("#btn-register-source");
+  btnRegisterSource?.addEventListener("click", async () => {
+    const content = input.value.trim();
+    if (!content) return;
+    if (!state.genreId) {
+      showError("ジャンルが選択されていません");
+      return;
+    }
+
+    const title = window.prompt("資料のタイトルを入力してください");
+    if (!title?.trim()) return;
+
+    btnRegisterSource.disabled = true;
+    try {
+      await createGenreSource(state.genreId, {
+        title: title.trim(),
+        content,
+        sourceType: "fiction_excerpt",
+        sourceRole: "partial_example",
+      });
+      input.value = "";
+      resetInputHeight?.();
+      window.alert("資料として登録しました");
+    } catch (error) {
+      showError("資料の登録に失敗しました", error);
+    } finally {
+      btnRegisterSource.disabled = false;
+    }
   });
 
   input.addEventListener("keydown", (event) => {
