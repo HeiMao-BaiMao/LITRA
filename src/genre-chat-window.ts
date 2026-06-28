@@ -319,6 +319,6 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-getCurrentWindow().onCloseRequested(() => {
+window.addEventListener("beforeunload", () => {
   stopStreaming();
 });

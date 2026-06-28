@@ -528,7 +528,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-getCurrentWindow().onCloseRequested(() => {
+window.addEventListener("beforeunload", () => {
   if (analysisAbortController) {
     analysisAbortController.abort();
   }
