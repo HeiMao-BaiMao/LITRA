@@ -2328,11 +2328,69 @@ button.danger:hover:not(:disabled) {
 
 .genre-chat-input {
   flex: 1;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
   resize: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+}
+
+.genre-chat-input:focus {
+  border-color: var(--accent);
 }
 
 .genre-chat-send {
   min-width: 4rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.genre-chat-send:hover {
+  background-color: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.genre-form-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  outline: none;
+}
+
+.genre-form-input:focus {
+  border-color: var(--accent);
+}
+
+textarea.genre-form-input {
+  resize: vertical;
+  min-height: 4rem;
+}
+
+.source-content-input {
+  min-height: 12rem;
+  font-family: "Noto Serif JP", "Yu Mincho", Georgia, "Hiragino Mincho ProN", serif;
+  font-size: 1rem;
+  line-height: 1.8;
 }
 
 .genre-chat-quotes {
