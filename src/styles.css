@@ -618,8 +618,19 @@ button#btn-cancel:hover:not(:disabled) {
   min-width: fit-content;
 }
 
-.chat-controls #btn-register-source {
-  flex-basis: 100%;
+.chat-controls.has-register-source {
+  flex-direction: column;
+}
+
+.chat-controls-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+}
+
+.chat-controls-actions button {
+  flex: 1 1 auto;
+  min-width: fit-content;
 }
 
 .hidden {
