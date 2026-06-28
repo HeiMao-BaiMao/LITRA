@@ -1957,123 +1957,173 @@ button.danger:hover:not(:disabled) {
 
 /* --- ジャンルライブラリ --- */
 
+/*
+ * レイアウト、ツールバー、ナビゲーション、編集面はメイン執筆画面の
+ * .app / .toolbar / .main / .project-nav / .editor-section をそのまま利用する。
+ * 以下はジャンル固有の差分だけを定義する。
+ */
 .genre-library-app {
-  position: relative;
-  display: flex;
-  width: 100vw;
+  width: 100%;
   height: 100vh;
   overflow: hidden;
 }
 
+.genre-library-toolbar-actions {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.genre-library-toolbar-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.genre-tab-button.active {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.genre-library-main {
+  min-height: 0;
+}
+
 .genre-sidebar {
-  width: var(--genre-sidebar-width, 220px);
-  flex-shrink: 0;
+  position: relative;
+}
+
+@media (min-width: 48.001rem) {
+  .genre-sidebar:not(.open) {
+    display: none;
+  }
+
+  .genre-sidebar:not(.open) ~ .resizer-left {
+    display: none;
+  }
+}
+
+.genre-nav-section {
   display: flex;
+  flex: 1;
+  min-height: 0;
   flex-direction: column;
-  background-color: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
 }
 
-.genre-sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.genre-sidebar-header h2 {
-  margin: 0;
-  font-size: 1rem;
+.genre-count {
+  min-width: 1.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .genre-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-right: 0.1rem;
 }
 
 .genre-list-item {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.5rem;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-bottom: 0.25rem;
 }
 
-.genre-list-item:hover {
-  background-color: var(--bg-tertiary);
-}
-
+.genre-list-item.active,
 .genre-list-item.selected {
-  background-color: var(--accent);
-  color: #fff;
+  background-color: rgba(92, 124, 250, 0.2);
 }
 
-.genre-list-item .genre-actions {
-  display: none;
-  gap: 0.25rem;
-}
-
-.genre-list-item:hover .genre-actions {
+.genre-list-title-container {
   display: flex;
-}
-
-.genre-main {
   flex: 1;
-  display: flex;
+  min-width: 0;
   flex-direction: column;
+}
+
+.genre-list-item-name {
+  padding-bottom: 0.1rem;
+}
+
+.genre-list-item-meta {
+  overflow: hidden;
+  padding: 0 0.5rem 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.genre-list-item.active .genre-list-item-meta,
+.genre-list-item.selected .genre-list-item-meta {
+  color: color-mix(in srgb, var(--text-primary) 75%, transparent);
+}
+
+.genre-list-item-rename,
+.genre-list-item-delete {
+  align-self: stretch;
+  height: auto;
+}
+
+.genre-editor-section {
   min-width: 0;
 }
 
-.genre-toolbar {
+.genre-editor-surface {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border-color);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 6px;
   background-color: var(--bg-secondary);
-}
-
-.genre-tabs {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.genre-tabs button {
-  padding: 0.4rem 0.8rem;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.genre-tabs button.active,
-.genre-tabs button:hover {
-  color: var(--text-primary);
-  border-color: var(--border-color);
-  background-color: var(--bg-tertiary);
-}
-
-.genre-toolbar-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 0.5rem;
 }
 
 .genre-main-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 1rem;
 }
 
 .empty-state {
+  margin-top: 3rem;
   color: var(--text-secondary);
   text-align: center;
-  margin-top: 3rem;
+}
+
+.genre-inline-spinner,
+.genre-analysis-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: genre-spinner 0.8s linear infinite;
+}
+
+.genre-inline-spinner {
+  align-self: center;
+  margin-top: 0.5rem;
+}
+
+.genre-analysis-spinner {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.65rem;
+}
+
+@keyframes genre-spinner {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ジャンル概要 */
@@ -2442,8 +2492,13 @@ textarea.genre-form-input {
 
 .analysis-status {
   padding: 0.25rem 1rem;
+  border-top: 1px solid var(--border-color);
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+.analysis-status:empty {
+  display: none;
 }
 
 @media (max-width: 48rem) {
@@ -2456,6 +2511,14 @@ textarea.genre-form-input {
     z-index: 10;
     transform: translateX(-100%);
     transition: transform 0.25s ease;
+  }
+
+  .genre-sidebar {
+    width: min(80vw, 20rem);
+  }
+
+  .genre-library-main .resizer-left {
+    display: none;
   }
 
   .genre-sidebar.open,

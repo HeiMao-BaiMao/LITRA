@@ -16,50 +16,61 @@ export function renderGenreList(
   container.innerHTML = "";
 
   for (const genre of genres) {
-    const el = document.createElement("div");
-    el.className = `genre-list-item ${genre.id === selectedGenreId ? "selected" : ""}`;
-    el.dataset.genreId = genre.id;
+    const item = document.createElement("div");
+    item.className = "nav-episode-item genre-list-item";
+    item.dataset.genreId = genre.id;
+    item.classList.toggle("active", genre.id === selectedGenreId);
+    item.classList.toggle("selected", genre.id === selectedGenreId);
 
-    const header = document.createElement("div");
-    header.className = "genre-list-item-header";
+    const titleContainer = document.createElement("div");
+    titleContainer.className = "nav-episode-title-container genre-list-title-container";
 
-    const name = document.createElement("span");
-    name.className = "genre-list-item-name";
-    name.textContent = genre.name;
-    header.appendChild(name);
-
-    const meta = document.createElement("div");
-    meta.className = "genre-list-item-meta";
-    meta.textContent = `資料 ${genre.sourceCount} · 知識 ${genre.acceptedKnowledgeCount} · 候補 ${genre.candidateKnowledgeCount} · チャット ${genre.chatThreadCount}`;
-
-    const description = document.createElement("div");
-    description.className = "genre-list-item-description";
-    description.textContent = genre.description || "（説明なし）";
-
-    el.appendChild(header);
-    el.appendChild(meta);
-    el.appendChild(description);
-
-    el.addEventListener("click", () => actions.onSelect(genre.id));
-    el.addEventListener("dblclick", () => {
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "nav-episode-title genre-list-item-name";
+    title.textContent = genre.name || "（無題）";
+    title.title = genre.description || "クリックで選択、ダブルクリックで名前を変更";
+    title.addEventListener("click", () => actions.onSelect(genre.id));
+    title.addEventListener("dblclick", () => {
       const newName = window.prompt("ジャンル名を変更", genre.name);
       if (newName && newName.trim() && newName.trim() !== genre.name) {
         actions.onRename(genre.id, newName.trim());
       }
     });
 
-    const btnDelete = document.createElement("button");
-    btnDelete.type = "button";
-    btnDelete.className = "genre-list-item-delete";
-    btnDelete.textContent = "削除";
-    btnDelete.addEventListener("click", (event) => {
+    const meta = document.createElement("div");
+    meta.className = "genre-list-item-meta";
+    meta.textContent = `資料 ${genre.sourceCount}・知識 ${genre.acceptedKnowledgeCount}・候補 ${genre.candidateKnowledgeCount}`;
+
+    titleContainer.appendChild(title);
+    titleContainer.appendChild(meta);
+
+    const renameButton = document.createElement("button");
+    renameButton.type = "button";
+    renameButton.className = "nav-episode-edit genre-list-item-rename";
+    renameButton.textContent = "✎";
+    renameButton.title = "ジャンル名を変更";
+    renameButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      if (window.confirm(`「${genre.name}」を削除しますか？関連する資料・分析・知識・チャットも削除されます。`)) {
-        actions.onDelete(genre.id);
+      const newName = window.prompt("ジャンル名を変更", genre.name);
+      if (newName && newName.trim() && newName.trim() !== genre.name) {
+        actions.onRename(genre.id, newName.trim());
       }
     });
-    el.appendChild(btnDelete);
 
-    container.appendChild(el);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "nav-episode-delete genre-list-item-delete";
+    deleteButton.textContent = "×";
+    deleteButton.title = "ジャンルを削除";
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      actions.onDelete(genre.id);
+    });
+
+    item.appendChild(titleContainer);
+    item.appendChild(renameButton);
+    item.appendChild(deleteButton);
+    container.appendChild(item);
   }
 }

@@ -68,14 +68,14 @@ async function init(): Promise<void> {
     maxWidth: SIDEBAR_MAX_WIDTH,
   });
 
-  const app = document.getElementById("genre-library-app");
-  if (app) {
-    await applyStoredRatio(app, "--genre-sidebar-width", "genreSidebar", 0.23);
+  const mainLayout = document.getElementById("genre-library-main");
+  if (mainLayout) {
+    await applyStoredRatio(mainLayout, "--project-nav-width", "genreSidebar", 0.23);
     createVerticalResizer({
-      container: app,
-      propertyName: "--genre-sidebar-width",
+      container: mainLayout,
+      propertyName: "--project-nav-width",
       position: "left",
-      positionClass: "genre-left",
+      positionClass: "left",
       saveKey: "genreSidebar",
       minRatio: 0.18,
       maxRatio: 0.45,
@@ -89,6 +89,7 @@ async function init(): Promise<void> {
 
   setupTabs();
   setupEventListeners();
+  updateLibraryChrome();
 
   await refreshGenreList();
 
@@ -112,6 +113,37 @@ function updateTabUI(): void {
     const el = document.getElementById(`tab-${tab}`);
     el?.classList.toggle("active", state.currentTab === tab);
   }
+}
+
+function updateLibraryChrome(currentGenre?: Genre): void {
+  const selectedGenre = currentGenre ?? state.genres.find((genre) => genre.id === state.currentGenreId);
+  const hasGenre = Boolean(state.currentGenreId);
+  const hasSource = Boolean(state.currentSourceId);
+
+  const toolbarGenreName = document.getElementById("toolbar-genre-name");
+  if (toolbarGenreName) {
+    toolbarGenreName.textContent = selectedGenre
+      ? `ジャンルライブラリ / ${selectedGenre.name}`
+      : "ジャンルライブラリ";
+    toolbarGenreName.title = selectedGenre?.description ?? "";
+  }
+
+  const genreCount = document.getElementById("genre-count");
+  if (genreCount) {
+    genreCount.textContent = String(state.genres.length);
+  }
+
+  for (const tab of ["overview", "sources", "analysis", "knowledge"] as const) {
+    const button = document.getElementById(`tab-${tab}`) as HTMLButtonElement | null;
+    if (button) button.disabled = !hasGenre;
+  }
+
+  const importButton = document.getElementById("btn-import-source") as HTMLButtonElement | null;
+  const analyzeButton = document.getElementById("btn-analyze-source") as HTMLButtonElement | null;
+  const chatButton = document.getElementById("btn-open-genre-chat") as HTMLButtonElement | null;
+  if (importButton) importButton.disabled = !hasGenre;
+  if (analyzeButton) analyzeButton.disabled = !hasSource || state.isAnalyzing;
+  if (chatButton) chatButton.disabled = !hasGenre;
 }
 
 function setupEventListeners(): void {
@@ -141,6 +173,7 @@ async function refreshGenreList(): Promise<void> {
         onDelete: deleteGenre,
       });
     }
+    updateLibraryChrome();
   } catch (error) {
     showError("ジャンル一覧の取得に失敗しました", error);
   } finally {
@@ -152,6 +185,7 @@ async function selectGenre(genreId: string): Promise<void> {
   state.currentGenreId = genreId;
   state.currentSourceId = null;
   updateGenreSelectionUI();
+  updateLibraryChrome();
   await refreshCurrentGenre();
 }
 
@@ -198,6 +232,7 @@ async function renderCurrentTabWithData(
   const container = document.getElementById("main-content");
   if (!container) return;
   container.innerHTML = "";
+  updateLibraryChrome(genre);
 
   switch (state.currentTab) {
     case "overview": {
@@ -256,6 +291,8 @@ async function renderCurrentTabWithData(
       break;
     }
   }
+
+  updateLibraryChrome(genre);
 }
 
 async function createGenre(): Promise<void> {
@@ -292,10 +329,16 @@ async function deleteGenre(genreId: string): Promise<void> {
     if (state.currentGenreId === genreId) {
       state.currentGenreId = null;
       state.currentSourceId = null;
+      state.currentTab = "overview";
+      updateTabUI();
       const main = document.getElementById("main-content");
-      if (main) main.innerHTML = "";
+      if (main) {
+        main.innerHTML = '<p class="empty-state">ジャンルを選択するか、新規作成してください。</p>';
+        main.classList.remove("has-selection");
+      }
     }
     await refreshGenreList();
+    updateLibraryChrome();
   } catch (error) {
     showError("ジャンルの削除に失敗しました", error);
   }
@@ -388,6 +431,7 @@ async function analyzeSource(sourceId: string): Promise<void> {
 
   state.isAnalyzing = true;
   analysisAbortController = new AbortController();
+  updateLibraryChrome();
   registerSpinner("analysis-spinner", true);
 
   try {
@@ -417,7 +461,10 @@ async function analyzeSource(sourceId: string): Promise<void> {
   } finally {
     state.isAnalyzing = false;
     analysisAbortController = null;
+    updateLibraryChrome();
     registerSpinner("analysis-spinner", false);
+    const statusEl = document.getElementById("analysis-status");
+    if (statusEl) statusEl.textContent = "";
   }
 }
 
