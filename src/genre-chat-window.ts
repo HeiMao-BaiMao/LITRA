@@ -22,6 +22,7 @@ import {
 } from "./providers/config.ts";
 import { streamChat } from "./ai/service.ts";
 import { buildGenreChatMessages } from "./genres/chat-context.ts";
+import { createGenreChatTools } from "./genres/chat-tools.ts";
 import { loadGenreKnowledge } from "./genres/knowledge.ts";
 import * as repository from "./genres/repository.ts";
 import * as chat from "./genres/chat.ts";
@@ -403,12 +404,22 @@ async function sendMessage(content: string): Promise<void> {
     setGeneratingState(true);
 
     const knowledge = await loadGenreKnowledge(state.genreId);
-    const modelMessages = await buildGenreChatMessages(state.genre, knowledge, state.messages);
+    const modelMessages = await buildGenreChatMessages(state.genre, knowledge, state.messages, {
+      includePendingCandidates: true,
+    });
+
+    const tools = createGenreChatTools({
+      genreId: state.genreId,
+      settings,
+      threadId: state.currentThreadId,
+    });
 
     let assistantContent = "";
     const streamResult = await streamChat({
       settings,
       messages: modelMessages,
+      tools,
+      toolChoice: "auto",
       onChunk: (chunk) => {
         assistantContent += chunk;
         updateStreamingMessage(assistantContent);
