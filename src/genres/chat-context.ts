@@ -1,6 +1,7 @@
 import type { ModelMessage } from "ai";
 import { limitPromptText } from "../ai/prompts.ts";
 import { buildGenreChatSystemPrompt } from "./prompts.ts";
+import { loadChatAttachment } from "./chat-attachments.ts";
 import type {
   Genre,
   GenreChatContextSnapshot,
@@ -69,12 +70,34 @@ export interface BuildGenreChatMessagesOptions {
   includePendingCandidates?: boolean;
 }
 
-export function buildGenreChatMessages(
+async function resolveMessageContent(
+  message: GenreChatMessage,
+  genreId: string,
+  maxChars: number,
+): Promise<string> {
+  if (!message.attachments?.length) {
+    return limitPromptText(message.content, maxChars, "middle");
+  }
+
+  let content = message.content;
+  for (const attachment of message.attachments) {
+    try {
+      const text = await loadChatAttachment(genreId, message.threadId, message.id, attachment.id);
+      content += `\n\n[${attachment.name}]\n${limitPromptText(text, maxChars, "middle")}`;
+    } catch (error) {
+      console.warn(`[phenex:genres] failed to load attachment ${attachment.id}:`, error);
+      content += `\n\n[${attachment.name}: 読み込み失敗]`;
+    }
+  }
+  return limitPromptText(content, maxChars, "middle");
+}
+
+export async function buildGenreChatMessages(
   genre: Genre,
   knowledge: GenreKnowledgeDocument,
   messages: GenreChatMessage[],
   options: BuildGenreChatMessagesOptions = {},
-): ModelMessage[] {
+): Promise<ModelMessage[]> {
   const maxContextTokens = options.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
   const maxOutputTokens = options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
   const budgets = getContextBudgets(maxContextTokens, maxOutputTokens);
@@ -109,7 +132,7 @@ export function buildGenreChatMessages(
 
   for (let i = naturalMessages.length - 1; i >= 0; i--) {
     const message = naturalMessages[i];
-    const content = limitPromptText(message.content, budgets.chatMessage, "middle");
+    const content = await resolveMessageContent(message, genre.id, budgets.chatMessage);
     const nextTotal = totalChars + content.length;
 
     if (selected.length > 0 && nextTotal > budgets.chatHistory) {

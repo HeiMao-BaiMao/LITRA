@@ -25,6 +25,12 @@ import { buildGenreChatMessages } from "./genres/chat-context.ts";
 import { loadGenreKnowledge } from "./genres/knowledge.ts";
 import * as repository from "./genres/repository.ts";
 import * as chat from "./genres/chat.ts";
+import {
+  detectLongText,
+  detectNovelText,
+  extractAttachmentPreview,
+  saveChatAttachment,
+} from "./genres/chat-attachments.ts";
 import type { Genre, GenreChatThread, GenreChatMessage } from "./genres/schema.ts";
 import {
   GENRE_CHAT_SYNC,
@@ -364,10 +370,28 @@ async function sendMessage(content: string): Promise<void> {
     }
 
     const userDocument = await chat.loadGenreChatThread(state.genreId, state.currentThreadId);
+    const userMessageId = crypto.randomUUID();
+
+    let userContent = content;
+    let attachments: GenreChatMessage["attachments"] | undefined;
+    if (state.currentThreadId && (detectNovelText(content) || detectLongText(content))) {
+      const attachmentType = detectNovelText(content) ? "novel_text" : "long_text";
+      const attachmentName = attachmentType === "novel_text" ? "小説本文" : "長文テキスト";
+      const attachment = await saveChatAttachment(state.genreId, state.currentThreadId, userMessageId, {
+        name: attachmentName,
+        type: attachmentType,
+        content,
+      });
+      attachments = [attachment];
+      userContent = `[${attachmentName}は添付ファイルに保存されました]\n\n${extractAttachmentPreview(content)}`;
+    }
+
     const userUpdatedDocument = chat.appendMessage(userDocument, {
+      id: userMessageId,
       threadId: state.currentThreadId,
       role: "user",
-      content,
+      content: userContent,
+      attachments,
     });
     await chat.saveGenreChatThread(state.genreId, userUpdatedDocument);
 
@@ -379,7 +403,7 @@ async function sendMessage(content: string): Promise<void> {
     setGeneratingState(true);
 
     const knowledge = await loadGenreKnowledge(state.genreId);
-    const modelMessages = buildGenreChatMessages(state.genre, knowledge, state.messages);
+    const modelMessages = await buildGenreChatMessages(state.genre, knowledge, state.messages);
 
     let assistantContent = "";
     const streamResult = await streamChat({
@@ -394,6 +418,7 @@ async function sendMessage(content: string): Promise<void> {
 
     const assistantDocument = await chat.loadGenreChatThread(state.genreId, state.currentThreadId);
     const assistantUpdatedDocument = chat.appendMessage(assistantDocument, {
+      id: crypto.randomUUID(),
       threadId: state.currentThreadId,
       role: "assistant",
       content: assistantContent,
@@ -458,6 +483,12 @@ function updateStreamingMessage(content: string): void {
   }
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 function renderMessages(): void {
   const container = document.getElementById("chat-messages");
   if (!container) return;
@@ -467,6 +498,18 @@ function renderMessages(): void {
     const el = document.createElement("div");
     el.className = `chat-message ${message.role}`;
     el.innerHTML = renderMarkdown(message.content);
+
+    if (message.attachments?.length) {
+      const attachmentList = document.createElement("div");
+      attachmentList.className = "chat-attachments";
+      for (const attachment of message.attachments) {
+        const badge = document.createElement("span");
+        badge.className = "chat-attachment-badge";
+        badge.textContent = `📎 ${attachment.name} (${formatBytes(attachment.size)})`;
+        attachmentList.appendChild(badge);
+      }
+      el.appendChild(attachmentList);
+    }
 
     const referencedSourceCount = message.referencedSourceIds?.length ?? 0;
     if (referencedSourceCount > 0) {

@@ -62,6 +62,10 @@ export function genreChatContextDir(genreId: string): string {
   return `${genreChatsDir(genreId)}/context`;
 }
 
+export function genreChatAttachmentsDir(genreId: string): string {
+  return `${genreChatsDir(genreId)}/attachments`;
+}
+
 export function genreKnowledgeHistoryDir(genreId: string): string {
   return `${genreKnowledgeDir(genreId)}/history`;
 }

@@ -669,6 +669,20 @@ export const genreChatToolCallSchema = z.object({
   error: z.string().optional(),
 });
 
+export interface GenreChatAttachment {
+  id: string;
+  name: string;
+  type: "novel_text" | "long_text" | "generic";
+  size: number;
+}
+
+export const genreChatAttachmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(["novel_text", "long_text", "generic"]),
+  size: z.number(),
+});
+
 export interface GenreChatMessage {
   id: string;
   threadId: string;
@@ -685,6 +699,7 @@ export interface GenreChatMessage {
   referencedKnowledgeItemIds?: string[];
   referencedCandidateIds?: string[];
   contextSnapshotId?: string;
+  attachments?: GenreChatAttachment[];
   createdAt: string;
 }
 
@@ -704,6 +719,7 @@ export const genreChatMessageSchema = z.object({
   referencedKnowledgeItemIds: z.array(z.string()).optional(),
   referencedCandidateIds: z.array(z.string()).optional(),
   contextSnapshotId: z.string().optional(),
+  attachments: z.array(genreChatAttachmentSchema).optional(),
   createdAt: z.string(),
 });
 

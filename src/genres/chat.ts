@@ -179,12 +179,11 @@ export async function saveContextSnapshot(
 
 export function appendMessage(
   document: GenreChatDocument,
-  message: Omit<GenreChatMessage, "id" | "createdAt">,
+  message: Omit<GenreChatMessage, "createdAt">,
 ): GenreChatDocument {
   const now = new Date().toISOString();
   const newMessage: GenreChatMessage = {
     ...message,
-    id: `${now}-${crypto.randomUUID()}`,
     createdAt: now,
   };
   return {

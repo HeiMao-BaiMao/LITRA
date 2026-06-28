@@ -7,6 +7,7 @@ import { createKnowledgeCandidate, loadGenreKnowledge } from "./knowledge.ts";
 import { listGenreSources, loadGenreSource } from "./sources.ts";
 import { loadAnalysisRun, listAnalysisRuns } from "./analyzer.ts";
 import { loadGenreChatThread } from "./chat.ts";
+import { loadChatAttachment } from "./chat-attachments.ts";
 import { buildChatMessagesText } from "./chat-context.ts";
 import { extractSegmentContent } from "./segmentation.ts";
 import { generateObject } from "ai";
@@ -36,6 +37,78 @@ function wrapToolExecute<TInput, TOutput>(
       return { error: error instanceof Error ? error.message : String(error) };
     }
   };
+}
+
+function createReadGenreChatHistoryTool(deps: GenreChatToolDependencies) {
+  return tool({
+    description: "Reads the full message history of the current genre chat thread.",
+    inputSchema: z.object({
+      includeAttachments: z.boolean().optional(),
+    }),
+    execute: wrapToolExecute("readGenreChatHistory", async ({ includeAttachments }) => {
+      if (!deps.threadId) return { error: "No active thread." };
+
+      const document = await loadGenreChatThread(deps.genreId, deps.threadId);
+      const messages = await Promise.all(
+        document.messages.map(async (message) => {
+          const base = {
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            createdAt: message.createdAt,
+            attachments: message.attachments?.map((a) => ({
+              id: a.id,
+              name: a.name,
+              type: a.type,
+            })),
+          };
+          if (!includeAttachments || !message.attachments?.length) return base;
+
+          const attachmentContents = await Promise.all(
+            message.attachments.map(async (attachment) => {
+              try {
+                const content = await loadChatAttachment(
+                  deps.genreId,
+                  deps.threadId!,
+                  message.id,
+                  attachment.id,
+                );
+                return { id: attachment.id, name: attachment.name, content };
+              } catch (error) {
+                console.warn(
+                  `[phenex:genres] failed to load attachment ${attachment.id}:`,
+                  error,
+                );
+                return null;
+              }
+            }),
+          );
+          return { ...base, attachmentContents: attachmentContents.filter(Boolean) };
+        }),
+      );
+
+      return { messages };
+    }),
+  });
+}
+
+function createReadGenreChatAttachmentTool(deps: GenreChatToolDependencies) {
+  return tool({
+    description: "Reads the contents of a specific chat attachment (long text or novel text).",
+    inputSchema: z.object({
+      messageId: z.string(),
+      attachmentId: z.string(),
+    }),
+    execute: wrapToolExecute("readGenreChatAttachment", async ({ messageId, attachmentId }) => {
+      if (!deps.threadId) return { error: "No active thread." };
+      try {
+        const content = await loadChatAttachment(deps.genreId, deps.threadId, messageId, attachmentId);
+        return { content };
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    }),
+  });
 }
 
 function createListGenreSourcesTool(deps: GenreChatToolDependencies) {
@@ -479,6 +552,8 @@ function createProposeChatConclusionsTool(deps: GenreChatToolDependencies) {
 
 export function createGenreChatTools(deps: GenreChatToolDependencies): ToolSet {
   return {
+    readGenreChatHistory: createReadGenreChatHistoryTool(deps),
+    readGenreChatAttachment: createReadGenreChatAttachmentTool(deps),
     listGenreSources: createListGenreSourcesTool(deps),
     readGenreSourceMetadata: createReadGenreSourceMetadataTool(deps),
     readGenreSourceSegment: createReadGenreSourceSegmentTool(deps),

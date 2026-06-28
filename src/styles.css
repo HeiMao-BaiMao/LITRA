@@ -409,6 +409,25 @@ button#btn-cancel:hover:not(:disabled) {
   background: transparent;
 }
 
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.chat-attachment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
 .tool-call-card {
   border: 1px solid var(--border-color);
   border-left: 4px solid var(--text-secondary);
