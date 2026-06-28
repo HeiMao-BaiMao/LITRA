@@ -20,12 +20,31 @@
       <main class="genre-chat-main-wrapper">
         <header class="genre-chat-header">
           <h2 id="genre-chat-genre-name">ジャンルAIチャット</h2>
-          <div id="chat-controls" class="genre-chat-controls">
-            <select id="chat-provider" class="genre-chat-control-select" title="プロバイダー"></select>
-            <select id="chat-model" class="genre-chat-control-select" title="モデル"></select>
-          </div>
         </header>
-        <div id="genre-chat-main" class="genre-chat-main"></div>
+        <div id="genre-chat-main" class="chat-panel detached">
+          <div class="chat-panel-header">
+            <h3>AI チャット</h3>
+          </div>
+          <div class="chat-settings-row">
+            <select id="chat-provider" title="プロバイダー"></select>
+            <select id="chat-model" title="モデル"></select>
+          </div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <form id="chat-form" class="chat-form">
+            <textarea
+              id="chat-input"
+              class="chat-input"
+              placeholder="AI と自由に話す...（Ctrl+Enter で送信）"
+              rows="2"
+            ></textarea>
+            <div class="chat-controls">
+              <button id="btn-send" type="submit">送信</button>
+              <button id="btn-cancel" type="button" class="hidden" disabled>
+                停止
+              </button>
+            </div>
+          </form>
+        </div>
       </main>
     </div>
   </body>

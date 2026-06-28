@@ -2,10 +2,17 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, emit } from "@tauri-apps/api/event";
 import { applyWindowBounds, trackWindowBounds } from "./window/bounds.ts";
 import { applyStoredRatio, createVerticalResizer } from "./ui/resizable.ts";
+import { bindAutoResize } from "./ui/auto-resize.ts";
 import { showError, showInfo } from "./ui/common.ts";
 import { renderThreadList } from "./ui/genres/thread-list.ts";
-import { renderGenreChat } from "./ui/genres/genre-chat.ts";
-import { loadSettings, resolveChatSettings, getProviderSpecificSettings, type Provider, type AiSettings } from "./settings.ts";
+import { renderMarkdown } from "./markdown.ts";
+import {
+  loadSettings,
+  resolveChatSettings,
+  getProviderSpecificSettings,
+  type Provider,
+  type AiSettings,
+} from "./settings.ts";
 import {
   loadProviderConfig,
   getProviderEntry,
@@ -49,10 +56,10 @@ const state: ChatState = {
 };
 
 let currentAbortController: AbortController | null = null;
-
 let providerConfig: ProviderConfig | null = null;
 let selectedProvider: Provider | null = null;
 let selectedModel: string | null = null;
+let resetInputHeight: (() => void) | undefined;
 
 async function init(): Promise<void> {
   const win = getCurrentWindow();
@@ -73,6 +80,11 @@ async function init(): Promise<void> {
       minRatio: 0.15,
       maxRatio: 0.45,
     });
+  }
+
+  const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
+  if (input) {
+    resetInputHeight = bindAutoResize(input, 15);
   }
 
   await setupChatControls();
@@ -112,9 +124,14 @@ async function setupChatControls(): Promise<void> {
   selectedProvider = resolved.provider;
   selectedModel = resolved.model;
 
-  const providerSelect = document.getElementById("chat-provider") as HTMLSelectElement | null;
-  const modelSelect = document.getElementById("chat-model") as HTMLSelectElement | null;
-  if (!providerSelect || !modelSelect) return;
+  const providerSelect = document.querySelector<HTMLSelectElement>("#chat-provider");
+  const modelSelect = document.querySelector<HTMLSelectElement>("#chat-model");
+  const form = document.querySelector<HTMLFormElement>("#chat-form");
+  const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
+  const btnSend = document.querySelector<HTMLButtonElement>("#btn-send");
+  const btnCancel = document.querySelector<HTMLButtonElement>("#btn-cancel");
+
+  if (!providerSelect || !modelSelect || !form || !input || !btnSend || !btnCancel) return;
 
   for (const provider of providerConfig.providers) {
     const option = document.createElement("option");
@@ -131,7 +148,8 @@ async function setupChatControls(): Promise<void> {
     const provider = providerSelect.value as Provider;
     selectedProvider = provider;
     const defaults = getProviderSpecificSettings(settings, provider);
-    const fallbackModel = getProviderModelIds(getProviderEntry(providerConfig ?? { providers: [] }, provider))[0] ?? "";
+    const fallbackModel =
+      getProviderModelIds(getProviderEntry(providerConfig ?? { providers: [] }, provider))[0] ?? "";
     selectedModel = defaults.model || fallbackModel;
     renderChatModelOptions(modelSelect, provider);
     modelSelect.value = selectedModel;
@@ -140,16 +158,48 @@ async function setupChatControls(): Promise<void> {
   modelSelect.addEventListener("change", () => {
     selectedModel = modelSelect.value;
   });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    resetInputHeight?.();
+    void sendMessage(text);
+  });
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  btnCancel.addEventListener("click", () => {
+    stopStreaming();
+  });
 }
 
 function renderChatModelOptions(select: HTMLSelectElement, providerId: Provider): void {
   select.innerHTML = "";
   const entry = getProviderEntry(providerConfig ?? { providers: [] }, providerId);
-  for (const modelId of getProviderModelIds(entry)) {
+  for (const model of entry?.models ?? []) {
     const option = document.createElement("option");
-    option.value = modelId;
-    option.textContent = modelId;
+    option.value = model.id;
+    option.textContent = model.label ?? model.id;
     select.appendChild(option);
+  }
+}
+
+function setGeneratingState(isGenerating: boolean): void {
+  const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
+  const btnSend = document.querySelector<HTMLButtonElement>("#btn-send");
+  const btnCancel = document.querySelector<HTMLButtonElement>("#btn-cancel");
+  if (input) input.disabled = isGenerating;
+  if (btnSend) btnSend.disabled = isGenerating;
+  if (btnCancel) {
+    btnCancel.disabled = !isGenerating;
+    btnCancel.classList.toggle("hidden", !isGenerating);
   }
 }
 
@@ -162,7 +212,10 @@ async function loadGenre(genreId: string): Promise<void> {
       return;
     }
 
-    document.getElementById("genre-chat-title")!.textContent = `${state.genre.name} - ジャンルAIチャット`;
+    const titleEl = document.getElementById("genre-chat-title");
+    if (titleEl) {
+      titleEl.textContent = `${state.genre.name} - ジャンルAIチャット`;
+    }
 
     await refreshThreads();
 
@@ -323,7 +376,7 @@ async function sendMessage(content: string): Promise<void> {
 
     state.isStreaming = true;
     currentAbortController = new AbortController();
-    renderMessages();
+    setGeneratingState(true);
 
     const knowledge = await loadGenreKnowledge(state.genreId);
     const modelMessages = buildGenreChatMessages(state.genre, knowledge, state.messages);
@@ -353,6 +406,7 @@ async function sendMessage(content: string): Promise<void> {
     state.messages = assistantUpdatedDocument.messages;
     state.isStreaming = false;
     currentAbortController = null;
+    setGeneratingState(false);
     renderMessages();
 
     await emit(GENRE_CHAT_SYNC, {
@@ -362,6 +416,7 @@ async function sendMessage(content: string): Promise<void> {
   } catch (error) {
     state.isStreaming = false;
     currentAbortController = null;
+    setGeneratingState(false);
     if (error instanceof Error && error.name === "AbortError") {
       showInfo("生成を中断しました");
     } else {
@@ -377,16 +432,17 @@ function stopStreaming(): void {
     currentAbortController = null;
   }
   state.isStreaming = false;
+  setGeneratingState(false);
   renderMessages();
 }
 
 function updateStreamingMessage(content: string): void {
-  const container = document.getElementById("genre-chat-messages");
+  const container = document.getElementById("chat-messages");
   if (!container) return;
 
-  const bubble = container.querySelector(".genre-chat-message.assistant:last-child .genre-chat-bubble");
+  const bubble = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
   if (bubble) {
-    bubble.innerHTML = content;
+    bubble.innerHTML = renderMarkdown(content);
   } else {
     state.messages = [
       ...state.messages,
@@ -403,13 +459,34 @@ function updateStreamingMessage(content: string): void {
 }
 
 function renderMessages(): void {
-  const container = document.getElementById("genre-chat-main");
+  const container = document.getElementById("chat-messages");
   if (!container) return;
 
-  renderGenreChat(container, state.messages, state.isStreaming, {
-    onSend: sendMessage,
-    onStop: stopStreaming,
-  });
+  container.innerHTML = "";
+  for (const message of state.messages) {
+    const el = document.createElement("div");
+    el.className = `chat-message ${message.role}`;
+    el.innerHTML = renderMarkdown(message.content);
+
+    const referencedSourceCount = message.referencedSourceIds?.length ?? 0;
+    if (referencedSourceCount > 0) {
+      const sourceList = document.createElement("div");
+      sourceList.className = "genre-chat-referenced-sources";
+      sourceList.textContent = `参照資料: ${referencedSourceCount}件`;
+      el.appendChild(sourceList);
+    }
+
+    const referencedCandidateCount = message.referencedCandidateIds?.length ?? 0;
+    if (referencedCandidateCount > 0) {
+      const candidates = document.createElement("div");
+      candidates.className = "genre-chat-candidates";
+      candidates.textContent = `提案中の候補: ${referencedCandidateCount}件`;
+      el.appendChild(candidates);
+    }
+
+    container.appendChild(el);
+  }
+  container.scrollTop = container.scrollHeight;
 }
 
 window.addEventListener("DOMContentLoaded", () => {
