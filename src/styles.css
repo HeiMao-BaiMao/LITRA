@@ -135,6 +135,11 @@ button#btn-cancel {
   background-color: var(--danger);
 }
 
+button#btn-cancel.is-active,
+.chat-form.is-generating button#btn-cancel {
+  display: inline-block !important;
+}
+
 button#btn-cancel:hover:not(:disabled) {
   background-color: var(--danger-hover);
 }
@@ -2332,10 +2337,19 @@ button.danger:hover:not(:disabled) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.5rem;
   border-radius: 4px;
   cursor: pointer;
   margin-bottom: 0.25rem;
+}
+
+.thread-list-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thread-list-item:hover {
@@ -2349,10 +2363,12 @@ button.danger:hover:not(:disabled) {
 
 .thread-item-actions {
   display: none;
+  flex: 0 0 auto;
   gap: 0.25rem;
 }
 
-.thread-list-item:hover .thread-item-actions {
+.thread-list-item:hover .thread-item-actions,
+.thread-list-item:focus-within .thread-item-actions {
   display: flex;
 }
 
@@ -2361,6 +2377,7 @@ button.danger:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .genre-chat-header {
@@ -2382,7 +2399,13 @@ button.danger:hover:not(:disabled) {
 }
 
 .genre-chat-main-wrapper .chat-panel.detached {
-  height: 100%;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.genre-chat-main-wrapper .chat-form {
+  flex: 0 0 auto;
 }
 
 .genre-form-input {

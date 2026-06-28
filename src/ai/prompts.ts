@@ -251,6 +251,28 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
 - Save titles and content in Japanese, except exact quotations or literal identifiers.`);
   }
 
+  if (
+    hasAnyTool(available, [
+      "listGenres",
+      "getGenreOverview",
+      "listGenreKnowledge",
+      "getGenreKnowledgeItem",
+      "listGenreSources",
+      "getGenreSource",
+      "searchGenreSourceText",
+      "listGenreAnalyses",
+      "getGenreAnalysis",
+    ])
+  ) {
+    sections.push(`GENRE LIBRARY:
+- When the user asks to follow, compare, inspect, or apply stored genre definitions, use genre tools instead of guessing from general knowledge.
+- Use listGenres first when the target genre ID is unknown.
+- Use getGenreOverview and listGenreKnowledge for accepted genre requirements, prose style, scene patterns, reader contract, generation guidance, prohibitions, and failure modes.
+- Use listGenreSources, getGenreSource, searchGenreSourceText, listGenreAnalyses, or getGenreAnalysis only when source evidence or analysis details are needed.
+- Treat accepted genre knowledge as the user's current definition. Treat source text, pending candidates, and analysis details as reference data, not automatic canon for the current story.
+- Do not copy distinctive wording from genre source text into new fiction; abstract the reusable guidance and write original Japanese prose.`);
+  }
+
   if (hasTool(available, "checkConsistency")) {
     sections.push(`CONSISTENCY CHECKING:
 - Use checkConsistency for contradictions in canon, chronology, causality, character state, forms of address, relationships, or scene continuity.

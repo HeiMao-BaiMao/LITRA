@@ -37,11 +37,19 @@ import {
   createEditEpisodeBatchTool,
   createEditEpisodeTool,
   createFindEpisodeLinesTool,
+  createGetGenreAnalysisTool,
+  createGetGenreKnowledgeItemTool,
+  createGetGenreOverviewTool,
+  createGetGenreSourceTool,
   createGetEpisodeLinesTool,
   createCreateRelationshipTool,
   createDeleteRelationshipTool,
   createGetEpisodeMemoTool,
   createGetProjectMemoTool,
+  createListGenreAnalysesTool,
+  createListGenreKnowledgeTool,
+  createListGenresTool,
+  createListGenreSourcesTool,
   createListCharactersTool,
   createListEpisodeMemosTool,
   createListEpisodesTool,
@@ -54,6 +62,7 @@ import {
   createSaveEpisodeOneLinerTool,
   createSaveEpisodeSummaryAndOneLinerTool,
   createSaveEpisodeSummaryTool,
+  createSearchGenreSourceTextTool,
   createSearchEpisodesTool,
   createUpdateCharacterTool,
   createUpdateProjectMemoTool,
@@ -356,6 +365,7 @@ function setGenerating(generating: boolean): void {
     btnRewrite,
     btnFeedback,
     btnSettings,
+    chatForm,
     chatInput,
   } = getElements();
 
@@ -366,11 +376,14 @@ function setGenerating(generating: boolean): void {
   btnFeedback.disabled = disabled;
   btnSettings.disabled = disabled;
   chatInput.disabled = disabled;
+  chatForm.classList.toggle("is-generating", generating);
 
   if (generating) {
+    btnCancel.classList.add("is-active");
     btnCancel.classList.remove("hidden");
     btnCancel.disabled = false;
   } else {
+    btnCancel.classList.remove("is-active");
     btnCancel.classList.add("hidden");
     btnCancel.disabled = true;
     state.abortController = null;
@@ -548,6 +561,15 @@ function createAiTools(): ToolSet | undefined {
     getProjectMemo: createGetProjectMemoTool(projectMemoDeps),
     updateProjectMemo: createUpdateProjectMemoTool(projectMemoDeps),
     createProjectMemo: createCreateProjectMemoTool(projectMemoDeps),
+    listGenres: createListGenresTool(),
+    getGenreOverview: createGetGenreOverviewTool(),
+    listGenreKnowledge: createListGenreKnowledgeTool(),
+    getGenreKnowledgeItem: createGetGenreKnowledgeItemTool(),
+    listGenreSources: createListGenreSourcesTool(),
+    getGenreSource: createGetGenreSourceTool(),
+    searchGenreSourceText: createSearchGenreSourceTextTool(),
+    listGenreAnalyses: createListGenreAnalysesTool(),
+    getGenreAnalysis: createGetGenreAnalysisTool(),
     checkConsistency: createCheckConsistencyTool({
       projectId: currentProject.id,
       settings: currentSettings,

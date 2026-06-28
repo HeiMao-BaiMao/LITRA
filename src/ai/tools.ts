@@ -23,6 +23,17 @@ import {
   updateProjectMemo,
   type ProjectMemo,
 } from "../project/project-memo.ts";
+import {
+  listGenres,
+  loadGenre,
+} from "../genres/repository.ts";
+import { loadGenreKnowledge } from "../genres/knowledge.ts";
+import {
+  listGenreSources,
+  loadGenreSource,
+} from "../genres/sources.ts";
+import { extractSegmentContent } from "../genres/segmentation.ts";
+import { genreKnowledgeCategorySchema } from "../genres/schema.ts";
 
 interface ValidationResult<T> {
   success: true;
@@ -1728,5 +1739,407 @@ export function createCreateProjectMemoTool(deps: ProjectMemoToolDependencies) {
         memo: memos[memos.length - 1],
       };
     }),
+  });
+}
+
+export function createListGenresTool() {
+  return tool({
+    description:
+      "Lists genres registered in the genre library. Use this before reading genre-specific guidance when the target genre is unclear.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .optional()
+        .describe("Optional text used to filter by genre name, alias-like description, or tags."),
+    }),
+    execute: wrapToolExecute("listGenres", async ({ query }) => {
+      const genres = await listGenres();
+      const normalizedQuery = query?.trim().toLocaleLowerCase();
+      const filtered = normalizedQuery
+        ? genres.filter((genre) =>
+            [
+              genre.name,
+              genre.description,
+              genre.status,
+              genre.id,
+            ]
+              .join("\n")
+              .toLocaleLowerCase()
+              .includes(normalizedQuery),
+          )
+        : genres;
+
+      return {
+        count: filtered.length,
+        genres: filtered.map((genre) => ({
+          id: genre.id,
+          name: genre.name,
+          description: limitToolText(genre.description, 500),
+          revision: genre.revision,
+          sourceCount: genre.sourceCount,
+          acceptedKnowledgeCount: genre.acceptedKnowledgeCount,
+          candidateKnowledgeCount: genre.candidateKnowledgeCount,
+          updatedAt: genre.updatedAt,
+        })),
+      };
+    }),
+  });
+}
+
+const genreIdInputSchema = z.object({
+  genreId: z.string().describe("Genre ID returned by listGenres."),
+});
+
+export function createGetGenreOverviewTool() {
+  return tool({
+    description:
+      "Reads a genre overview: name, aliases, description, user definition, notes, tags, and library counts.",
+    inputSchema: genreIdInputSchema,
+    execute: wrapToolExecute("getGenreOverview", async ({ genreId }) => {
+      const { listAnalysisRuns } = await import("../genres/analyzer.ts");
+      const [genre, knowledge, sources, analyses] = await Promise.all([
+        loadGenre(genreId),
+        loadGenreKnowledge(genreId),
+        listGenreSources(genreId),
+        listAnalysisRuns(genreId),
+      ]);
+      const activeKnowledge = knowledge.items.filter((item) => item.status === "active");
+
+      return {
+        genre: {
+          id: genre.id,
+          name: genre.name,
+          aliases: genre.aliases,
+          description: limitToolText(genre.description, 2000),
+          userDefinition: limitToolText(genre.userDefinition, 4000),
+          notes: limitToolText(genre.notes, 4000),
+          tags: genre.tags,
+          revision: genre.revision,
+          updatedAt: genre.updatedAt,
+        },
+        counts: {
+          sources: sources.length,
+          acceptedKnowledge: activeKnowledge.length,
+          pendingKnowledgeCandidates: knowledge.candidates.filter((candidate) => candidate.status === "pending").length,
+          analyses: analyses.length,
+        },
+        keyKnowledge: activeKnowledge.slice(0, 20).map((item) => ({
+          id: item.id,
+          category: item.category,
+          importance: item.importance,
+          title: item.title,
+          statement: limitToolText(item.statement, 800),
+        })),
+      };
+    }),
+  });
+}
+
+export function createListGenreKnowledgeTool() {
+  return tool({
+    description:
+      "Lists accepted knowledge items for a genre, such as core requirements, prose style, scene patterns, reader contract, generation guidance, prohibitions, and failure modes.",
+    inputSchema: z.object({
+      genreId: z.string().describe("Genre ID returned by listGenres."),
+      category: genreKnowledgeCategorySchema.optional(),
+      includeDisabled: z.boolean().optional(),
+      maxItems: z.number().int().min(1).max(100).optional(),
+    }),
+    execute: wrapToolExecute(
+      "listGenreKnowledge",
+      async ({ genreId, category, includeDisabled, maxItems }) => {
+        const knowledge = await loadGenreKnowledge(genreId);
+        const items = knowledge.items
+          .filter((item) => includeDisabled || item.status === "active")
+          .filter((item) => !category || item.category === category)
+          .slice(0, maxItems ?? 50);
+
+        return {
+          genreId,
+          revision: knowledge.revision,
+          count: items.length,
+          items: items.map((item) => ({
+            id: item.id,
+            category: item.category,
+            importance: item.importance,
+            status: item.status,
+            confidence: item.confidence,
+            title: item.title,
+            statement: limitToolText(item.statement, 1200),
+            explanation: limitToolText(item.explanation, 1200),
+          })),
+        };
+      },
+    ),
+  });
+}
+
+const getGenreKnowledgeItemInputSchema = z.object({
+  genreId: z.string().describe("Genre ID returned by listGenres."),
+  itemId: z.string().describe("Knowledge item ID returned by listGenreKnowledge."),
+});
+
+export function createGetGenreKnowledgeItemTool() {
+  return tool({
+    description:
+      "Reads a complete accepted genre knowledge item, including explanation and evidence/chat references.",
+    inputSchema: getGenreKnowledgeItemInputSchema,
+    execute: wrapToolExecute("getGenreKnowledgeItem", async ({ genreId, itemId }) => {
+      const knowledge = await loadGenreKnowledge(genreId);
+      const item = knowledge.items.find((candidate) => candidate.id === itemId);
+      if (!item) {
+        return { error: `ジャンル知識が見つかりません: ${itemId}` };
+      }
+
+      return {
+        item: {
+          ...item,
+          statement: limitToolText(item.statement),
+          explanation: limitToolText(item.explanation),
+        },
+      };
+    }),
+  });
+}
+
+export function createListGenreSourcesTool() {
+  return tool({
+    description:
+      "Lists reference sources registered for a genre. Use this to identify examples, explanations, counterexamples, or user notes before reading source text.",
+    inputSchema: genreIdInputSchema,
+    execute: wrapToolExecute("listGenreSources", async ({ genreId }) => {
+      const sources = await listGenreSources(genreId);
+      return {
+        count: sources.length,
+        sources: sources.map((source) => ({
+          id: source.id,
+          title: source.title,
+          author: source.author,
+          sourceType: source.sourceType,
+          sourceRole: source.sourceRole,
+          preference: source.preference,
+          sourceNote: limitToolText(source.sourceNote, 500),
+          userInterpretation: limitToolText(source.userInterpretation, 500),
+          characterCount: source.characterCount,
+          segmentCount: source.segmentCount,
+          analysisStatus: source.analysisStatus,
+          latestAnalysisRunId: source.latestAnalysisRunId,
+          updatedAt: source.updatedAt,
+        })),
+      };
+    }),
+  });
+}
+
+const getGenreSourceInputSchema = z.object({
+  genreId: z.string().describe("Genre ID returned by listGenres."),
+  sourceId: z.string().describe("Source ID returned by listGenreSources."),
+  includeContent: z
+    .boolean()
+    .optional()
+    .describe("When true, returns a trimmed version of the source text."),
+});
+
+export function createGetGenreSourceTool() {
+  return tool({
+    description:
+      "Reads metadata and optionally source text for a genre reference source. Use includeContent only when exact source details or examples are needed.",
+    inputSchema: getGenreSourceInputSchema,
+    execute: wrapToolExecute(
+      "getGenreSource",
+      async ({ genreId, sourceId, includeContent }) => {
+        const { metadata, content, segments } = await loadGenreSource(genreId, sourceId);
+        return {
+          source: {
+            ...metadata,
+            sourceNote: limitToolText(metadata.sourceNote, 1000),
+            userInterpretation: limitToolText(metadata.userInterpretation, 1000),
+          },
+          segments: segments.map((segment) => ({
+            id: segment.id,
+            ordinal: segment.ordinal,
+            heading: segment.heading,
+            startOffset: segment.startOffset,
+            endOffset: segment.endOffset,
+            segmentationMethod: segment.segmentationMethod,
+          })),
+          content: includeContent ? limitToolText(content, 16000) : undefined,
+        };
+      },
+    ),
+  });
+}
+
+export function createSearchGenreSourceTextTool() {
+  return tool({
+    description:
+      "Searches registered genre reference source text and returns source IDs, segment IDs, headings, and snippets.",
+    inputSchema: z.object({
+      genreId: z.string().describe("Genre ID returned by listGenres."),
+      query: z.string().describe("Search phrase to find in source text."),
+      sourceIds: z.array(z.string()).optional(),
+      maxResults: z.number().int().min(1).max(30).optional(),
+    }),
+    execute: wrapToolExecute(
+      "searchGenreSourceText",
+      async ({ genreId, query, sourceIds, maxResults }) => {
+        const normalizedQuery = query.trim().toLocaleLowerCase();
+        if (!normalizedQuery) return { results: [] };
+
+        const sources = await listGenreSources(genreId);
+        const targetSources = sourceIds?.length
+          ? sources.filter((source) => sourceIds.includes(source.id))
+          : sources;
+        const limit = maxResults ?? 10;
+        const results: Array<{
+          sourceId: string;
+          title: string;
+          segmentId: string;
+          heading: string;
+          snippet: string;
+        }> = [];
+
+        for (const source of targetSources) {
+          if (results.length >= limit) break;
+          const { content, segments } = await loadGenreSource(genreId, source.id);
+          for (const segment of segments) {
+            if (results.length >= limit) break;
+            const segmentText = extractSegmentContent(content, segment);
+            const searchText = segmentText.toLocaleLowerCase();
+            const matchIndex = searchText.indexOf(normalizedQuery);
+            if (matchIndex === -1) continue;
+
+            const start = Math.max(0, matchIndex - 160);
+            const end = Math.min(segmentText.length, matchIndex + query.length + 160);
+            results.push({
+              sourceId: source.id,
+              title: source.title,
+              segmentId: segment.id,
+              heading: segment.heading,
+              snippet: limitToolText(segmentText.slice(start, end), 500),
+            });
+          }
+        }
+
+        return { count: results.length, results };
+      },
+    ),
+  });
+}
+
+export function createListGenreAnalysesTool() {
+  return tool({
+    description:
+      "Lists AI analysis runs for a genre. Use this to find analysis IDs before reading detailed genre analysis.",
+    inputSchema: z.object({
+      genreId: z.string().describe("Genre ID returned by listGenres."),
+      sourceId: z.string().optional(),
+    }),
+    execute: wrapToolExecute("listGenreAnalyses", async ({ genreId, sourceId }) => {
+      const { listAnalysisRuns } = await import("../genres/analyzer.ts");
+      const runs = await listAnalysisRuns(genreId);
+      const filtered = sourceId ? runs.filter((run) => run.sourceId === sourceId) : runs;
+      return {
+        count: filtered.length,
+        analyses: filtered.map((run) => ({
+          id: run.id,
+          sourceId: run.sourceId,
+          status: run.status,
+          provider: run.provider,
+          model: run.model,
+          totalSegments: run.totalSegments,
+          completedSegments: run.completedSegments,
+          failedSegments: run.failedSegments,
+          hasSynthesis: Boolean(run.synthesis),
+          startedAt: run.startedAt,
+          completedAt: run.completedAt,
+          error: run.error,
+        })),
+      };
+    }),
+  });
+}
+
+const getGenreAnalysisInputSchema = z.object({
+  genreId: z.string().describe("Genre ID returned by listGenres."),
+  analysisRunId: z.string().describe("Analysis run ID returned by listGenreAnalyses."),
+  maxSegments: z.number().int().min(1).max(20).optional(),
+});
+
+export function createGetGenreAnalysisTool() {
+  return tool({
+    description:
+      "Reads a genre source analysis run, including synthesis and trimmed segment summaries/features.",
+    inputSchema: getGenreAnalysisInputSchema,
+    execute: wrapToolExecute(
+      "getGenreAnalysis",
+      async ({ genreId, analysisRunId, maxSegments }) => {
+        const { loadAnalysisRun } = await import("../genres/analyzer.ts");
+        const run = await loadAnalysisRun(genreId, analysisRunId);
+        if (!run) {
+          return { error: `ジャンル分析が見つかりません: ${analysisRunId}` };
+        }
+
+        return {
+          analysis: {
+            id: run.id,
+            genreId: run.genreId,
+            sourceId: run.sourceId,
+            status: run.status,
+            provider: run.provider,
+            model: run.model,
+            totalSegments: run.totalSegments,
+            completedSegments: run.completedSegments,
+            failedSegments: run.failedSegments,
+            synthesis: run.synthesis
+              ? {
+                  sourceSummary: limitToolText(run.synthesis.sourceSummary, 2000),
+                  contributionToGenre: run.synthesis.contributionToGenre,
+                  deviationsFromGenre: run.synthesis.deviationsFromGenre,
+                  workSpecificElements: run.synthesis.workSpecificElements,
+                  readerExpectations: run.synthesis.readerExpectations,
+                  structuralPatterns: run.synthesis.structuralPatterns,
+                  stylisticPatterns: run.synthesis.stylisticPatterns,
+                  failureRisks: run.synthesis.failureRisks,
+                }
+              : undefined,
+            segmentResults: run.segmentResults.slice(0, maxSegments ?? 5).map((segment) => ({
+              id: segment.id,
+              sourceId: segment.sourceId,
+              segmentId: segment.segmentId,
+              summary: limitToolText(segment.summary, 1200),
+              pointOfView: segment.pointOfView,
+              narratorCharacteristics: segment.narratorCharacteristics,
+              genreSignals: segment.genreSignals.map((item) => ({
+                statement: limitToolText(item.statement, 500),
+                confidence: item.confidence,
+              })),
+              proseFeatures: segment.proseFeatures.map((item) => ({
+                statement: limitToolText(item.statement, 500),
+                confidence: item.confidence,
+              })),
+              scenePatterns: segment.scenePatterns.map((pattern) => ({
+                name: pattern.name,
+                purpose: limitToolText(pattern.purpose, 500),
+                expectedEffect: limitToolText(pattern.expectedEffect, 500),
+                confidence: pattern.confidence,
+              })),
+              generationGuidance: segment.generationGuidance.map((item) => ({
+                statement: limitToolText(item.statement, 500),
+                confidence: item.confidence,
+              })),
+              possibleFailureModes: segment.possibleFailureModes.map((item) => ({
+                statement: limitToolText(item.statement, 500),
+                confidence: item.confidence,
+              })),
+              confidence: segment.confidence,
+            })),
+            error: run.error,
+            startedAt: run.startedAt,
+            completedAt: run.completedAt,
+          },
+        };
+      },
+    ),
   });
 }

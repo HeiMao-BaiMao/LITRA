@@ -30,7 +30,11 @@ export function renderThreadList(
   for (const thread of threads) {
     const el = document.createElement("div");
     el.className = `thread-list-item ${thread.id === currentThreadId ? "selected" : ""}`;
-    el.textContent = thread.title;
+
+    const title = document.createElement("span");
+    title.className = "thread-list-title";
+    title.textContent = thread.title || "無題のスレッド";
+    el.appendChild(title);
 
     el.addEventListener("click", () => actions.onSelect(thread.id));
     el.addEventListener("dblclick", () => {
@@ -42,6 +46,17 @@ export function renderThreadList(
 
     const actionsEl = document.createElement("div");
     actionsEl.className = "thread-item-actions";
+
+    const btnRename = document.createElement("button");
+    btnRename.type = "button";
+    btnRename.textContent = "名前変更";
+    btnRename.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const newTitle = window.prompt("スレッド名を変更", thread.title);
+      if (newTitle && newTitle.trim() && newTitle.trim() !== thread.title) {
+        actions.onRename(thread.id, newTitle.trim());
+      }
+    });
 
     const btnArchive = document.createElement("button");
     btnArchive.type = "button";
@@ -61,6 +76,7 @@ export function renderThreadList(
       }
     });
 
+    actionsEl.appendChild(btnRename);
     actionsEl.appendChild(btnArchive);
     actionsEl.appendChild(btnDelete);
     el.appendChild(actionsEl);

@@ -34,14 +34,17 @@ function renderMessages(container: HTMLElement, messages: ChatMessage[]): void {
 
 function setGeneratingState(
   isGenerating: boolean,
+  form: HTMLFormElement,
   input: HTMLTextAreaElement,
   btnSend: HTMLButtonElement,
   btnCancel: HTMLButtonElement,
 ): void {
+  form.classList.toggle("is-generating", isGenerating);
   input.disabled = isGenerating;
   btnSend.disabled = isGenerating;
   btnCancel.disabled = !isGenerating;
   btnCancel.classList.toggle("hidden", !isGenerating);
+  btnCancel.classList.toggle("is-active", isGenerating);
 }
 
 function populateProviderOptions(providerSelect: HTMLSelectElement): void {
@@ -91,7 +94,7 @@ async function init(): Promise<void> {
 
   listen<ChatSyncPayload>("chat-sync", (event) => {
     renderMessages(messagesContainer, event.payload.messages);
-    setGeneratingState(event.payload.isGenerating, input, btnSend, btnCancel);
+    setGeneratingState(event.payload.isGenerating, form, input, btnSend, btnCancel);
   });
 
   listen("chat-clear-display", () => {
