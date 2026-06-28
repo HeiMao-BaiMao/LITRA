@@ -185,6 +185,16 @@ button#btn-cancel:hover:not(:disabled) {
   transform: translateX(-50%);
 }
 
+.resizer-genre-left {
+  left: var(--genre-sidebar-width, 220px);
+  transform: translateX(-50%);
+}
+
+.resizer-genre-chat-left {
+  left: var(--genre-chat-sidebar-width, 200px);
+  transform: translateX(-50%);
+}
+
 .resizer-disabled {
   cursor: default;
 }
@@ -1948,6 +1958,7 @@ button.danger:hover:not(:disabled) {
 /* --- ジャンルライブラリ --- */
 
 .genre-library-app {
+  position: relative;
   display: flex;
   width: 100vw;
   height: 100vh;
@@ -1955,9 +1966,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .genre-sidebar {
-  width: 220px;
-  min-width: 180px;
-  max-width: 400px;
+  width: var(--genre-sidebar-width, 220px);
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-secondary);
@@ -2198,6 +2208,7 @@ button.danger:hover:not(:disabled) {
 /* ジャンルチャット */
 
 .genre-chat-app {
+  position: relative;
   display: flex;
   width: 100vw;
   height: 100vh;
@@ -2205,8 +2216,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .thread-sidebar {
-  width: 200px;
-  min-width: 160px;
+  width: var(--genre-chat-sidebar-width, 200px);
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-secondary);
@@ -2269,6 +2280,10 @@ button.danger:hover:not(:disabled) {
 }
 
 .genre-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
@@ -2277,6 +2292,26 @@ button.danger:hover:not(:disabled) {
 .genre-chat-header h2 {
   margin: 0;
   font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.genre-chat-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.genre-chat-control-select {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  min-width: 120px;
 }
 
 .genre-chat-main {

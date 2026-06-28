@@ -2,12 +2,14 @@ import { Store } from "@tauri-apps/plugin-store";
 
 const STORE_NAME = "phenex-layout.json";
 
-export type PanelRatioKey = "projectNav" | "chatPanel" | "settingsSidebar";
+export type PanelRatioKey = "projectNav" | "chatPanel" | "settingsSidebar" | "genreSidebar" | "genreChatSidebar";
 
 interface PanelRatios {
   projectNav?: number;
   chatPanel?: number;
   settingsSidebar?: number;
+  genreSidebar?: number;
+  genreChatSidebar?: number;
 }
 
 let store: Store | null = null;

@@ -3,6 +3,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { applyWindowBounds, loadWindowBounds, trackWindowBounds } from "./window/bounds.ts";
 import { setupCollapsibleSidebar } from "./ui/collapsible-sidebar.ts";
+import { applyStoredRatio, createVerticalResizer } from "./ui/resizable.ts";
 import { listenDpiZoom } from "./window/dpi-scale.ts";
 import type {
   Genre,
@@ -66,6 +67,20 @@ async function init(): Promise<void> {
     minWidth: SIDEBAR_MIN_WIDTH,
     maxWidth: SIDEBAR_MAX_WIDTH,
   });
+
+  const app = document.getElementById("genre-library-app");
+  if (app) {
+    await applyStoredRatio(app, "--genre-sidebar-width", "genreSidebar", 0.23);
+    createVerticalResizer({
+      container: app,
+      propertyName: "--genre-sidebar-width",
+      position: "left",
+      positionClass: "genre-left",
+      saveKey: "genreSidebar",
+      minRatio: 0.18,
+      maxRatio: 0.45,
+    });
+  }
 
   document.getElementById("btn-new-genre")?.addEventListener("click", createGenre);
   document.getElementById("btn-import-source")?.addEventListener("click", importSource);

@@ -6,6 +6,7 @@ export interface ResizerOptions {
   container: HTMLElement;
   propertyName: string;
   position: ResizerPosition;
+  positionClass?: string;
   saveKey: PanelRatioKey;
   minRatio?: number;
   maxRatio?: number;
@@ -35,11 +36,12 @@ export async function applyStoredRatio(
 
 export function createVerticalResizer(options: ResizerOptions): HTMLElement {
   const { container, propertyName, position, saveKey } = options;
+  const positionClass = options.positionClass ?? position;
   const minRatio = options.minRatio ?? 0.1;
   const maxRatio = options.maxRatio ?? 0.5;
 
   const resizer = document.createElement("div");
-  resizer.className = `resizer resizer-vertical resizer-${position}`;
+  resizer.className = `resizer resizer-vertical resizer-${positionClass}`;
   resizer.setAttribute("role", "separator");
   resizer.setAttribute("aria-orientation", "vertical");
   resizer.setAttribute("aria-label", "パネル幅を調整");

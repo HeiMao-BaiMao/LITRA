@@ -1,10 +1,18 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, emit } from "@tauri-apps/api/event";
 import { applyWindowBounds, trackWindowBounds } from "./window/bounds.ts";
+import { applyStoredRatio, createVerticalResizer } from "./ui/resizable.ts";
 import { showError, showInfo } from "./ui/common.ts";
 import { renderThreadList } from "./ui/genres/thread-list.ts";
 import { renderGenreChat } from "./ui/genres/genre-chat.ts";
-import { loadSettings, resolveChatSettings } from "./settings.ts";
+import { loadSettings, resolveChatSettings, getProviderSpecificSettings, type Provider, type AiSettings } from "./settings.ts";
+import {
+  loadProviderConfig,
+  getProviderEntry,
+  getProviderModelIds,
+  providerRequiresApiKey,
+  type ProviderConfig,
+} from "./providers/config.ts";
 import { streamChat } from "./ai/service.ts";
 import { buildGenreChatMessages } from "./genres/chat-context.ts";
 import { loadGenreKnowledge } from "./genres/knowledge.ts";
@@ -42,12 +50,32 @@ const state: ChatState = {
 
 let currentAbortController: AbortController | null = null;
 
+let providerConfig: ProviderConfig | null = null;
+let selectedProvider: Provider | null = null;
+let selectedModel: string | null = null;
+
 async function init(): Promise<void> {
   const win = getCurrentWindow();
   await applyWindowBounds(win, "genre-chat");
   trackWindowBounds(win, "genre-chat");
   void listenDpiZoom();
   setupEventListeners();
+
+  const app = document.getElementById("genre-chat-app");
+  if (app) {
+    await applyStoredRatio(app, "--genre-chat-sidebar-width", "genreChatSidebar", 0.22);
+    createVerticalResizer({
+      container: app,
+      propertyName: "--genre-chat-sidebar-width",
+      position: "left",
+      positionClass: "genre-chat-left",
+      saveKey: "genreChatSidebar",
+      minRatio: 0.15,
+      maxRatio: 0.45,
+    });
+  }
+
+  await setupChatControls();
 
   const urlParams = new URLSearchParams(window.location.search);
   const genreId = urlParams.get("genreId");
@@ -69,6 +97,60 @@ function setupEventListeners(): void {
   listen(GENRE_CHAT_STOP, () => {
     stopStreaming();
   });
+}
+
+async function setupChatControls(): Promise<void> {
+  try {
+    providerConfig = await loadProviderConfig();
+  } catch (error) {
+    showError("プロバイダー設定の読み込みに失敗しました", error);
+    providerConfig = { providers: [] };
+  }
+
+  const settings = await loadSettings();
+  const resolved = resolveChatSettings(settings);
+  selectedProvider = resolved.provider;
+  selectedModel = resolved.model;
+
+  const providerSelect = document.getElementById("chat-provider") as HTMLSelectElement | null;
+  const modelSelect = document.getElementById("chat-model") as HTMLSelectElement | null;
+  if (!providerSelect || !modelSelect) return;
+
+  for (const provider of providerConfig.providers) {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.name;
+    providerSelect.appendChild(option);
+  }
+
+  providerSelect.value = selectedProvider;
+  renderChatModelOptions(modelSelect, selectedProvider);
+  modelSelect.value = selectedModel;
+
+  providerSelect.addEventListener("change", () => {
+    const provider = providerSelect.value as Provider;
+    selectedProvider = provider;
+    const defaults = getProviderSpecificSettings(settings, provider);
+    const fallbackModel = getProviderModelIds(getProviderEntry(providerConfig ?? { providers: [] }, provider))[0] ?? "";
+    selectedModel = defaults.model || fallbackModel;
+    renderChatModelOptions(modelSelect, provider);
+    modelSelect.value = selectedModel;
+  });
+
+  modelSelect.addEventListener("change", () => {
+    selectedModel = modelSelect.value;
+  });
+}
+
+function renderChatModelOptions(select: HTMLSelectElement, providerId: Provider): void {
+  select.innerHTML = "";
+  const entry = getProviderEntry(providerConfig ?? { providers: [] }, providerId);
+  for (const modelId of getProviderModelIds(entry)) {
+    const option = document.createElement("option");
+    option.value = modelId;
+    option.textContent = modelId;
+    select.appendChild(option);
+  }
 }
 
 async function loadGenre(genreId: string): Promise<void> {
@@ -186,6 +268,19 @@ async function deleteThread(threadId: string): Promise<void> {
   }
 }
 
+async function buildChatSettings(): Promise<AiSettings> {
+  const settings = await loadSettings();
+  const provider = selectedProvider ?? settings.provider;
+  const specific = getProviderSpecificSettings(settings, provider);
+  return {
+    ...settings,
+    provider,
+    apiKey: specific.apiKey,
+    baseUrl: specific.baseUrl,
+    model: selectedModel ?? specific.model,
+  };
+}
+
 async function sendMessage(content: string): Promise<void> {
   if (!state.genreId || !state.genre) {
     showError("ジャンルが選択されていません");
@@ -197,9 +292,14 @@ async function sendMessage(content: string): Promise<void> {
     return;
   }
 
-  const settings = resolveChatSettings(await loadSettings());
-  if (!settings.apiKey) {
-    showError("AI設定でAPIキーを設定してください");
+  const settings = await buildChatSettings();
+  const entry = getProviderEntry(providerConfig ?? { providers: [] }, settings.provider);
+  if (providerRequiresApiKey(entry) && !settings.apiKey) {
+    showError(`${entry?.name ?? settings.provider} の API キーを設定してください`);
+    return;
+  }
+  if (!settings.model.trim()) {
+    showError("モデルを選択してください");
     return;
   }
 
