@@ -1234,6 +1234,11 @@ async function openGenreLibraryWindow(): Promise<void> {
     height: 720,
     minWidth: 640,
     minHeight: 480,
+    resizable: true,
+    maximizable: true,
+    minimizable: true,
+    closable: true,
+    decorations: true,
     dragDropEnabled: false,
   });
 

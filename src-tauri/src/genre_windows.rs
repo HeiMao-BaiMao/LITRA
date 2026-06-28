@@ -21,6 +21,12 @@ pub async fn open_genre_chat_window(
         .title("ジャンルAIチャット - Phenex")
         .inner_size(800.0, 640.0)
         .min_inner_size(480.0, 360.0)
+        .resizable(true)
+        .maximizable(true)
+        .minimizable(true)
+        .closable(true)
+        .decorations(true)
+        .drag_and_drop(false)
         .build()
         .map_err(|e| format!("Failed to create genre chat window: {}", e))?;
 
