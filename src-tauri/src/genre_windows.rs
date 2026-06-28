@@ -1,4 +1,5 @@
-use tauri::WebviewWindowBuilder;
+use std::path::PathBuf;
+use tauri::{Manager, WebviewWindowBuilder};
 
 #[tauri::command]
 pub async fn open_genre_chat_window(
@@ -16,7 +17,7 @@ pub async fn open_genre_chat_window(
 
     let url = format!("genre-chat-window.html?genreId={}", genre_id);
 
-    let _webview = WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App(url))
+    let _webview = WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App(PathBuf::from(url)))
         .title("ジャンルAIチャット - Phenex")
         .inner_size(800.0, 640.0)
         .min_inner_size(480.0, 360.0)
