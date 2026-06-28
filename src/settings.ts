@@ -3,6 +3,7 @@ import {
   loadProviderConfig,
   getProviderEntry,
   getProviderModelDefaults,
+  type ProviderModelDefaults,
   resetProviderConfig,
 } from "./providers/config.ts";
 import { clearPanelRatios } from "./layout-store.ts";
@@ -121,6 +122,20 @@ function normalizeProviderModel(provider: Provider, model: string, defaultModel:
   return model;
 }
 
+function applyProviderCapacityFloor(
+  provider: Provider,
+  settings: Pick<AiSettings, "maxTokens" | "maxContextTokens">,
+  defaults: ProviderModelDefaults | undefined,
+): void {
+  if (provider !== "opencode" || !defaults) return;
+  if (defaults.maxTokens !== undefined) {
+    settings.maxTokens = Math.max(settings.maxTokens, defaults.maxTokens);
+  }
+  if (defaults.maxContextTokens !== undefined) {
+    settings.maxContextTokens = Math.max(settings.maxContextTokens, defaults.maxContextTokens);
+  }
+}
+
 export async function loadSettings(): Promise<AiSettings> {
   const store = await getStore();
   const storedProvider = await store.get("provider");
@@ -220,6 +235,8 @@ export async function loadSettings(): Promise<AiSettings> {
       modelDefaults?.anthropicThinkingBudget ??
       undefined;
   }
+
+  applyProviderCapacityFloor(provider, base, modelDefaults);
 
   return base;
 }
