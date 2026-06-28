@@ -1,4 +1,4 @@
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { readTextFile, writeTextFile, BaseDirectory } from "@tauri-apps/plugin-fs";
 import {
   GENRE_SCHEMA_VERSION,
   genreKnowledgeDocumentSchema,
@@ -6,7 +6,6 @@ import {
 } from "./schema.ts";
 import type {
   CreateGenreKnowledgeItemInput,
-  GenreEvidenceReference,
   GenreKnowledgeCandidate,
   GenreKnowledgeDocument,
   GenreKnowledgeItem,

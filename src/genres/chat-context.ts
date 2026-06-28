@@ -22,10 +22,6 @@ interface ContextBudgets {
   chatMessage: number;
 }
 
-function positiveFinite(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -102,13 +98,13 @@ export function buildGenreChatMessages(
     .join("\n\n");
 
   const naturalMessages = messages.filter(
-    (message) =>
+    (message): message is GenreChatMessage & { role: "user" | "assistant" } =>
       message.content.trim().length > 0 &&
       !message.excludeFromContext &&
       message.role !== "tool",
   );
 
-  const selected: GenreChatMessage[] = [];
+  const selected: (GenreChatMessage & { role: "user" | "assistant" })[] = [];
   let totalChars = 0;
 
   for (let i = naturalMessages.length - 1; i >= 0; i--) {

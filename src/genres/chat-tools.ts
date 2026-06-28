@@ -2,12 +2,10 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { limitPromptText } from "../ai/prompts.ts";
 import { aiChatConclusionExtractionSchema } from "./analysis-schema.ts";
-import type { GenreChatDocument, GenreKnowledgeDocument } from "./schema.ts";
-import { buildChatConclusionExtractionPrompt, buildChatCandidateFromMessagePrompt } from "./prompts.ts";
-import { createKnowledgeCandidate } from "./knowledge.ts";
+import { buildChatConclusionExtractionPrompt } from "./prompts.ts";
+import { createKnowledgeCandidate, loadGenreKnowledge } from "./knowledge.ts";
 import { listGenreSources, loadGenreSource } from "./sources.ts";
 import { loadAnalysisRun, listAnalysisRuns } from "./analyzer.ts";
-import { loadGenreKnowledge } from "./knowledge.ts";
 import { loadGenreChatThread } from "./chat.ts";
 import { buildChatMessagesText } from "./chat-context.ts";
 import { extractSegmentContent } from "./segmentation.ts";
@@ -15,6 +13,7 @@ import { generateObject } from "ai";
 import { createModel } from "../ai/provider.ts";
 import { buildProviderOptions } from "../ai/provider-options.ts";
 import type { AiSettings } from "../settings.ts";
+import { loadGenre } from "./repository.ts";
 
 export interface GenreChatToolDependencies {
   genreId: string;
@@ -330,7 +329,7 @@ function createProposeGenreKnowledgeUpdateTool(deps: GenreChatToolDependencies) 
         title: `${item.title}（修正案）`,
         statement: input.proposedStatement,
         explanation: `【修正理由】\n${input.reason}\n\n【元の文面】\n${item.statement}`,
-        proposedImportance: item.importance === "work_specific" ? "optional" : item.importance,
+        proposedImportance: item.importance,
         confidence: 0.6,
         origin: "genre_chat",
         sourceReferences: [],
@@ -396,7 +395,7 @@ function createProposeGenreKnowledgeDisableTool(deps: GenreChatToolDependencies)
   });
 }
 
-function createProposeThreadSummaryTool(deps: GenreChatToolDependencies) {
+function createProposeThreadSummaryTool(_deps: GenreChatToolDependencies) {
   return tool({
     description:
       "Proposes a summary of the current chat thread. This does not overwrite the thread summary; the user must review and accept it.",
@@ -422,10 +421,11 @@ function createProposeChatConclusionsTool(deps: GenreChatToolDependencies) {
       if (!deps.threadId) return { error: "No active thread." };
 
       const thread = await loadGenreChatThread(deps.genreId, deps.threadId);
+      const genre = await loadGenre(deps.genreId);
       const knowledge = await loadGenreKnowledge(deps.genreId);
       const messagesText = buildChatMessagesText(thread.messages);
       const prompt = buildChatConclusionExtractionPrompt(
-        { name: "" } as { name: string },
+        genre,
         thread.thread.title,
         messagesText,
         knowledge,

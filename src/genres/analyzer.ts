@@ -1,35 +1,39 @@
+import { BaseDirectory, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { generateObject } from "ai";
-import { createModel } from "../ai/provider.ts";
 import { buildProviderOptions } from "../ai/provider-options.ts";
+import { createModel } from "../ai/provider.ts";
 import { samplePromptText } from "../ai/prompts.ts";
 import type { AiSettings } from "../settings.ts";
+import type { AiSegmentAnalysis, AiSourceSynthesis } from "./analysis-schema.ts";
 import {
   aiKnowledgeCandidateExtractionSchema,
   aiSegmentAnalysisSchema,
   aiSourceSynthesisSchema,
 } from "./analysis-schema.ts";
-import type {
-  AiSegmentAnalysis,
-  AiSourceSynthesis,
-} from "./analysis-schema.ts";
 import { createKnowledgeCandidate } from "./knowledge.ts";
-import { loadGenre } from "./repository.ts";
-import { loadGenreSource } from "./sources.ts";
-import {
-  genreAnalysisRunSchema,
-  GENRE_SCHEMA_VERSION,
-} from "./schema.ts";
-import type { GenreAnalysisRun, GenreKnowledgeDocument, GenreSourceSegment } from "./schema.ts";
 import {
   buildKnowledgeCandidateExtractionPrompt,
   buildSegmentAnalysisPrompt,
   buildSourceSynthesisPrompt,
   GENRE_ANALYSIS_PROMPT_VERSION,
 } from "./prompts.ts";
+import { genreAnalysesDir, loadGenre } from "./repository.ts";
+import {
+  genreAnalysisRunSchema,
+  GENRE_SCHEMA_VERSION,
+} from "./schema.ts";
+import type {
+  Genre,
+  GenreAnalysisRun,
+  GenreFeatureObservation,
+  GenreKnowledgeCandidate,
+  GenreKnowledgeDocument,
+  GenreScenePatternObservation,
+  GenreSegmentAnalysis,
+  GenreSourceSegment,
+} from "./schema.ts";
 import { extractSegmentContent } from "./segmentation.ts";
-import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
-import { genreAnalysesDir, genreSourcesDir } from "./repository.ts";
-import { computeTextHash } from "./hash.ts";
+import { loadGenreSource } from "./sources.ts";
 
 const ANALYSIS_CONCURRENCY = 2;
 
@@ -89,7 +93,7 @@ function normalizeSettings(settings: AiSettings): AiSettings {
 
 async function analyzeSegment(
   settings: AiSettings,
-  genreName: string,
+  genre: Genre,
   sourceTitle: string,
   sourceRole: string,
   segment: GenreSourceSegment,
@@ -98,7 +102,7 @@ async function analyzeSegment(
 ): Promise<AiSegmentAnalysis> {
   const s = normalizeSettings(settings);
   const prompt = buildSegmentAnalysisPrompt(
-    { name: genreName } as { name: string },
+    genre,
     sourceTitle,
     sourceRole,
     segment,
@@ -121,7 +125,7 @@ async function analyzeSegment(
 
 async function synthesizeSourceAnalysis(
   settings: AiSettings,
-  genreName: string,
+  genre: Genre,
   sourceTitle: string,
   sourceRole: string,
   segmentAnalyses: AiSegmentAnalysis[],
@@ -130,7 +134,7 @@ async function synthesizeSourceAnalysis(
 ): Promise<AiSourceSynthesis> {
   const s = normalizeSettings(settings);
   const prompt = buildSourceSynthesisPrompt(
-    { name: genreName } as { name: string },
+    genre,
     sourceTitle,
     sourceRole,
     segmentAnalyses,
@@ -153,15 +157,17 @@ async function synthesizeSourceAnalysis(
 
 async function extractKnowledgeCandidates(
   settings: AiSettings,
-  genreName: string,
+  genre: Genre,
+  sourceId: string,
+  runId: string,
   segmentAnalyses: AiSegmentAnalysis[],
   synthesis: AiSourceSynthesis,
   existingKnowledge: GenreKnowledgeDocument,
   abortSignal?: AbortSignal,
-): ReturnType<typeof createKnowledgeCandidate>[] {
+): Promise<GenreKnowledgeCandidate[]> {
   const s = normalizeSettings(settings);
   const prompt = buildKnowledgeCandidateExtractionPrompt(
-    { name: genreName } as { name: string },
+    genre,
     segmentAnalyses,
     synthesis,
     existingKnowledge,
@@ -179,7 +185,7 @@ async function extractKnowledgeCandidates(
   });
 
   const candidates = result.object.candidates.map((candidate) =>
-    createKnowledgeCandidate(genreName, {
+    createKnowledgeCandidate(genre.id, {
       category: candidate.category,
       title: candidate.title,
       statement: candidate.statement,
@@ -188,7 +194,8 @@ async function extractKnowledgeCandidates(
       confidence: candidate.confidence,
       origin: "source_analysis",
       sourceReferences: candidate.evidenceSegmentIds.map((segmentId) => ({
-        sourceId: "",
+        sourceId,
+        analysisRunId: runId,
         segmentId,
       })),
       chatReferences: [],
@@ -196,7 +203,7 @@ async function extractKnowledgeCandidates(
     }),
   );
 
-  return candidates;
+  return Promise.all(candidates);
 }
 
 function mapAiSegmentAnalysis(
@@ -204,10 +211,10 @@ function mapAiSegmentAnalysis(
   runId: string,
   sourceId: string,
   segment: GenreSourceSegment,
-): import("./schema.ts").GenreSegmentAnalysis {
+): GenreSegmentAnalysis {
   const mapObservation = (
-    observation: import("./analysis-schema.ts").AiSegmentAnalysis["proseFeatures"][number],
-  ): import("./schema.ts").GenreFeatureObservation => ({
+    observation: AiSegmentAnalysis["proseFeatures"][number],
+  ): GenreFeatureObservation => ({
     id: crypto.randomUUID(),
     statement: observation.statement,
     explanation: observation.explanation,
@@ -219,8 +226,8 @@ function mapAiSegmentAnalysis(
   });
 
   const mapScenePattern = (
-    pattern: import("./analysis-schema.ts").AiSegmentAnalysis["scenePatterns"][number],
-  ): import("./schema.ts").GenreScenePatternObservation => ({
+    pattern: AiSegmentAnalysis["scenePatterns"][number],
+  ): GenreScenePatternObservation => ({
     id: crypto.randomUUID(),
     name: pattern.name,
     purpose: pattern.purpose,
@@ -258,6 +265,48 @@ function mapAiSegmentAnalysis(
     possibleFailureModes: aiAnalysis.possibleFailureModes.map(mapObservation),
     generationGuidance: aiAnalysis.generationGuidance.map(mapObservation),
     confidence: aiAnalysis.overallConfidence,
+  };
+}
+
+function toAiSegmentAnalysis(segmentAnalysis: GenreSegmentAnalysis): AiSegmentAnalysis {
+  const mapFeature = (feature: GenreFeatureObservation) => ({
+    statement: feature.statement,
+    explanation: feature.explanation,
+    confidence: feature.confidence,
+    evidenceExcerpts: feature.evidence.map((evidence) => evidence.excerpt ?? "").filter(Boolean),
+  });
+
+  return {
+    summary: segmentAnalysis.summary,
+    pointOfView: segmentAnalysis.pointOfView,
+    narratorCharacteristics: segmentAnalysis.narratorCharacteristics,
+    proseFeatures: segmentAnalysis.proseFeatures.map(mapFeature),
+    rhythmFeatures: segmentAnalysis.rhythmFeatures.map(mapFeature),
+    dialogueFeatures: segmentAnalysis.dialogueFeatures.map(mapFeature),
+    descriptionFeatures: segmentAnalysis.descriptionFeatures.map(mapFeature),
+    interiorityFeatures: segmentAnalysis.interiorityFeatures.map(mapFeature),
+    pacingFeatures: segmentAnalysis.pacingFeatures.map(mapFeature),
+    informationDisclosureFeatures: segmentAnalysis.informationDisclosureFeatures.map(mapFeature),
+    emotionalEffectFeatures: segmentAnalysis.emotionalEffectFeatures.map(mapFeature),
+    narrativeFunctions: segmentAnalysis.narrativeFunctions.map(mapFeature),
+    scenePatterns: segmentAnalysis.scenePatterns.map((pattern) => ({
+      name: pattern.name,
+      purpose: pattern.purpose,
+      prerequisites: pattern.prerequisites,
+      progression: pattern.progression,
+      expectedEffect: pattern.expectedEffect,
+      avoid: pattern.avoid,
+      confidence: pattern.confidence,
+      evidenceExcerpts: [],
+    })),
+    characterFunctions: segmentAnalysis.characterFunctions.map(mapFeature),
+    worldbuildingFunctions: segmentAnalysis.worldbuildingFunctions.map(mapFeature),
+    genreSignals: segmentAnalysis.genreSignals.map(mapFeature),
+    nonGenreSignals: segmentAnalysis.nonGenreSignals.map(mapFeature),
+    workSpecificFeatures: segmentAnalysis.workSpecificFeatures.map(mapFeature),
+    possibleFailureModes: segmentAnalysis.possibleFailureModes.map(mapFeature),
+    generationGuidance: segmentAnalysis.generationGuidance.map(mapFeature),
+    overallConfidence: segmentAnalysis.confidence,
   };
 }
 
@@ -301,7 +350,7 @@ export async function analyzeSource(
       message: "セグメントを分析しています...",
     });
 
-    const segmentResults: import("./schema.ts").GenreSegmentAnalysis[] = [];
+    const segmentResults: GenreSegmentAnalysis[] = [];
 
     await mapWithConcurrency(
       segments,
@@ -315,7 +364,7 @@ export async function analyzeSource(
         try {
           const aiAnalysis = await analyzeSegment(
             settings,
-            genre.name,
+            genre,
             source.title,
             source.sourceRole,
             segment,
@@ -347,121 +396,10 @@ export async function analyzeSource(
     const sampledSourceText = samplePromptText(content, 4000, 3);
     const aiSynthesis = await synthesizeSourceAnalysis(
       settings,
-      genre.name,
+      genre,
       source.title,
       source.sourceRole,
-      segmentResults.map((r) => ({
-        summary: r.summary,
-        pointOfView: r.pointOfView,
-        narratorCharacteristics: r.narratorCharacteristics,
-        proseFeatures: r.proseFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        rhythmFeatures: r.rhythmFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        dialogueFeatures: r.dialogueFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        descriptionFeatures: r.descriptionFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        interiorityFeatures: r.interiorityFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        pacingFeatures: r.pacingFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        informationDisclosureFeatures: r.informationDisclosureFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        emotionalEffectFeatures: r.emotionalEffectFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        narrativeFunctions: r.narrativeFunctions.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        scenePatterns: r.scenePatterns.map((p) => ({
-          name: p.name,
-          purpose: p.purpose,
-          prerequisites: p.prerequisites,
-          progression: p.progression,
-          expectedEffect: p.expectedEffect,
-          avoid: p.avoid,
-          confidence: p.confidence,
-          evidenceExcerpts: [],
-        })),
-        characterFunctions: r.characterFunctions.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        worldbuildingFunctions: r.worldbuildingFunctions.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        genreSignals: r.genreSignals.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        nonGenreSignals: r.nonGenreSignals.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        workSpecificFeatures: r.workSpecificFeatures.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        possibleFailureModes: r.possibleFailureModes.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        generationGuidance: r.generationGuidance.map((f) => ({
-          statement: f.statement,
-          explanation: f.explanation,
-          confidence: f.confidence,
-          evidenceExcerpts: f.evidence.map((e) => e.excerpt ?? "").filter(Boolean),
-        })),
-        overallConfidence: r.confidence,
-      })),
+      run.segmentResults.map(toAiSegmentAnalysis),
       sampledSourceText,
       abortSignal,
     );
@@ -481,23 +419,20 @@ export async function analyzeSource(
 
     const { loadGenreKnowledge } = await import("./knowledge.ts");
     const existingKnowledge = await loadGenreKnowledge(genreId);
-    const candidatePromises = await extractKnowledgeCandidates(
+    const createdCandidates = await extractKnowledgeCandidates(
       settings,
-      genre.name,
-      run.segmentResults,
+      genre,
+      sourceId,
+      runId,
+      run.segmentResults.map(toAiSegmentAnalysis),
       run.synthesis,
       existingKnowledge,
       abortSignal,
     );
 
-    const createdCandidates = await Promise.all(candidatePromises);
-    for (const candidate of createdCandidates) {
-      candidate.sourceReferences = candidate.sourceReferences.map((ref) => ({
-        ...ref,
-        sourceId,
-        analysisRunId: runId,
-      }));
-    }
+    console.log(
+      `[phenex:genres] created ${createdCandidates.length} knowledge candidates for ${sourceId}`,
+    );
 
     run.status = "completed";
     run.completedAt = new Date().toISOString();

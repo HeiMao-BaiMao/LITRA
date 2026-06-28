@@ -10,7 +10,6 @@ import { segmentSourceText } from "./segmentation.ts";
 import {
   GENRE_SCHEMA_VERSION,
   genreSourceListDocumentSchema,
-  genreSourceSchema,
 } from "./schema.ts";
 import type {
   CreateGenreSourceInput,

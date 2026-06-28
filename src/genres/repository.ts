@@ -10,8 +10,6 @@ import {
 } from "@tauri-apps/plugin-fs";
 import {
   GENRE_SCHEMA_VERSION,
-  genreIndexSchema,
-  genreSchema,
   isGenre,
   isGenreIndex,
 } from "./schema.ts";
