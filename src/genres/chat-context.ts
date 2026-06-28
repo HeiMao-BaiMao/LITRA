@@ -1,7 +1,6 @@
 import type { ModelMessage } from "ai";
 import { limitPromptText } from "../ai/prompts.ts";
 import { buildGenreChatSystemPrompt } from "./prompts.ts";
-import { loadChatAttachment } from "./chat-attachments.ts";
 import type {
   Genre,
   GenreChatContextSnapshot,
@@ -41,11 +40,11 @@ function getContextBudgets(
     Math.floor(clampNumber(usableChars * ratio, min, max));
 
   return {
-    systemPrompt: scaled(0.25, 2000, 16000),
-    knowledgeSummary: scaled(0.25, 2000, 16000),
-    candidateSummary: scaled(0.1, 1000, 6000),
-    chatHistory: scaled(0.35, 4000, 24000),
-    chatMessage: scaled(0.12, 1500, 8000),
+    systemPrompt: scaled(0.12, 2000, 100000),
+    knowledgeSummary: scaled(0.12, 2000, 100000),
+    candidateSummary: scaled(0.05, 1000, 30000),
+    chatHistory: scaled(0.6, 4000, 300000),
+    chatMessage: scaled(0.08, 1500, 10000),
   };
 }
 
@@ -70,34 +69,14 @@ export interface BuildGenreChatMessagesOptions {
   includePendingCandidates?: boolean;
 }
 
-async function resolveMessageContent(
-  message: GenreChatMessage,
-  genreId: string,
-  maxChars: number,
-): Promise<string> {
-  if (!message.attachments?.length) {
-    return limitPromptText(message.content, maxChars, "middle");
-  }
 
-  let content = message.content;
-  for (const attachment of message.attachments) {
-    try {
-      const text = await loadChatAttachment(genreId, message.threadId, message.id, attachment.id);
-      content += `\n\n[${attachment.name}]\n${limitPromptText(text, maxChars, "middle")}`;
-    } catch (error) {
-      console.warn(`[phenex:genres] failed to load attachment ${attachment.id}:`, error);
-      content += `\n\n[${attachment.name}: 読み込み失敗]`;
-    }
-  }
-  return limitPromptText(content, maxChars, "middle");
-}
 
-export async function buildGenreChatMessages(
+export function buildGenreChatMessages(
   genre: Genre,
   knowledge: GenreKnowledgeDocument,
   messages: GenreChatMessage[],
   options: BuildGenreChatMessagesOptions = {},
-): Promise<ModelMessage[]> {
+): ModelMessage[] {
   const maxContextTokens = options.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
   const maxOutputTokens = options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
   const budgets = getContextBudgets(maxContextTokens, maxOutputTokens);
@@ -132,7 +111,7 @@ export async function buildGenreChatMessages(
 
   for (let i = naturalMessages.length - 1; i >= 0; i--) {
     const message = naturalMessages[i];
-    const content = await resolveMessageContent(message, genre.id, budgets.chatMessage);
+    const content = limitPromptText(message.content, budgets.chatMessage, "middle");
     const nextTotal = totalChars + content.length;
 
     if (selected.length > 0 && nextTotal > budgets.chatHistory) {

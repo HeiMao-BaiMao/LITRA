@@ -404,8 +404,10 @@ async function sendMessage(content: string): Promise<void> {
     setGeneratingState(true);
 
     const knowledge = await loadGenreKnowledge(state.genreId);
-    const modelMessages = await buildGenreChatMessages(state.genre, knowledge, state.messages, {
+    const modelMessages = buildGenreChatMessages(state.genre, knowledge, state.messages, {
       includePendingCandidates: true,
+      maxContextTokens: settings.maxContextTokens,
+      maxOutputTokens: settings.maxTokens,
     });
 
     const tools = createGenreChatTools({
@@ -428,14 +430,36 @@ async function sendMessage(content: string): Promise<void> {
     });
 
     const assistantDocument = await chat.loadGenreChatThread(state.genreId, state.currentThreadId);
+    const assistantMessageId = crypto.randomUUID();
+
+    let assistantContentToSave = assistantContent;
+    let assistantAttachments: GenreChatMessage["attachments"] | undefined;
+    if (state.currentThreadId && (detectNovelText(assistantContent) || detectLongText(assistantContent))) {
+      const attachmentType = detectNovelText(assistantContent) ? "novel_text" : "long_text";
+      const attachmentName = attachmentType === "novel_text" ? "生成された小説本文" : "生成された長文テキスト";
+      const attachment = await saveChatAttachment(
+        state.genreId,
+        state.currentThreadId,
+        assistantMessageId,
+        {
+          name: attachmentName,
+          type: attachmentType,
+          content: assistantContent,
+        },
+      );
+      assistantAttachments = [attachment];
+      assistantContentToSave = `[${attachmentName}は添付ファイルに保存されました]\n\n${extractAttachmentPreview(assistantContent)}`;
+    }
+
     const assistantUpdatedDocument = chat.appendMessage(assistantDocument, {
-      id: crypto.randomUUID(),
+      id: assistantMessageId,
       threadId: state.currentThreadId,
       role: "assistant",
-      content: assistantContent,
+      content: assistantContentToSave,
       provider: settings.provider,
       model: settings.model,
       finishReason: streamResult.finishReason,
+      attachments: assistantAttachments,
     });
     await chat.saveGenreChatThread(state.genreId, assistantUpdatedDocument);
 

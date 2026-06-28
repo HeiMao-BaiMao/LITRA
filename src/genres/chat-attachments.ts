@@ -101,7 +101,7 @@ export function detectNovelText(content: string): boolean {
 }
 
 export function detectLongText(content: string): boolean {
-  return content.length > 3000;
+  return content.length > 2000;
 }
 
 export function extractAttachmentPreview(content: string, maxChars = 500): string {
