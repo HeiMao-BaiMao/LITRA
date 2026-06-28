@@ -1220,6 +1220,29 @@ async function openProjectMemosWindow(): Promise<void> {
   });
 }
 
+async function openGenreLibraryWindow(): Promise<void> {
+  const existing = await WebviewWindow.getByLabel("genre-library");
+  if (existing) {
+    await existing.setFocus();
+    return;
+  }
+
+  const webview = new WebviewWindow("genre-library", {
+    url: "genre-library.html",
+    title: "ジャンルライブラリ - Phenex",
+    width: 960,
+    height: 720,
+    minWidth: 640,
+    minHeight: 480,
+    dragDropEnabled: false,
+  });
+
+  webview.once("tauri://created", () => {
+    void applyWindowBounds(webview, "genre-library");
+    trackWindowBounds(webview, "genre-library");
+  });
+}
+
 async function restoreDetachedWindows(): Promise<void> {
   const labels = ["memo", "chat", "summary", "settings", "projectMemos"] as const;
   for (const label of labels) {
@@ -2625,6 +2648,7 @@ function bindUiEvents(): void {
   getElements().btnPopoutSummary.addEventListener("click", () => void openSummaryWindow());
   getElements().btnPopoutSettings.addEventListener("click", () => void openSettingsWindow());
   getElements().btnPopoutMemos.addEventListener("click", () => void openProjectMemosWindow());
+  getElements().btnGenreLibrary.addEventListener("click", () => void openGenreLibraryWindow());
   applyPanelVisibility();
 
   setChatSyncCallback((messages, isGenerating) => {

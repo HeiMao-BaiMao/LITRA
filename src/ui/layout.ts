@@ -9,6 +9,7 @@ export interface AppElements {
   btnRewrite: HTMLButtonElement;
   btnFeedback: HTMLButtonElement;
   btnSettings: HTMLButtonElement;
+  btnGenreLibrary: HTMLButtonElement;
   toolbarProjectName: HTMLElement;
   btnProjects: HTMLButtonElement;
   btnImport: HTMLButtonElement;
@@ -94,6 +95,7 @@ export function getElements(): AppElements {
   const btnRewrite = document.querySelector<HTMLButtonElement>("#btn-rewrite");
   const btnFeedback = document.querySelector<HTMLButtonElement>("#btn-feedback");
   const btnSettings = document.querySelector<HTMLButtonElement>("#btn-settings");
+  const btnGenreLibrary = document.querySelector<HTMLButtonElement>("#btn-genre-library");
   const toolbarProjectName = document.querySelector<HTMLElement>("#toolbar-project-name");
   const btnProjects = document.querySelector<HTMLButtonElement>("#btn-projects");
   const btnImport = document.querySelector<HTMLButtonElement>("#btn-import");
@@ -172,6 +174,7 @@ export function getElements(): AppElements {
     !btnRewrite ||
     !btnFeedback ||
     !btnSettings ||
+    !btnGenreLibrary ||
     !settingsModal ||
     !settingsForm ||
     !settingProvider ||
@@ -253,6 +256,7 @@ export function getElements(): AppElements {
     btnRewrite,
     btnFeedback,
     btnSettings,
+    btnGenreLibrary,
     toolbarProjectName,
     btnProjects,
     btnImport,
