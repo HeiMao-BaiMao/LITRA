@@ -274,14 +274,18 @@ function getPromptContextBudgets(settings: AiSettings = currentSettings): Prompt
   };
 }
 
-function applyRuntimeModelDefaults(settings: AiSettings, defaults: ProviderModelDefaults | undefined): AiSettings {
+function applyRuntimeModelDefaults(
+  settings: AiSettings,
+  defaults: ProviderModelDefaults | undefined,
+  applyTokenDefaults: boolean,
+): AiSettings {
   if (!defaults) return settings;
 
   return {
     ...settings,
     temperature: defaults.temperature ?? settings.temperature,
-    maxTokens: defaults.maxTokens ?? settings.maxTokens,
-    maxContextTokens: defaults.maxContextTokens ?? settings.maxContextTokens,
+    maxTokens: applyTokenDefaults ? defaults.maxTokens ?? settings.maxTokens : settings.maxTokens,
+    maxContextTokens: applyTokenDefaults ? defaults.maxContextTokens ?? settings.maxContextTokens : settings.maxContextTokens,
     topP: defaults.topP,
     topK: defaults.topK,
     frequencyPenalty: defaults.frequencyPenalty,
@@ -296,7 +300,8 @@ function applyRuntimeModelDefaults(settings: AiSettings, defaults: ProviderModel
 function resolveChatRunSettings(settings: AiSettings): AiSettings {
   const resolved = resolveChatSettings(settings);
   const entry = getProviderEntry(providerConfig, resolved.provider);
-  return applyRuntimeModelDefaults(resolved, getProviderModelDefaults(entry, resolved.model));
+  const usesChatOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
+  return applyRuntimeModelDefaults(resolved, getProviderModelDefaults(entry, resolved.model), usesChatOverride);
 }
 
 function getProviderProtocol(settings: AiSettings): string {
@@ -436,7 +441,7 @@ function validateSettings(): boolean {
     openSettings();
     return false;
   }
-  if (!currentSettings.model.trim()) {
+  if (typeof currentSettings.model !== "string" || !currentSettings.model.trim()) {
     window.alert("モデル名を設定してください。");
     openSettings();
     return false;
@@ -452,7 +457,7 @@ function validateChatSettings(): boolean {
     openSettings();
     return false;
   }
-  if (!chatSettings.model.trim()) {
+  if (typeof chatSettings.model !== "string" || !chatSettings.model.trim()) {
     window.alert("モデル名を設定してください。");
     openSettings();
     return false;
@@ -2287,6 +2292,7 @@ async function handleChatMessage(): Promise<void> {
       model: chatSettings.model,
       baseUrl: chatSettings.baseUrl,
       maxTokens: chatSettings.maxTokens,
+      maxContextTokens: chatSettings.maxContextTokens,
       openaiReasoningEffort: chatSettings.openaiReasoningEffort,
     }),
   );
@@ -2733,7 +2739,8 @@ async function init(): Promise<void> {
   listen<{ content: string }>("chat-send", async (event) => {
     if (!validateProject() || !validateChatSettings()) return;
     if (state.isGenerating || chatMessageInFlight) return;
-    const content = event.payload.content.trim();
+    const content = typeof event.payload.content === "string" ? event.payload.content.trim() : "";
+    if (!content) return;
     if (await handleChatCommand(content)) return;
     appendMessage("user", content);
     void handleChatMessage();

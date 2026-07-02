@@ -435,7 +435,7 @@ async function sendMessage(content: string): Promise<void> {
     showError(`${entry?.name ?? settings.provider} の API キーを設定してください`);
     return;
   }
-  if (!settings.model.trim()) {
+  if (typeof settings.model !== "string" || !settings.model.trim()) {
     showError("モデルを選択してください");
     return;
   }

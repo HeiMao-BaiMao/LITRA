@@ -76,9 +76,9 @@ async function mapWithConcurrency<T, R>(
 function normalizeSettings(settings: AiSettings): AiSettings {
   return {
     ...settings,
-    apiKey: settings.apiKey.trim(),
-    baseUrl: settings.baseUrl.trim(),
-    model: settings.model.trim(),
+    apiKey: typeof settings.apiKey === "string" ? settings.apiKey.trim() : "",
+    baseUrl: typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "",
+    model: typeof settings.model === "string" ? settings.model.trim() : "",
     temperature:
       typeof settings.temperature === "number" && settings.temperature >= 0 && settings.temperature <= 2
         ? settings.temperature

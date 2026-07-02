@@ -454,9 +454,10 @@ async function debugFetch(
 }
 
 export function createModel(settings: AiSettings) {
-  const baseURL = settings.baseUrl.trim();
+  const baseURL = typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "";
+  const trimmedApiKey = typeof settings.apiKey === "string" ? settings.apiKey.trim() : "";
   const apiKey =
-    settings.apiKey.trim() || (settings.provider === "llamacpp" ? "sk-no-key-required" : settings.apiKey);
+    trimmedApiKey || (settings.provider === "llamacpp" ? "sk-no-key-required" : trimmedApiKey);
   console.log(
     "[phenex] createModel",
     JSON.stringify({

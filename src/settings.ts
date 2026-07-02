@@ -68,6 +68,14 @@ function optionalNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function trimmedString(value: unknown): string {
+  return optionalString(value)?.trim() ?? "";
+}
+
 function optionalBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
   return undefined;
@@ -116,16 +124,15 @@ function migrateLegacyModel(provider: Provider, model: string): string {
 }
 
 function normalizeProviderModel(provider: Provider, model: string, defaultModel: string, configuredModels: string[]): string {
-  if (provider === "sakura" && configuredModels.length > 0 && !configuredModels.includes(model)) {
+  if ((provider === "sakura" || provider === "opencode") && configuredModels.length > 0 && !configuredModels.includes(model)) {
     return defaultModel;
   }
   return model;
 }
 
 /**
- * OpenCode Go はモデル毎のトークン枠に max_tokens 分を予約カウントする挙動があり、
- * 過大な max_tokens を送るとレート制限(429)を即座に使い切る。
- * 保存済み設定がモデル既定値を超えている場合は既定値まで引き下げる。
+ * OpenCode Go は 5 時間/週/月の利用枠が強く効くため、保存済みの token 予算が
+ * アプリ側のモデル既定を超えている場合は安全側へ丸める。
  */
 function applyProviderCapacityCap(
   provider: Provider,
@@ -152,9 +159,9 @@ export async function loadSettings(): Promise<AiSettings> {
   const legacyThinkingEnabled = await store.get<boolean>("thinkingEnabled");
   const legacyThinkingBudget = await store.get<number>("thinkingBudget");
 
-  const legacyApiKey = ((await store.get<string>("apiKey")) ?? "").trim();
-  const legacyBaseUrl = ((await store.get<string>("baseUrl")) ?? "").trim();
-  const legacyModel = ((await store.get<string>("model")) ?? "").trim();
+  const legacyApiKey = trimmedString(await store.get("apiKey"));
+  const legacyBaseUrl = trimmedString(await store.get("baseUrl"));
+  const legacyModel = trimmedString(await store.get("model"));
 
   const storedProviderConfigs = await store.get<unknown>("providerConfigs");
   const previousConfigs: Partial<Record<Provider, Partial<ProviderSpecificSettings>>> =
@@ -168,9 +175,9 @@ export async function loadSettings(): Promise<AiSettings> {
     const entry = getProviderEntry(config, p);
     const previous = previousConfigs[p] ?? {};
 
-    let model = (previous.model ?? "").trim();
-    let apiKey = (previous.apiKey ?? "").trim();
-    let baseUrl = (previous.baseUrl ?? "").trim();
+    let model = trimmedString(previous.model);
+    let apiKey = trimmedString(previous.apiKey);
+    let baseUrl = trimmedString(previous.baseUrl);
 
     if (p === provider) {
       if (!model) model = legacyModel;
@@ -194,7 +201,7 @@ export async function loadSettings(): Promise<AiSettings> {
   const modelDefaults = getProviderModelDefaults(getProviderEntry(config, provider), model);
 
   const chatProvider = await store.get("chatProvider");
-  const chatModel = await store.get<string>("chatModel");
+  const chatModel = trimmedString(await store.get("chatModel"));
 
   const base: AiSettings = {
     provider,
@@ -203,7 +210,7 @@ export async function loadSettings(): Promise<AiSettings> {
     model,
     providerConfigs,
     chatProvider: isProvider(chatProvider) ? chatProvider : undefined,
-    chatModel: chatModel ?? undefined,
+    chatModel: chatModel || undefined,
     temperature: optionalNumber(await store.get("temperature")) ?? modelDefaults?.temperature ?? 0.7,
     maxTokens: optionalNumber(await store.get("maxTokens")) ?? modelDefaults?.maxTokens ?? 8192,
     maxContextTokens: optionalNumber(await store.get("maxContextTokens")) ?? modelDefaults?.maxContextTokens ?? 65536,
@@ -283,18 +290,24 @@ export function getProviderSpecificSettings(
   settings: AiSettings,
   provider: Provider,
 ): ProviderSpecificSettings {
-  return settings.providerConfigs[provider] ?? { apiKey: "", baseUrl: "", model: "" };
+  const specific = settings.providerConfigs?.[provider];
+  return {
+    apiKey: trimmedString(specific?.apiKey),
+    baseUrl: trimmedString(specific?.baseUrl),
+    model: trimmedString(specific?.model),
+  };
 }
 
 export function resolveChatSettings(settings: AiSettings): AiSettings {
   const provider = settings.chatProvider ?? settings.provider;
   const specific = getProviderSpecificSettings(settings, provider);
+  const chatModel = trimmedString(settings.chatModel);
   return {
     ...settings,
     provider,
     apiKey: specific.apiKey,
     baseUrl: specific.baseUrl,
-    model: settings.chatModel ?? specific.model,
+    model: chatModel || specific.model,
   };
 }
 

@@ -11,7 +11,7 @@ export function buildProviderOptions(
       if (!settings.openaiReasoningEffort) return undefined;
       // PLaMo は /v1/responses に対応していないため、reasoningEffort を渡すと 404 になる。
       // 他の OpenAI 互換サービスは responses に対応している可能性があるので、PLaMo だけ除外する。
-      const baseUrl = settings.baseUrl.trim();
+      const baseUrl = typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "";
       if (baseUrl.includes("api.platform.preferredai.jp")) return undefined;
       return {
         openai: {

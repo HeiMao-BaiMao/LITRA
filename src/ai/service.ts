@@ -12,8 +12,8 @@ import {
 import type { AiSettings } from "../settings.ts";
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
-const TOOL_LOOP_MAX_STEPS = 6;
-const DUPLICATE_TOOL_CALL_INPUT_LIMIT = 2;
+const TOOL_LOOP_MAX_STEPS = 16;
+const DUPLICATE_TOOL_CALL_INPUT_LIMIT = 4;
 
 function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean): boolean {
   // DeepSeek の thinking モードはツール呼び出しと両立しない。
@@ -102,6 +102,10 @@ function toolLoopStopConditions(
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeOptionalRange(
@@ -505,9 +509,9 @@ function getLastUserMessageContent(messages: ModelMessage[]): string {
 function normalizeSettings(settings: AiSettings): AiSettings {
   const normalized = { ...settings };
 
-  normalized.apiKey = normalized.apiKey.trim();
-  normalized.baseUrl = normalized.baseUrl.trim();
-  normalized.model = normalized.model.trim();
+  normalized.apiKey = trimmedString(normalized.apiKey);
+  normalized.baseUrl = trimmedString(normalized.baseUrl);
+  normalized.model = trimmedString(normalized.model);
 
   if (!isFiniteNumber(normalized.temperature) || normalized.temperature < 0 || normalized.temperature > 2) {
     console.warn(`[phenex:ai] invalid temperature ${normalized.temperature}, falling back to 0.7`);
