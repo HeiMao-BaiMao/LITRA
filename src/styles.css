@@ -1457,6 +1457,36 @@ button#btn-cancel:hover:not(:disabled) {
   padding-left: 0.5rem;
 }
 
+.import-preview-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.import-preview-option-group {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+}
+
+.import-preview-option-group legend {
+  padding: 0 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.import-preview-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
 .project-form {
   display: flex;
   gap: 0.5rem;

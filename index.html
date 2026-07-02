@@ -319,9 +319,31 @@
       <div id="import-preview-modal" class="modal hidden">
         <div class="modal-backdrop"></div>
         <div class="modal-dialog">
-          <h2>フォルダ取り込みプレビュー</h2>
+          <h2 id="import-preview-title">フォルダ取り込み</h2>
           <div id="import-preview-list" class="import-preview-list"></div>
           <div class="import-preview-options">
+            <fieldset class="import-preview-option-group">
+              <legend>取り込み範囲</legend>
+              <label class="import-preview-option">
+                <input
+                  type="radio"
+                  name="import-content-mode"
+                  id="radio-import-body-and-settings"
+                  value="bodyAndSettings"
+                  checked
+                />
+                本文 + 設定
+              </label>
+              <label class="import-preview-option">
+                <input
+                  type="radio"
+                  name="import-content-mode"
+                  id="radio-import-settings-only"
+                  value="settingsOnly"
+                />
+                設定のみ
+              </label>
+            </fieldset>
             <label class="import-preview-option">
               <input type="checkbox" id="chk-import-double-check" />
               取り込み後に整合性チェックを行う（二重化）

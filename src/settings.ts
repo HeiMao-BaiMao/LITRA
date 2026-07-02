@@ -131,8 +131,8 @@ function normalizeProviderModel(provider: Provider, model: string, defaultModel:
 }
 
 /**
- * OpenCode Go は 5 時間/週/月の利用枠が強く効くため、保存済みの token 予算が
- * アプリ側のモデル既定を超えている場合は安全側へ丸める。
+ * OpenCode Go は利用枠が強く効くため output はモデル既定で上限を守る。
+ * context は保存済み設定が小さい場合でも、モデルの公称上限まで引き上げる。
  */
 function applyProviderCapacityCap(
   provider: Provider,
@@ -144,7 +144,7 @@ function applyProviderCapacityCap(
     settings.maxTokens = Math.min(settings.maxTokens, defaults.maxTokens);
   }
   if (defaults.maxContextTokens !== undefined) {
-    settings.maxContextTokens = Math.min(settings.maxContextTokens, defaults.maxContextTokens);
+    settings.maxContextTokens = defaults.maxContextTokens;
   }
 }
 

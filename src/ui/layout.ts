@@ -72,9 +72,12 @@ export interface AppElements {
   btnImportFolder: HTMLButtonElement;
   folderImportInput: HTMLInputElement;
   importPreviewModal: HTMLElement;
+  importPreviewTitle: HTMLElement;
   importPreviewList: HTMLElement;
   btnConfirmImport: HTMLButtonElement;
   btnCancelImport: HTMLButtonElement;
+  radioImportBodyAndSettings: HTMLInputElement;
+  radioImportSettingsOnly: HTMLInputElement;
   chkImportDoubleCheck: HTMLInputElement;
 }
 
@@ -158,9 +161,12 @@ export function getElements(): AppElements {
   const btnImportFolder = document.querySelector<HTMLButtonElement>("#btn-import-folder");
   const folderImportInput = document.querySelector<HTMLInputElement>("#folder-import-input");
   const importPreviewModal = document.querySelector<HTMLElement>("#import-preview-modal");
+  const importPreviewTitle = document.querySelector<HTMLElement>("#import-preview-title");
   const importPreviewList = document.querySelector<HTMLElement>("#import-preview-list");
   const btnConfirmImport = document.querySelector<HTMLButtonElement>("#btn-confirm-import");
   const btnCancelImport = document.querySelector<HTMLButtonElement>("#btn-cancel-import");
+  const radioImportBodyAndSettings = document.querySelector<HTMLInputElement>("#radio-import-body-and-settings");
+  const radioImportSettingsOnly = document.querySelector<HTMLInputElement>("#radio-import-settings-only");
   const chkImportDoubleCheck = document.querySelector<HTMLInputElement>("#chk-import-double-check");
 
   if (
@@ -237,9 +243,12 @@ export function getElements(): AppElements {
     !btnImportFolder ||
     !folderImportInput ||
     !importPreviewModal ||
+    !importPreviewTitle ||
     !importPreviewList ||
     !btnConfirmImport ||
     !btnCancelImport ||
+    !radioImportBodyAndSettings ||
+    !radioImportSettingsOnly ||
     !chkImportDoubleCheck
   ) {
     throw new Error("Required DOM elements are missing");
@@ -319,9 +328,12 @@ export function getElements(): AppElements {
     btnImportFolder,
     folderImportInput,
     importPreviewModal,
+    importPreviewTitle,
     importPreviewList,
     btnConfirmImport,
     btnCancelImport,
+    radioImportBodyAndSettings,
+    radioImportSettingsOnly,
     chkImportDoubleCheck,
   };
 

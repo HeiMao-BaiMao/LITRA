@@ -18,7 +18,7 @@ import {
   resolveChatSettings,
   getProviderSpecificSettings,
 } from "./settings.ts";
-import { applyImport, classifyFilesWithAI, type AiImportCandidate } from "./project/import.ts";
+import { applyImport, classifyFilesWithAI, type AiImportCandidate, type ImportContentMode } from "./project/import.ts";
 import { state, type ChatTransportMetadata, type ProjectView } from "./state.ts";
 import {
   streamChat,
@@ -114,6 +114,7 @@ import {
   hideImportPreviewModal,
   hideProjectModal,
   renderImportLoading,
+  renderImportModeSelection,
   renderImportPreview,
   renderImportResult,
   renderImportResultWithReview,
@@ -210,6 +211,7 @@ let chatMessageInFlight = false;
 
 let pendingImportFiles: File[] = [];
 let pendingImportCandidates: AiImportCandidate[] = [];
+let pendingImportContentMode: ImportContentMode = "bodyAndSettings";
 let resetChatInputHeight: (() => void) | undefined;
 
 const DEFAULT_MAX_CONTEXT_TOKENS = 65536;
@@ -260,17 +262,17 @@ function getPromptContextBudgets(settings: AiSettings = currentSettings): Prompt
     Math.floor(clampNumber(usableChars * ratio, min, max));
 
   return {
-    settingsField: scaled(0.015, 800, 6000),
-    settingsSection: scaled(0.12, 8000, 42000),
-    projectMemos: scaled(0.08, 5000, 26000),
-    previousSummary: scaled(0.035, 2200, 10000),
-    currentMemo: scaled(0.06, 3500, 18000),
-    summarySource: scaled(0.72, 24000, 180000),
-    continuationContext: scaled(0.45, 12000, 100000),
-    rewriteContextSide: scaled(0.18, 5000, 45000),
+    settingsField: scaled(0.015, 800, 24000),
+    settingsSection: scaled(0.12, 8000, 240000),
+    projectMemos: scaled(0.08, 5000, 160000),
+    previousSummary: scaled(0.035, 2200, 70000),
+    currentMemo: scaled(0.06, 3500, 120000),
+    summarySource: scaled(0.72, 24000, 1200000),
+    continuationContext: scaled(0.45, 12000, 800000),
+    rewriteContextSide: scaled(0.18, 5000, 360000),
     chatHistoryMessages: Number.MAX_SAFE_INTEGER,
-    chatMessage: scaled(0.14, 4000, 36000),
-    chatHistory: scaled(0.35, 10000, 90000),
+    chatMessage: scaled(0.14, 4000, 280000),
+    chatHistory: scaled(0.35, 10000, 700000),
   };
 }
 
@@ -2470,7 +2472,8 @@ async function handleInitializeSettings(): Promise<void> {
 async function handleSelectImportFolder(): Promise<void> {
   const input = getElements().folderImportInput;
   if (!input.files || input.files.length === 0) {
-    input.click();
+    renderImportModeSelection();
+    showImportPreviewModal();
     return;
   }
 
@@ -2481,14 +2484,21 @@ async function handleSelectImportFolder(): Promise<void> {
   pendingImportFiles = Array.from(input.files);
   input.value = "";
   pendingImportCandidates = [];
+  pendingImportContentMode = getImportContentMode();
 
-  renderImportLoading();
+  renderImportLoading(
+    pendingImportContentMode === "settingsOnly"
+      ? "AI でファイルを分類中...（設定のみ）"
+      : "AI でファイルを分類中...",
+  );
   showImportPreviewModal();
 
   try {
-    const candidates = await classifyFilesWithAI(pendingImportFiles, currentSettings);
+    const candidates = await classifyFilesWithAI(pendingImportFiles, currentSettings, {
+      contentMode: pendingImportContentMode,
+    });
     pendingImportCandidates = candidates;
-    renderImportPreview(candidates);
+    renderImportPreview(candidates, pendingImportContentMode);
   } catch (error) {
     console.error("[phenex:import] classification failed", error);
     window.alert(`ファイル分類に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
@@ -2496,9 +2506,48 @@ async function handleSelectImportFolder(): Promise<void> {
   }
 }
 
+function getImportContentMode(): ImportContentMode {
+  const { radioImportSettingsOnly } = getElements();
+  return radioImportSettingsOnly.checked ? "settingsOnly" : "bodyAndSettings";
+}
+
+async function handleImportModeChange(): Promise<void> {
+  const nextMode = getImportContentMode();
+  if (pendingImportFiles.length > 0 && pendingImportContentMode !== nextMode) {
+    pendingImportContentMode = nextMode;
+    pendingImportCandidates = [];
+    renderImportLoading(
+      nextMode === "settingsOnly"
+        ? "AI でファイルを再分類中...（設定のみ）"
+        : "AI でファイルを再分類中...",
+    );
+    try {
+      const candidates = await classifyFilesWithAI(pendingImportFiles, currentSettings, {
+        contentMode: nextMode,
+      });
+      pendingImportCandidates = candidates;
+      renderImportPreview(candidates, nextMode);
+    } catch (error) {
+      console.error("[phenex:import] reclassification failed", error);
+      window.alert(`ファイル再分類に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+      hideImportPreviewModal();
+    }
+    return;
+  }
+  if (pendingImportCandidates.length > 0) {
+    renderImportPreview(pendingImportCandidates, nextMode);
+  }
+}
+
 async function handleConfirmImport(): Promise<void> {
   if (!currentProject) {
     window.alert("プロジェクトを開いた状態で取り込んでください。");
+    return;
+  }
+  if (pendingImportFiles.length === 0 && pendingImportCandidates.length === 0) {
+    const input = getElements().folderImportInput;
+    input.value = "";
+    input.click();
     return;
   }
   if (pendingImportFiles.length === 0 || pendingImportCandidates.length === 0) {
@@ -2508,11 +2557,19 @@ async function handleConfirmImport(): Promise<void> {
 
   const { chkImportDoubleCheck } = getElements();
   const enableDoubleCheck = chkImportDoubleCheck.checked;
+  const contentMode = getImportContentMode();
+  const modeLabel = contentMode === "settingsOnly" ? "設定のみ" : "本文 + 設定";
 
-  renderImportLoading(enableDoubleCheck ? "取り込み中...（整合性チェックあり）" : "取り込み中...");
+  renderImportLoading(
+    enableDoubleCheck
+      ? `取り込み中...（${modeLabel} / 整合性チェックあり）`
+      : `取り込み中...（${modeLabel}）`,
+  );
 
   try {
-    const result = await applyImport(currentProject.id, pendingImportCandidates, pendingImportFiles, currentSettings);
+    const result = await applyImport(currentProject.id, pendingImportCandidates, pendingImportFiles, currentSettings, {
+      contentMode,
+    });
 
     if (enableDoubleCheck) {
       renderImportLoading("整合性チェック中...");
@@ -2549,6 +2606,7 @@ async function handleConfirmImport(): Promise<void> {
 function handleCancelImport(): void {
   pendingImportFiles = [];
   pendingImportCandidates = [];
+  pendingImportContentMode = "bodyAndSettings";
   hideImportPreviewModal();
 }
 
@@ -2649,6 +2707,7 @@ function bindUiEvents(): void {
     onSelect: () => void handleSelectImportFolder(),
     onConfirm: () => void handleConfirmImport(),
     onCancel: () => void handleCancelImport(),
+    onModeChange: () => void handleImportModeChange(),
   });
   bindProjectNavActions(projectNavActions);
 

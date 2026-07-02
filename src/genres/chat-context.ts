@@ -40,11 +40,11 @@ function getContextBudgets(
     Math.floor(clampNumber(usableChars * ratio, min, max));
 
   return {
-    systemPrompt: scaled(0.12, 2000, 100000),
-    knowledgeSummary: scaled(0.12, 2000, 100000),
-    candidateSummary: scaled(0.05, 1000, 30000),
-    chatHistory: scaled(0.6, 4000, 300000),
-    chatMessage: scaled(0.08, 1500, 10000),
+    systemPrompt: scaled(0.12, 2000, 240000),
+    knowledgeSummary: scaled(0.12, 2000, 240000),
+    candidateSummary: scaled(0.05, 1000, 100000),
+    chatHistory: scaled(0.6, 4000, 1200000),
+    chatMessage: scaled(0.08, 1500, 160000),
   };
 }
 

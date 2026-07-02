@@ -1,6 +1,6 @@
 import { getElements } from "./layout.ts";
 import type { ProjectSummary } from "../project/repository.ts";
-import type { AiImportCandidate, ImportResult } from "../project/import.ts";
+import type { AiImportCandidate, ImportContentMode, ImportResult } from "../project/import.ts";
 import type { ImportReviewResult } from "../project/import-review.ts";
 
 export interface ProjectModalActions {
@@ -119,10 +119,18 @@ export interface FolderImportActions {
   onSelect: () => void;
   onConfirm: () => void;
   onCancel: () => void;
+  onModeChange: () => void;
 }
 
 export function bindFolderImportActions(actions: FolderImportActions): void {
-  const { btnImportFolder, folderImportInput, btnConfirmImport, btnCancelImport } = getElements();
+  const {
+    btnImportFolder,
+    folderImportInput,
+    btnConfirmImport,
+    btnCancelImport,
+    radioImportBodyAndSettings,
+    radioImportSettingsOnly,
+  } = getElements();
 
   btnImportFolder.addEventListener("click", () => {
     actions.onSelect();
@@ -139,6 +147,14 @@ export function bindFolderImportActions(actions: FolderImportActions): void {
   btnCancelImport.addEventListener("click", () => {
     actions.onCancel();
   });
+
+  radioImportBodyAndSettings.addEventListener("change", () => {
+    actions.onModeChange();
+  });
+
+  radioImportSettingsOnly.addEventListener("change", () => {
+    actions.onModeChange();
+  });
 }
 
 export function showImportPreviewModal(): void {
@@ -150,8 +166,10 @@ export function hideImportPreviewModal(): void {
 }
 
 export function renderImportLoading(message = "AI でファイルを分類中..."): void {
-  const list = getElements().importPreviewList;
+  const { importPreviewTitle, importPreviewList: list, btnConfirmImport } = getElements();
+  importPreviewTitle.textContent = "フォルダ取り込み";
   list.innerHTML = "";
+  btnConfirmImport.textContent = "取り込む";
 
   const row = document.createElement("div");
   row.className = "import-preview-loading";
@@ -159,12 +177,44 @@ export function renderImportLoading(message = "AI でファイルを分類中...
   list.appendChild(row);
 }
 
-export function renderImportPreview(candidates: AiImportCandidate[]): void {
-  const list = getElements().importPreviewList;
+export function renderImportModeSelection(): void {
+  const { importPreviewTitle, importPreviewList: list, btnConfirmImport } = getElements();
+  importPreviewTitle.textContent = "フォルダ取り込み";
   list.innerHTML = "";
+  btnConfirmImport.textContent = "フォルダを選択";
+
+  const summary = document.createElement("div");
+  summary.className = "import-preview-summary";
+  summary.textContent = "取り込み範囲を選択してください。";
+  list.appendChild(summary);
+
+  const row = document.createElement("div");
+  row.className = "import-preview-row";
+  row.textContent = "選択後、フォルダを指定して AI 分類を開始します。";
+  list.appendChild(row);
+}
+
+function isSettingsImportCandidate(candidate: AiImportCandidate): boolean {
+  return candidate.type === "character" || candidate.type === "world" || candidate.type === "relationship";
+}
+
+function filterCandidatesForImportMode(
+  candidates: AiImportCandidate[],
+  mode: ImportContentMode,
+): AiImportCandidate[] {
+  if (mode === "bodyAndSettings") return candidates;
+  return candidates.filter(isSettingsImportCandidate);
+}
+
+export function renderImportPreview(candidates: AiImportCandidate[], mode: ImportContentMode = "bodyAndSettings"): void {
+  const { importPreviewTitle, importPreviewList: list, btnConfirmImport } = getElements();
+  importPreviewTitle.textContent = "フォルダ取り込みプレビュー";
+  list.innerHTML = "";
+  btnConfirmImport.textContent = "取り込む";
+  const visibleCandidates = filterCandidatesForImportMode(candidates, mode);
 
   const counts: Record<string, number> = {};
-  for (const candidate of candidates) {
+  for (const candidate of visibleCandidates) {
     counts[candidate.type] = (counts[candidate.type] ?? 0) + 1;
   }
 
@@ -181,7 +231,10 @@ export function renderImportPreview(candidates: AiImportCandidate[]): void {
 
   const summary = document.createElement("div");
   summary.className = "import-preview-summary";
-  summary.textContent = `検出されたファイル: ${candidates.length} 件`;
+  summary.textContent =
+    mode === "settingsOnly"
+      ? `取り込み対象: ${visibleCandidates.length} 件（設定のみ / 検出 ${candidates.length} 件）`
+      : `取り込み対象: ${visibleCandidates.length} 件`;
   list.appendChild(summary);
 
   for (const [type, count] of Object.entries(counts)) {
@@ -191,23 +244,44 @@ export function renderImportPreview(candidates: AiImportCandidate[]): void {
     list.appendChild(row);
   }
 
-  for (const candidate of candidates) {
+  if (mode === "settingsOnly") {
+    const excludedCounts: Record<string, number> = {};
+    for (const candidate of candidates) {
+      if (!isSettingsImportCandidate(candidate)) {
+        excludedCounts[candidate.type] = (excludedCounts[candidate.type] ?? 0) + 1;
+      }
+    }
+    for (const [type, count] of Object.entries(excludedCounts)) {
+      const label =
+        type === "unknown" ? "分類失敗" : type === "ignore" ? "対象外" : (typeLabels[type] ?? type);
+      const row = document.createElement("div");
+      row.className = "import-preview-row";
+      row.textContent = `設定対象外（${label}）: ${count} 件`;
+      list.appendChild(row);
+    }
+  }
+
+  for (const candidate of visibleCandidates) {
     const detail = document.createElement("div");
     detail.className = "import-preview-detail";
     detail.textContent = `[${typeLabels[candidate.type] ?? candidate.type}] ${candidate.filename} → ${candidate.title}`;
     list.appendChild(detail);
   }
 
-  if (candidates.length === 0) {
+  if (visibleCandidates.length === 0) {
     const empty = document.createElement("div");
     empty.className = "import-preview-empty";
-    empty.textContent = "取り込めるファイルが見つかりませんでした。";
+    empty.textContent =
+      mode === "settingsOnly"
+        ? "設定として取り込めるファイルが見つかりませんでした。"
+        : "取り込めるファイルが見つかりませんでした。";
     list.appendChild(empty);
   }
 }
 
 export function renderImportResult(result: ImportResult): void {
-  const list = getElements().importPreviewList;
+  const { importPreviewTitle, importPreviewList: list } = getElements();
+  importPreviewTitle.textContent = "取り込み結果";
   list.innerHTML = "";
 
   const summary = document.createElement("div");
