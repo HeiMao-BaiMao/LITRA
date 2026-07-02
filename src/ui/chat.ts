@@ -28,8 +28,13 @@ export function appendMessage(
   sync();
 }
 
+function isNearBottom(container: HTMLElement): boolean {
+  return container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+}
+
 export function updateLastAssistantChunk(chunk: string): void {
   const container = getElements().chatMessages;
+  const followScroll = isNearBottom(container);
   let messageEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
 
   if (!messageEl) {
@@ -38,7 +43,6 @@ export function updateLastAssistantChunk(chunk: string): void {
     container.appendChild(messageEl);
 
     state.chatMessages.push({ role: "assistant", content: "" });
-    scrollToBottom();
   }
 
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
@@ -46,11 +50,13 @@ export function updateLastAssistantChunk(chunk: string): void {
     lastMessage.content += chunk;
     renderChatMessageHtml(messageEl, lastMessage.content, lastMessage.thinking);
   }
+  if (followScroll) scrollToBottom();
   sync();
 }
 
 export function updateLastAssistantThinking(chunk: string): void {
   const container = getElements().chatMessages;
+  const followScroll = isNearBottom(container);
   let messageEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
 
   if (!messageEl) {
@@ -59,7 +65,6 @@ export function updateLastAssistantThinking(chunk: string): void {
     container.appendChild(messageEl);
 
     state.chatMessages.push({ role: "assistant", content: "" });
-    scrollToBottom();
   }
 
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
@@ -67,6 +72,7 @@ export function updateLastAssistantThinking(chunk: string): void {
     lastMessage.thinking = `${lastMessage.thinking ?? ""}${chunk}`;
     renderChatMessageHtml(messageEl, lastMessage.content, lastMessage.thinking);
   }
+  if (followScroll) scrollToBottom();
   sync();
 }
 
@@ -76,10 +82,11 @@ export function updateMessageContent(index: number, content: string): boolean {
 
   message.content = content;
   const container = getElements().chatMessages;
+  const followScroll = isNearBottom(container);
   const messageEl = container.querySelectorAll<HTMLElement>(".chat-message")[index];
   if (messageEl) {
     renderChatMessageHtml(messageEl, content, message.thinking);
-    scrollToBottom();
+    if (followScroll) scrollToBottom();
   }
   sync();
   return true;

@@ -408,6 +408,35 @@ button#btn-cancel:hover:not(:disabled) {
   margin-bottom: 0;
 }
 
+.thinking-chars {
+  margin-left: 0.5em;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.thinking-panel.streaming .thinking-summary {
+  color: var(--text-primary);
+}
+
+.chat-message.chat-pending::after {
+  content: "●●●";
+  display: inline-block;
+  color: var(--text-secondary);
+  font-size: 0.6rem;
+  letter-spacing: 3px;
+  animation: chat-pending-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes chat-pending-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
 .chat-message.tool-call-message {
   max-width: 96%;
   padding: 0;

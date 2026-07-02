@@ -185,6 +185,93 @@ function extractTextChunk(part: unknown): string | undefined {
   return getStringField(part, ["delta", "text", "textDelta"]);
 }
 
+const THINK_OPEN_TAGS = ["<think>", "<thinking>"];
+const THINK_CLOSE_TAGS = ["</think>", "</thinking>"];
+
+interface ThinkTagRouter {
+  push(chunk: string): void;
+  flush(): void;
+}
+
+/**
+ * OpenAI 互換プロバイダの一部は思考過程を reasoning-delta ではなく、
+ * 本文ストリーム中の <think>...</think> として返す。タグ内を思考として
+ * 分離し、本文へ混入させない。タグがチャンク境界で分割されるケースに
+ * 備えて、タグの先頭になり得る末尾文字列はバッファに保持する。
+ */
+function createThinkTagRouter(
+  emitText: (chunk: string) => void,
+  emitReasoning: (chunk: string) => void,
+): ThinkTagRouter {
+  let buffer = "";
+  let inThink = false;
+
+  const findFirstTag = (
+    text: string,
+    tags: string[],
+  ): { index: number; tag: string } | undefined => {
+    let found: { index: number; tag: string } | undefined;
+    for (const tag of tags) {
+      const index = text.indexOf(tag);
+      if (index >= 0 && (found === undefined || index < found.index)) {
+        found = { index, tag };
+      }
+    }
+    return found;
+  };
+
+  const partialTagHold = (text: string, tags: string[]): number => {
+    let hold = 0;
+    for (const tag of tags) {
+      const maxLen = Math.min(tag.length - 1, text.length);
+      for (let len = maxLen; len > hold; len--) {
+        if (text.endsWith(tag.slice(0, len))) {
+          hold = len;
+          break;
+        }
+      }
+    }
+    return hold;
+  };
+
+  const emit = (chunk: string): void => {
+    if (!chunk) return;
+    if (inThink) {
+      emitReasoning(chunk);
+    } else {
+      emitText(chunk);
+    }
+  };
+
+  return {
+    push(chunk: string): void {
+      buffer += chunk;
+      for (;;) {
+        const tags = inThink ? THINK_CLOSE_TAGS : THINK_OPEN_TAGS;
+        const match = findFirstTag(buffer, tags);
+        if (match) {
+          emit(buffer.slice(0, match.index));
+          buffer = buffer.slice(match.index + match.tag.length);
+          inThink = !inThink;
+          continue;
+        }
+        const hold = partialTagHold(buffer, tags);
+        const emitLength = buffer.length - hold;
+        if (emitLength > 0) {
+          emit(buffer.slice(0, emitLength));
+          buffer = buffer.slice(emitLength);
+        }
+        return;
+      }
+    },
+    flush(): void {
+      const rest = buffer;
+      buffer = "";
+      emit(rest);
+    },
+  };
+}
+
 async function consumeStream(
   result: {
     fullStream: AsyncIterable<TextStreamPart<ToolSet>>;
@@ -205,30 +292,39 @@ async function consumeStream(
   let lastSignificantPart: "text" | "reasoning" | "tool-input" | "tool-call" | "tool-result" | "tool-error" | undefined;
   const pendingToolCallIds = new Set<string>();
 
+  const emitReasoning = (chunk: string): void => {
+    reasoningChunkCount++;
+    reasoningCharCount += chunk.length;
+    lastSignificantPart = "reasoning";
+    if (reasoningChunkCount <= 3 || reasoningChunkCount % 10 === 0) {
+      console.log(`[phenex:ai] reasoning chunk #${reasoningChunkCount}:`, chunk.slice(0, 80));
+    }
+    onReasoning?.(chunk);
+  };
+  const emitText = (chunk: string): void => {
+    chunkCount++;
+    charCount += chunk.length;
+    lastSignificantPart = "text";
+    if (chunkCount <= 3 || chunkCount % 10 === 0) {
+      console.log(`[phenex:ai] text chunk #${chunkCount}:`, chunk.slice(0, 80));
+    }
+    onChunk(chunk);
+  };
+  // <think> タグ入りの本文を、思考と本文へ振り分ける
+  const textRouter = createThinkTagRouter(emitText, emitReasoning);
+
   for await (const part of result.fullStream) {
     const reasoningChunk = extractReasoningChunk(part);
     if (reasoningChunk !== undefined) {
       if (!reasoningChunk) continue;
-      reasoningChunkCount++;
-      reasoningCharCount += reasoningChunk.length;
-      lastSignificantPart = "reasoning";
-      if (reasoningChunkCount <= 3 || reasoningChunkCount % 10 === 0) {
-        console.log(`[phenex:ai] reasoning chunk #${reasoningChunkCount}:`, reasoningChunk.slice(0, 80));
-      }
-      onReasoning?.(reasoningChunk);
+      emitReasoning(reasoningChunk);
       continue;
     }
 
     const textChunk = extractTextChunk(part);
     if (textChunk !== undefined) {
       if (!textChunk) continue;
-      chunkCount++;
-      charCount += textChunk.length;
-      lastSignificantPart = "text";
-      if (chunkCount <= 3 || chunkCount % 10 === 0) {
-        console.log(`[phenex:ai] text chunk #${chunkCount}:`, textChunk.slice(0, 80));
-      }
-      onChunk(textChunk);
+      textRouter.push(textChunk);
       continue;
     }
 
@@ -305,6 +401,8 @@ async function consumeStream(
       }
     }
   }
+
+  textRouter.flush();
 
   console.log(`[phenex:ai] stream finished. text chunks: ${chunkCount}, tool results: ${toolResultCount}, finish: ${finishReason ?? "unknown"}`);
   return {

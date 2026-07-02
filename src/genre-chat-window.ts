@@ -481,6 +481,9 @@ async function sendMessage(content: string): Promise<void> {
     currentAbortController = controller;
     setGeneratingState(true);
 
+    // 最初のトークンが届く前から待機中インジケーターを表示する
+    updateStreamingMessage("", "");
+
     const knowledge = await loadGenreKnowledge(state.genreId);
     const modelMessages = buildGenreChatMessages(state.genre, knowledge, state.messages, {
       includePendingCandidates: true,
@@ -605,6 +608,7 @@ async function sendMessage(content: string): Promise<void> {
     state.isStreaming = false;
     currentAbortController = null;
     setGeneratingState(false);
+    removeEmptyStreamingMessage();
     if (error instanceof Error && error.name === "AbortError") {
       showInfo("生成を中断しました");
     } else {
@@ -612,6 +616,15 @@ async function sendMessage(content: string): Promise<void> {
     }
     renderMessages();
   }
+}
+
+function removeEmptyStreamingMessage(): void {
+  state.messages = state.messages.filter(
+    (message) =>
+      message.id !== "streaming" ||
+      message.content.trim().length > 0 ||
+      (message.thinking ?? "").trim().length > 0,
+  );
 }
 
 function stopStreaming(): void {

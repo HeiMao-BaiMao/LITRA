@@ -2328,10 +2328,10 @@ async function handleChatMessage(): Promise<void> {
     console.log("[phenex] handleChatMessage finished");
   } catch (error) {
     console.error("[phenex] chat error:", error);
-    if (error instanceof Error && error.name !== "AbortError") {
-      window.alert(`エラー: ${error.message}`);
-    } else if (!(error instanceof Error) || error.name !== "AbortError") {
-      window.alert(`エラー: ${String(error)}`);
+    removeLastEmptyAssistantMessage();
+    if (!(error instanceof Error && error.name === "AbortError")) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendMessage("assistant", `⚠️ **エラーが発生しました**\n\n${message}`, true);
     }
   } finally {
     chatMessageInFlight = false;

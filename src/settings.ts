@@ -122,17 +122,22 @@ function normalizeProviderModel(provider: Provider, model: string, defaultModel:
   return model;
 }
 
-function applyProviderCapacityFloor(
+/**
+ * OpenCode Go はモデル毎のトークン枠に max_tokens 分を予約カウントする挙動があり、
+ * 過大な max_tokens を送るとレート制限(429)を即座に使い切る。
+ * 保存済み設定がモデル既定値を超えている場合は既定値まで引き下げる。
+ */
+function applyProviderCapacityCap(
   provider: Provider,
   settings: Pick<AiSettings, "maxTokens" | "maxContextTokens">,
   defaults: ProviderModelDefaults | undefined,
 ): void {
   if (provider !== "opencode" || !defaults) return;
   if (defaults.maxTokens !== undefined) {
-    settings.maxTokens = Math.max(settings.maxTokens, defaults.maxTokens);
+    settings.maxTokens = Math.min(settings.maxTokens, defaults.maxTokens);
   }
   if (defaults.maxContextTokens !== undefined) {
-    settings.maxContextTokens = Math.max(settings.maxContextTokens, defaults.maxContextTokens);
+    settings.maxContextTokens = Math.min(settings.maxContextTokens, defaults.maxContextTokens);
   }
 }
 
@@ -236,7 +241,7 @@ export async function loadSettings(): Promise<AiSettings> {
       undefined;
   }
 
-  applyProviderCapacityFloor(provider, base, modelDefaults);
+  applyProviderCapacityCap(provider, base, modelDefaults);
 
   return base;
 }

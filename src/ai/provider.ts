@@ -14,14 +14,35 @@ const FLOAT_PARAMETER_KEYS = new Set([
 
 const PLAMO_API_HOST = "api.platform.preferredai.jp";
 const SAKURA_API_HOST = "api.ai.sakura.ad.jp";
-const OPENCODE_GO_ANTHROPIC_MODELS = new Set(["minimax-m3"]);
+const OPENCODE_API_HOST = "opencode.ai";
+// OpenCode Go の Anthropic Messages 互換モデル(公式ドキュメント準拠)。
+// それ以外は OpenAI Chat Completions 互換。
+const OPENCODE_GO_ANTHROPIC_MODELS = new Set([
+  "minimax-m3",
+  "minimax-m2.7",
+  "minimax-m2.5",
+  "qwen3.7-max",
+  "qwen3.7-plus",
+  "qwen3.6-plus",
+  "qwen3.5-plus",
+]);
 const PLAMO_UNSUPPORTED_SCHEMA_KEYS = new Set(["$schema", "propertyNames"]);
 const SAKURA_RETRY_STATUS_CODES = new Set([429, 439]);
 const SAKURA_MIN_REQUEST_INTERVAL_MS = 2500;
 const SAKURA_RETRY_DELAYS_MS = [2500, 5000, 10000, 20000];
+// OpenCode Go は短時間のレート制限(429)や上流モデルの一時エラー(5xx)を返す
+// ことがあり、AI SDK 標準の数秒のリトライでは回復しない。リクエスト間隔を
+// 空けつつ、長めのバックオフで再試行する。
+const OPENCODE_RETRY_STATUS_CODES = new Set([429, 500, 502, 503, 529]);
+const OPENCODE_MIN_REQUEST_INTERVAL_MS = 1500;
+const OPENCODE_RETRY_DELAYS_MS = [3000, 8000, 20000, 40000];
 
-let nextSakuraRequestAt = 0;
-let sakuraRequestQueue: Promise<void> = Promise.resolve();
+interface RequestThrottle {
+  nextRequestAt: number;
+  queue: Promise<void>;
+}
+
+const requestThrottles = new Map<string, RequestThrottle>();
 
 /**
  * JSON 上で float 型として定義されているパラメーターが整数値の場合でも
@@ -38,24 +59,42 @@ function preserveNumberTypes(bodyJson: string): string {
   return bodyJson.replace(pattern, '"$1":$2.0');
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const finish = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener("abort", finish);
+  });
 }
 
-async function waitForSakuraRequestSlot(): Promise<void> {
-  const previous = sakuraRequestQueue;
+async function waitForRequestSlot(key: string, minIntervalMs: number): Promise<void> {
+  let throttle = requestThrottles.get(key);
+  if (!throttle) {
+    throttle = { nextRequestAt: 0, queue: Promise.resolve() };
+    requestThrottles.set(key, throttle);
+  }
+
+  const previous = throttle.queue;
   let release: () => void = () => {};
-  sakuraRequestQueue = new Promise<void>((resolve) => {
+  throttle.queue = new Promise<void>((resolve) => {
     release = resolve;
   });
 
   try {
     await previous;
-    const waitMs = Math.max(0, nextSakuraRequestAt - Date.now());
+    const waitMs = Math.max(0, throttle.nextRequestAt - Date.now());
     if (waitMs > 0) {
       await sleep(waitMs);
     }
-    nextSakuraRequestAt = Date.now() + SAKURA_MIN_REQUEST_INTERVAL_MS;
+    throttle.nextRequestAt = Date.now() + minIntervalMs;
   } finally {
     release();
   }
@@ -78,9 +117,9 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
   return undefined;
 }
 
-function getSakuraRetryDelayMs(response: Response, retryIndex: number): number {
+function getRetryDelayMs(response: Response, retryIndex: number, delays: number[]): number {
   return parseRetryAfterMs(response.headers) ??
-    SAKURA_RETRY_DELAYS_MS[Math.min(retryIndex, SAKURA_RETRY_DELAYS_MS.length - 1)];
+    delays[Math.min(retryIndex, delays.length - 1)];
 }
 
 function isValidationErrorResponse(text: string): boolean {
@@ -104,6 +143,14 @@ function isSakuraUrl(url: string): boolean {
     return new URL(url).hostname === SAKURA_API_HOST;
   } catch {
     return url.includes(SAKURA_API_HOST);
+  }
+}
+
+function isOpenCodeUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === OPENCODE_API_HOST;
+  } catch {
+    return url.includes(OPENCODE_API_HOST);
   }
 }
 
@@ -331,6 +378,8 @@ async function debugFetch(
   const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   let body = init?.body ? String(init.body) : undefined;
   const isSakuraRequest = isSakuraUrl(url);
+  const isOpenCodeRequest = isOpenCodeUrl(url);
+  const abortSignal = init?.signal ?? undefined;
 
   if (body) {
     try {
@@ -347,7 +396,9 @@ async function debugFetch(
 
   for (let attempt = 0; ; attempt++) {
     if (isSakuraRequest) {
-      await waitForSakuraRequestSlot();
+      await waitForRequestSlot("sakura", SAKURA_MIN_REQUEST_INTERVAL_MS);
+    } else if (isOpenCodeRequest) {
+      await waitForRequestSlot("opencode", OPENCODE_MIN_REQUEST_INTERVAL_MS);
     }
 
     console.log("[phenex] fetch request", url, body);
@@ -360,15 +411,33 @@ async function debugFetch(
       isSakuraRequest &&
       SAKURA_RETRY_STATUS_CODES.has(res.status) &&
       !isValidationErrorResponse(text) &&
+      !abortSignal?.aborted &&
       attempt < SAKURA_RETRY_DELAYS_MS.length
     ) {
-      const retryDelayMs = getSakuraRetryDelayMs(res, attempt);
+      const retryDelayMs = getRetryDelayMs(res, attempt, SAKURA_RETRY_DELAYS_MS);
       console.warn("[phenex] Sakura rate-limit response; retrying", {
         status: res.status,
         attempt: attempt + 1,
         retryDelayMs,
       });
-      await sleep(retryDelayMs);
+      await sleep(retryDelayMs, abortSignal);
+      continue;
+    }
+
+    if (
+      isOpenCodeRequest &&
+      OPENCODE_RETRY_STATUS_CODES.has(res.status) &&
+      !isValidationErrorResponse(text) &&
+      !abortSignal?.aborted &&
+      attempt < OPENCODE_RETRY_DELAYS_MS.length
+    ) {
+      const retryDelayMs = getRetryDelayMs(res, attempt, OPENCODE_RETRY_DELAYS_MS);
+      console.warn("[phenex] OpenCode Go rate-limit/unavailable response; retrying", {
+        status: res.status,
+        attempt: attempt + 1,
+        retryDelayMs,
+      });
+      await sleep(retryDelayMs, abortSignal);
       continue;
     }
 

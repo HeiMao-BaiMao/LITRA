@@ -282,25 +282,64 @@ function renderMarkdownOrFallback(content: string): string {
   return html;
 }
 
-function renderThinkingHtml(thinking: string | undefined): string {
+function renderThinkingHtml(thinking: string | undefined, streaming: boolean): string {
   if (!thinking || thinking.trim().length === 0) return "";
   const body = renderMarkdownOrFallback(thinking);
-  return `<details class="thinking-panel">
-    <summary class="thinking-summary">Thinking</summary>
+  const label = streaming ? "思考中…" : "思考";
+  return `<details class="thinking-panel${streaming ? " streaming" : ""}">
+    <summary class="thinking-summary">${label}<span class="thinking-chars">${thinking.length}文字</span></summary>
     <div class="thinking-content">${body}</div>
   </details>`;
 }
 
 export function renderChatMessageHtml(element: HTMLElement, content: string, thinking?: string): void {
-  const toolHtml = renderToolCallHtml(content);
-  if (toolHtml != null) {
-    const thinkingHtml = renderThinkingHtml(thinking);
-    element.innerHTML = DOMPurify.sanitize(`${thinkingHtml}${toolHtml}`);
-    element.classList.toggle("tool-call-message", thinkingHtml.length === 0);
-    return;
+  const prevThinking = element.querySelector<HTMLDetailsElement>("details.thinking-panel");
+  const prevToolOpen = element.querySelector<HTMLDetailsElement>("details.tool-call-card")?.open ?? false;
+  const hasThinking = Boolean(thinking && thinking.trim().length > 0);
+  const contentEmpty = content.trim().length === 0;
+  // 本文がまだ無く思考だけが流れている間はストリーミング表示扱いにする
+  const streamingThinking = hasThinking && contentEmpty;
+
+  // 思考パネルの開閉: ストリーミング中は自動で開き、本文が届いたら自動で畳む。
+  // 手動での開閉は innerHTML の再構築をまたいで維持する。
+  let thinkingOpen = false;
+  let thinkingAuto = false;
+  if (hasThinking) {
+    if (!prevThinking) {
+      thinkingOpen = streamingThinking;
+      thinkingAuto = thinkingOpen;
+    } else if (prevThinking.open) {
+      const wasAuto = prevThinking.dataset.autoOpen === "true";
+      thinkingAuto = wasAuto && streamingThinking;
+      thinkingOpen = thinkingAuto || !wasAuto;
+    }
   }
 
-  element.classList.remove("tool-call-message");
-  const html = `${renderThinkingHtml(thinking)}${renderMarkdownOrFallback(content)}`;
-  element.innerHTML = DOMPurify.sanitize(html);
+  const thinkingHtml = renderThinkingHtml(thinking, streamingThinking);
+  const toolHtml = renderToolCallHtml(content);
+  if (toolHtml != null) {
+    element.innerHTML = DOMPurify.sanitize(`${thinkingHtml}${toolHtml}`);
+    element.classList.toggle("tool-call-message", thinkingHtml.length === 0);
+    element.classList.remove("chat-pending");
+  } else {
+    element.classList.remove("tool-call-message");
+    // 本文も思考もまだ無い間は、待機中インジケーター(CSS の ::after)を表示する
+    element.classList.toggle("chat-pending", contentEmpty && !hasThinking);
+    const html = `${thinkingHtml}${renderMarkdownOrFallback(content)}`;
+    element.innerHTML = DOMPurify.sanitize(html);
+  }
+
+  const panel = element.querySelector<HTMLDetailsElement>("details.thinking-panel");
+  if (panel) {
+    panel.open = thinkingOpen;
+    if (thinkingAuto) panel.dataset.autoOpen = "true";
+    if (streamingThinking && thinkingOpen) {
+      const body = panel.querySelector<HTMLElement>(".thinking-content");
+      if (body) body.scrollTop = body.scrollHeight;
+    }
+  }
+  if (prevToolOpen) {
+    const tool = element.querySelector<HTMLDetailsElement>("details.tool-call-card");
+    if (tool) tool.open = true;
+  }
 }
