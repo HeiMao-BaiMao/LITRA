@@ -25,7 +25,7 @@ export async function applyDpiZoom(): Promise<void> {
 
     await webview.setZoom(zoom);
   } catch (error) {
-    console.warn("[phenex] failed to apply DPI zoom:", error);
+    console.warn("[litra] failed to apply DPI zoom:", error);
   }
 }
 

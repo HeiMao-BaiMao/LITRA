@@ -311,7 +311,7 @@ async function rebuildSearchIndexQuietly(projectId: string): Promise<boolean> {
     return true;
   } catch (error) {
     console.warn(
-      "[phenex] failed to rebuild search index after tool mutation:",
+      "[litra] failed to rebuild search index after tool mutation:",
       error,
     );
     return false;
@@ -326,7 +326,7 @@ function wrapToolExecute<TInput, TOutput>(
     try {
       return await execute(input);
     } catch (error) {
-      console.error(`[phenex] tool ${name} error:`, error);
+      console.error(`[litra] tool ${name} error:`, error);
       return { error: error instanceof Error ? error.message : String(error) };
     }
   };
@@ -2130,7 +2130,7 @@ export function createSearchGenreSourceTextTool() {
 export function createListGenreAnalysesTool() {
   return tool({
     description:
-      "Lists AI analysis runs for a genre. Use this to find analysis IDs before reading detailed genre analysis.",
+      "Lists genre analysis runs. Use this to find analysis IDs before reading detailed genre analysis.",
     inputSchema: z.object({
       genreId: z.string().describe("Genre ID returned by listGenres."),
       sourceId: z.string().optional(),

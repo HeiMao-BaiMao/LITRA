@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "phenex",
+  "productName": "LITRA",
   "version": "0.1.0",
-  "identifier": "org.hmbm.phenex",
+  "identifier": "org.hmbm.litra",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "phenex",
+        "title": "LITRA",
         "width": 800,
         "height": 600,
         "dragDropEnabled": false

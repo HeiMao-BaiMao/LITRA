@@ -38,7 +38,7 @@ async function loadKnowledgeDocument(genreId: string): Promise<GenreKnowledgeDoc
         updatedAt: new Date().toISOString(),
       };
     }
-    console.warn(`[phenex:genres] failed to load knowledge for ${genreId}:`, error);
+    console.warn(`[litra:genres] failed to load knowledge for ${genreId}:`, error);
   }
   return {
     schemaVersion: GENRE_SCHEMA_VERSION,

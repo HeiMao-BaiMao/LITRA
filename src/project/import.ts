@@ -940,7 +940,7 @@ async function classifyOneFileWithAI(
       lastError = error;
       if (!isRetryableProviderRequestError(error)) throw error;
       console.warn(
-        `[phenex:import:classify] provider rejected request for ${path}; retrying with smaller content`,
+        `[litra:import:classify] provider rejected request for ${path}; retrying with smaller content`,
         {
           fullTextLimit: limits.fullTextLimit,
           sampleChars: limits.sampleChars,
@@ -969,7 +969,7 @@ export async function classifyFilesWithAI(
         return await classifyOneFileWithAI(file, settings, options);
       } catch (error) {
         console.error(
-          `[phenex:import:classify] failed for ${getFilePath(file)}`,
+          `[litra:import:classify] failed for ${getFilePath(file)}`,
           error,
         );
         return [buildFallbackCandidate(file, error, options)];
@@ -1287,7 +1287,7 @@ async function transformOne(
       lastError = error;
       if (!isRetryableProviderRequestError(error)) throw error;
       console.warn(
-        `[phenex:import:transform] provider rejected request for ${candidate.path}; retrying with smaller content`,
+        `[litra:import:transform] provider rejected request for ${candidate.path}; retrying with smaller content`,
         { cap },
       );
     }
@@ -1391,11 +1391,11 @@ async function transformOneWithContent(
           relationships = validatedRelationships;
         }
         console.log(
-          `[phenex:import:transform] context validation extracted ${validatedRelationships.length} relationships from ${candidate.path}`,
+          `[litra:import:transform] context validation extracted ${validatedRelationships.length} relationships from ${candidate.path}`,
         );
       }
       console.log(
-        `[phenex:import:transform] extracted ${relationships.length} relationships from ${candidate.path}`,
+        `[litra:import:transform] extracted ${relationships.length} relationships from ${candidate.path}`,
       );
       return { relationships };
     }
@@ -1492,7 +1492,7 @@ export async function transformImportFilesWithAI(
           return updated;
         } catch (error) {
           console.error(
-            `[phenex:import:transform] failed for ${candidate.path}`,
+            `[litra:import:transform] failed for ${candidate.path}`,
             error,
           );
           if (candidate.type === "relationship") {
@@ -1504,7 +1504,7 @@ export async function transformImportFilesWithAI(
                 context,
               );
               console.log(
-                `[phenex:import:transform] context validation extracted ${validatedRelationships.length} relationships from ${candidate.path}`,
+                `[litra:import:transform] context validation extracted ${validatedRelationships.length} relationships from ${candidate.path}`,
               );
               if (validatedRelationships.length > 0) {
                 return {
@@ -1515,7 +1515,7 @@ export async function transformImportFilesWithAI(
               }
             } catch (validationError) {
               console.error(
-                `[phenex:import:transform] context validation failed for ${candidate.path}`,
+                `[litra:import:transform] context validation failed for ${candidate.path}`,
                 validationError,
               );
             }

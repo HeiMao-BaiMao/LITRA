@@ -5,7 +5,7 @@ import { isEpisodeMemoMap } from "./schema.ts";
 const MEMOS_FILE = "memos.json";
 
 function projectPath(projectId: string): string {
-  return `phenex/projects/${projectId}/${MEMOS_FILE}`;
+  return `litra/projects/${projectId}/${MEMOS_FILE}`;
 }
 
 export async function loadMemos(projectId: string): Promise<EpisodeMemoMap> {

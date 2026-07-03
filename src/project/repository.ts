@@ -8,7 +8,7 @@ import {
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
 
-const PROJECTS_ROOT = "phenex/projects";
+const PROJECTS_ROOT = "litra/projects";
 
 export interface Project {
   id: string;

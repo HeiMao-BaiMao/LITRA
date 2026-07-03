@@ -18,8 +18,8 @@
         { "path": "$APPCONFIG/**" },
         { "path": "$APPDATA" },
         { "path": "$APPDATA/**" },
-        { "path": "$DOCUMENT/phenex" },
-        { "path": "$DOCUMENT/phenex/**" }
+        { "path": "$DOCUMENT/litra" },
+        { "path": "$DOCUMENT/litra/**" }
       ]
     },
     {

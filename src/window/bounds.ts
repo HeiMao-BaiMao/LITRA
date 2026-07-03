@@ -99,7 +99,7 @@ export async function applyWindowBounds(win: Window, label: string): Promise<voi
     await win.setPosition(new PhysicalPosition(bounds.x, bounds.y));
     await win.setSize(new PhysicalSize(bounds.width, bounds.height));
   } catch (error) {
-    console.warn(`[phenex] failed to apply bounds for ${label}:`, error);
+    console.warn(`[litra] failed to apply bounds for ${label}:`, error);
   }
 }
 
@@ -120,7 +120,7 @@ export function trackWindowBounds(win: Window, label: string): void {
         height: size.height,
       });
     } catch (error) {
-      console.warn(`[phenex] failed to save bounds for ${label}:`, error);
+      console.warn(`[litra] failed to save bounds for ${label}:`, error);
     }
   };
 
@@ -134,9 +134,9 @@ export function trackWindowBounds(win: Window, label: string): void {
   };
 
   win.onMoved(scheduleSave).catch((error) => {
-    console.warn(`[phenex] failed to listen window move for ${label}:`, error);
+    console.warn(`[litra] failed to listen window move for ${label}:`, error);
   });
   win.onResized(scheduleSave).catch((error) => {
-    console.warn(`[phenex] failed to listen window resize for ${label}:`, error);
+    console.warn(`[litra] failed to listen window resize for ${label}:`, error);
   });
 }

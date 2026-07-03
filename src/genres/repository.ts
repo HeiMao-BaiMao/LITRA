@@ -21,7 +21,7 @@ import type {
   UpdateGenreInput,
 } from "./schema.ts";
 
-const GENRES_ROOT = "phenex/genres";
+const GENRES_ROOT = "litra/genres";
 
 export class GenreRepositoryError extends Error {
   constructor(message: string) {
@@ -140,7 +140,7 @@ async function safeReadJson<T>(
     if (error instanceof Error && error.message?.includes("No such file")) {
       return defaultValue;
     }
-    console.warn(`[phenex:genres] failed to read ${path}:`, error);
+    console.warn(`[litra:genres] failed to read ${path}:`, error);
   }
   return defaultValue;
 }

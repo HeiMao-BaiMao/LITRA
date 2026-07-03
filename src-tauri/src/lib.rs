@@ -25,6 +25,7 @@ pub fn run() {
             project_memo::delete_project_memo,
             search::rebuild_search_index,
             search::search_episodes,
+            storage::migrate_legacy_app_data,
             settings::list_characters,
             settings::create_character,
             settings::update_character,

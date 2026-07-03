@@ -761,14 +761,14 @@ fn import_relationships(
         }
         if file.relationships.is_empty() {
             eprintln!(
-                "[phenex:import:relationships] no relationships extracted from {}",
+                "[litra:import:relationships] no relationships extracted from {}",
                 file.path
             );
         }
         for rel in &file.relationships {
             let Some(direction) = normalize_direction(&rel.direction) else {
                 eprintln!(
-                    "[phenex:import:relationships] invalid direction: {} (file: {})",
+                    "[litra:import:relationships] invalid direction: {} (file: {})",
                     rel.direction, file.path
                 );
                 skipped += 1;
@@ -786,7 +786,7 @@ fn import_relationships(
             )?;
             if a_created {
                 eprintln!(
-                    "[phenex:import:relationships] created missing character: {} (file: {})",
+                    "[litra:import:relationships] created missing character: {} (file: {})",
                     rel.character_a_name, file.path
                 );
                 created_characters += 1;
@@ -803,14 +803,14 @@ fn import_relationships(
             )?;
             if b_created {
                 eprintln!(
-                    "[phenex:import:relationships] created missing character: {} (file: {})",
+                    "[litra:import:relationships] created missing character: {} (file: {})",
                     rel.character_b_name, file.path
                 );
                 created_characters += 1;
             }
             let Some(a_id) = a_id else {
                 eprintln!(
-                    "[phenex:import:relationships] character not found: {} (file: {})",
+                    "[litra:import:relationships] character not found: {} (file: {})",
                     rel.character_a_name, file.path
                 );
                 skipped += 1;
@@ -818,7 +818,7 @@ fn import_relationships(
             };
             let Some(b_id) = b_id else {
                 eprintln!(
-                    "[phenex:import:relationships] character not found: {} (file: {})",
+                    "[litra:import:relationships] character not found: {} (file: {})",
                     rel.character_b_name, file.path
                 );
                 skipped += 1;

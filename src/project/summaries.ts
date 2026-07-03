@@ -4,7 +4,7 @@ import type { EpisodeSummary, EpisodeSummaryMap } from "./schema.ts";
 const SUMMARIES_FILE = "summaries.json";
 
 function projectPath(projectId: string): string {
-  return `phenex/projects/${projectId}/${SUMMARIES_FILE}`;
+  return `litra/projects/${projectId}/${SUMMARIES_FILE}`;
 }
 
 function normalizeSummary(summary: Partial<EpisodeSummary>): EpisodeSummary {

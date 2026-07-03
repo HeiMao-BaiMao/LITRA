@@ -239,7 +239,7 @@ async function loadGenre(genreId: string): Promise<void> {
 
     const titleEl = document.getElementById("genre-chat-title");
     if (titleEl) {
-      titleEl.textContent = `${state.genre.name} - ジャンルAIチャット`;
+      titleEl.textContent = `${state.genre.name} - ジャンルリトラチャット`;
     }
 
     await refreshThreads();

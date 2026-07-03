@@ -12,7 +12,7 @@ interface ProjectMemosSyncPayload {
 
 const container = document.querySelector<HTMLElement>("#memos-container");
 if (!container) {
-  console.error("[phenex:project-memos-window] container not found");
+  console.error("[litra:project-memos-window] container not found");
   throw new Error("#memos-container not found");
 }
 

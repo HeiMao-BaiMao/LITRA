@@ -401,11 +401,11 @@ async function debugFetch(
       await waitForRequestSlot("opencode", OPENCODE_MIN_REQUEST_INTERVAL_MS);
     }
 
-    console.log("[phenex] fetch request", url, body);
+    console.log("[litra] fetch request", url, body);
     const res = await tauriFetch(input, init);
     const clone = res.clone ? res.clone() : res;
     const text = await clone.text();
-    console.log("[phenex] fetch response", res.status, text.slice(0, 500));
+    console.log("[litra] fetch response", res.status, text.slice(0, 500));
 
     if (
       isSakuraRequest &&
@@ -415,7 +415,7 @@ async function debugFetch(
       attempt < SAKURA_RETRY_DELAYS_MS.length
     ) {
       const retryDelayMs = getRetryDelayMs(res, attempt, SAKURA_RETRY_DELAYS_MS);
-      console.warn("[phenex] Sakura rate-limit response; retrying", {
+      console.warn("[litra] Sakura rate-limit response; retrying", {
         status: res.status,
         attempt: attempt + 1,
         retryDelayMs,
@@ -432,7 +432,7 @@ async function debugFetch(
       attempt < OPENCODE_RETRY_DELAYS_MS.length
     ) {
       const retryDelayMs = getRetryDelayMs(res, attempt, OPENCODE_RETRY_DELAYS_MS);
-      console.warn("[phenex] OpenCode Go rate-limit/unavailable response; retrying", {
+      console.warn("[litra] OpenCode Go rate-limit/unavailable response; retrying", {
         status: res.status,
         attempt: attempt + 1,
         retryDelayMs,
@@ -444,7 +444,7 @@ async function debugFetch(
     if (res.ok && isPlamoUrl(url)) {
       const plamoStreamError = extractPlamoStreamErrorMessage(text);
       if (plamoStreamError) {
-        console.error("[phenex] PLaMo stream error:", plamoStreamError);
+        console.error("[litra] PLaMo stream error:", plamoStreamError);
         return plamoErrorResponse(res, plamoStreamError);
       }
     }
@@ -459,7 +459,7 @@ export function createModel(settings: AiSettings) {
   const apiKey =
     trimmedApiKey || (settings.provider === "llamacpp" ? "sk-no-key-required" : trimmedApiKey);
   console.log(
-    "[phenex] createModel",
+    "[litra] createModel",
     JSON.stringify({
       provider: settings.provider,
       model: settings.model,

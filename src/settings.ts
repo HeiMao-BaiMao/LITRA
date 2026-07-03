@@ -40,14 +40,43 @@ export interface AiSettings {
   anthropicThinkingBudget?: number;
 }
 
-const STORE_NAME = "phenex-settings.json";
+const STORE_NAME = "litra-settings.json";
+const LEGACY_STORE_NAME = "phenex-settings.json";
 
 const DEFAULT_PROVIDER: Provider = "openai";
 
 const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode"];
 
+const SETTINGS_STORE_KEYS = [
+  "provider",
+  "apiKey",
+  "baseUrl",
+  "model",
+  "providerConfigs",
+  "chatProvider",
+  "chatModel",
+  "temperature",
+  "maxTokens",
+  "maxContextTokens",
+  "topP",
+  "topK",
+  "frequencyPenalty",
+  "presencePenalty",
+  "reasoningEffort",
+  "thinkingEnabled",
+  "thinkingBudget",
+  "openaiReasoningEffort",
+  "deepseekReasoningEffort",
+  "anthropicThinkingEnabled",
+  "anthropicThinkingBudget",
+] as const;
+
+let legacyStoreMigrationChecked = false;
+
 async function getStore(): Promise<Store> {
-  return load(STORE_NAME, { defaults: {}, autoSave: true });
+  const store = await load(STORE_NAME, { defaults: {}, autoSave: true });
+  await migrateLegacySettingsStore(store);
+  return store;
 }
 
 export async function resetAllSettings(): Promise<void> {
@@ -109,14 +138,55 @@ function isProvider(value: unknown): value is Provider {
   );
 }
 
+function isProviderConfigRecord(value: unknown): value is Partial<Record<Provider, Partial<ProviderSpecificSettings>>> {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return ALL_PROVIDERS.some((provider) => {
+    const config = record[provider];
+    if (typeof config !== "object" || config === null) return false;
+    const fields = config as Record<string, unknown>;
+    return ["apiKey", "baseUrl", "model"].some((key) => typeof fields[key] === "string");
+  });
+}
+
+async function storeHasAny(store: Store, keys: readonly string[]): Promise<boolean> {
+  for (const key of keys) {
+    if ((await store.get(key)) !== undefined) return true;
+  }
+  return false;
+}
+
+async function legacySettingsStoreLooksValid(store: Store): Promise<boolean> {
+  if (isProvider(await store.get("provider"))) return true;
+  if (isProviderConfigRecord(await store.get("providerConfigs"))) return true;
+  return false;
+}
+
+async function migrateLegacySettingsStore(store: Store): Promise<void> {
+  if (legacyStoreMigrationChecked) return;
+  legacyStoreMigrationChecked = true;
+  if (await storeHasAny(store, SETTINGS_STORE_KEYS)) return;
+
+  const legacyStore = await load(LEGACY_STORE_NAME, { defaults: {}, autoSave: false });
+  if (!(await legacySettingsStoreLooksValid(legacyStore))) return;
+
+  for (const key of SETTINGS_STORE_KEYS) {
+    const value = await legacyStore.get(key);
+    if (value !== undefined) {
+      await store.set(key, value);
+    }
+  }
+  await store.save();
+}
+
 function migrateLegacyModel(provider: Provider, model: string): string {
   if (provider === "deepseek" && model === "deepseek-chat") {
-    console.warn('[phenex:settings] migrating legacy DeepSeek model "deepseek-chat" to "deepseek-v4-flash"');
+    console.warn('[litra:settings] migrating legacy DeepSeek model "deepseek-chat" to "deepseek-v4-flash"');
     return "deepseek-v4-flash";
   }
   if (provider === "deepseek" && model === "deepseek-reasoner") {
     console.warn(
-      '[phenex:settings] migrating legacy DeepSeek model "deepseek-reasoner" to "deepseek-v4-flash" with thinking enabled',
+      '[litra:settings] migrating legacy DeepSeek model "deepseek-reasoner" to "deepseek-v4-flash" with thinking enabled',
     );
     return "deepseek-v4-flash";
   }

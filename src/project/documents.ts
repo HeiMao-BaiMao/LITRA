@@ -12,7 +12,7 @@ interface ChatDocument {
 }
 
 function projectPath(projectId: string, fileName: string): string {
-  return `phenex/projects/${projectId}/${fileName}`;
+  return `litra/projects/${projectId}/${fileName}`;
 }
 
 export async function loadChat(projectId: string): Promise<ChatMessage[]> {

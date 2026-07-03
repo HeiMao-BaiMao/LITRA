@@ -72,7 +72,7 @@ function duplicateToolCallInputCountIs(limit: number): StopCondition<any> {
         const key = `${toolCall.toolName}:${stableStringify(toolCall.input)}`;
         const nextCount = (counts.get(key) ?? 0) + 1;
         if (nextCount >= limit) {
-          console.warn("[phenex:ai] stopping repeated tool call loop:", {
+          console.warn("[litra:ai] stopping repeated tool call loop:", {
             toolName: toolCall.toolName,
             repeatedCalls: nextCount,
           });
@@ -309,7 +309,7 @@ async function consumeStream(
     reasoningCharCount += chunk.length;
     lastSignificantPart = "reasoning";
     if (reasoningChunkCount <= 3 || reasoningChunkCount % 10 === 0) {
-      console.log(`[phenex:ai] reasoning chunk #${reasoningChunkCount}:`, chunk.slice(0, 80));
+      console.log(`[litra:ai] reasoning chunk #${reasoningChunkCount}:`, chunk.slice(0, 80));
     }
     onReasoning?.(chunk);
   };
@@ -318,7 +318,7 @@ async function consumeStream(
     charCount += chunk.length;
     lastSignificantPart = "text";
     if (chunkCount <= 3 || chunkCount % 10 === 0) {
-      console.log(`[phenex:ai] text chunk #${chunkCount}:`, chunk.slice(0, 80));
+      console.log(`[litra:ai] text chunk #${chunkCount}:`, chunk.slice(0, 80));
     }
     onChunk(chunk);
   };
@@ -344,7 +344,7 @@ async function consumeStream(
       case "tool-input-start": {
         lastSignificantPart = "tool-input";
         pendingToolCallIds.add(part.id);
-        console.log(`[phenex:ai] tool input start: ${part.toolName}`);
+        console.log(`[litra:ai] tool input start: ${part.toolName}`);
         onToolEvent?.({
           type: "input-start",
           toolCallId: part.id,
@@ -356,7 +356,7 @@ async function consumeStream(
         toolCallCount++;
         lastSignificantPart = "tool-call";
         pendingToolCallIds.add(part.toolCallId);
-        console.log(`[phenex:ai] tool call: ${part.toolName}`, part.input);
+        console.log(`[litra:ai] tool call: ${part.toolName}`, part.input);
         onToolEvent?.({
           type: "call",
           toolCallId: part.toolCallId,
@@ -370,7 +370,7 @@ async function consumeStream(
         toolResultCount++;
         lastSignificantPart = "tool-result";
         pendingToolCallIds.delete(part.toolCallId);
-        console.log(`[phenex:ai] tool result: ${part.toolName}`, part.input);
+        console.log(`[litra:ai] tool result: ${part.toolName}`, part.input);
         onToolEvent?.({
           type: "result",
           toolCallId: part.toolCallId,
@@ -384,7 +384,7 @@ async function consumeStream(
         toolErrorCount++;
         lastSignificantPart = "tool-error";
         pendingToolCallIds.delete(part.toolCallId);
-        console.error(`[phenex:ai] tool error: ${part.toolName}`, part.error);
+        console.error(`[litra:ai] tool error: ${part.toolName}`, part.error);
         onToolEvent?.({
           type: "error",
           toolCallId: part.toolCallId,
@@ -427,10 +427,10 @@ async function consumeStream(
     };
     responseMessages = streamResponse.messages;
   } catch (error) {
-    console.warn("[phenex:ai] failed to read response messages:", error);
+    console.warn("[litra:ai] failed to read response messages:", error);
   }
 
-  console.log(`[phenex:ai] stream finished. text chunks: ${chunkCount}, tool results: ${toolResultCount}, finish: ${finishReason ?? "unknown"}`);
+  console.log(`[litra:ai] stream finished. text chunks: ${chunkCount}, tool results: ${toolResultCount}, finish: ${finishReason ?? "unknown"}`);
   return {
     textChunkCount: chunkCount,
     textCharCount: charCount,
@@ -511,10 +511,10 @@ async function verifyToolCallNeed(
       maxOutputTokens: 1024,
       temperature: 0.1,
     });
-    console.log("[phenex:ai] tool-call need check:", result.object);
+    console.log("[litra:ai] tool-call need check:", result.object);
     return result.object.needsTools;
   } catch (error) {
-    console.error("[phenex:ai] tool-call need verification failed:", error);
+    console.error("[litra:ai] tool-call need verification failed:", error);
     return false;
   }
 }
@@ -537,19 +537,19 @@ function normalizeSettings(settings: AiSettings): AiSettings {
   normalized.model = trimmedString(normalized.model);
 
   if (!isFiniteNumber(normalized.temperature) || normalized.temperature < 0 || normalized.temperature > 2) {
-    console.warn(`[phenex:ai] invalid temperature ${normalized.temperature}, falling back to 0.7`);
+    console.warn(`[litra:ai] invalid temperature ${normalized.temperature}, falling back to 0.7`);
     normalized.temperature = 0.7;
   }
 
   if (!isFiniteNumber(normalized.maxTokens) || normalized.maxTokens <= 0) {
-    console.warn(`[phenex:ai] invalid maxTokens ${normalized.maxTokens}, falling back to 8192`);
+    console.warn(`[litra:ai] invalid maxTokens ${normalized.maxTokens}, falling back to 8192`);
     normalized.maxTokens = 8192;
   } else {
     normalized.maxTokens = Math.floor(normalized.maxTokens);
   }
 
   if (!isFiniteNumber(normalized.maxContextTokens) || normalized.maxContextTokens <= 0) {
-    console.warn(`[phenex:ai] invalid maxContextTokens ${normalized.maxContextTokens}, falling back to 65536`);
+    console.warn(`[litra:ai] invalid maxContextTokens ${normalized.maxContextTokens}, falling back to 65536`);
     normalized.maxContextTokens = 65536;
   } else {
     normalized.maxContextTokens = Math.floor(normalized.maxContextTokens);
@@ -618,7 +618,7 @@ export async function streamChat({
       const userRequest = getLastUserMessageContent(messages);
       const needsTools = await verifyToolCallNeed(s, userRequest, assistantText, toolNames);
       if (needsTools) {
-        console.log("[phenex:ai] retrying with tool-call requirement");
+        console.log("[litra:ai] retrying with tool-call requirement");
         const retryMessages: ModelMessage[] = [
           ...messages,
           { role: "assistant", content: assistantText },

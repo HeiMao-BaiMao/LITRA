@@ -276,7 +276,7 @@ function renderToolCallHtml(content: string): string | null {
 function renderMarkdownOrFallback(content: string): string {
   const html = renderMarkdown(content);
   if (html.trim().length === 0 && content.trim().length > 0) {
-    console.warn("[phenex:markdown] renderMarkdown returned empty for non-empty content:", JSON.stringify(content.slice(0, 200)));
+    console.warn("[litra:markdown] renderMarkdown returned empty for non-empty content:", JSON.stringify(content.slice(0, 200)));
     return `<pre class="chat-message-fallback"><code>${escapeHtml(content)}</code></pre>`;
   }
   return html;

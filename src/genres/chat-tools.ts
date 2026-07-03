@@ -33,7 +33,7 @@ function wrapToolExecute<TInput, TOutput>(
     try {
       return await execute(input);
     } catch (error) {
-      console.error(`[phenex:genres] tool ${name} error:`, error);
+      console.error(`[litra:genres] tool ${name} error:`, error);
       return { error: error instanceof Error ? error.message : String(error) };
     }
   };
@@ -76,7 +76,7 @@ function createReadGenreChatHistoryTool(deps: GenreChatToolDependencies) {
                 return { id: attachment.id, name: attachment.name, content };
               } catch (error) {
                 console.warn(
-                  `[phenex:genres] failed to load attachment ${attachment.id}:`,
+                  `[litra:genres] failed to load attachment ${attachment.id}:`,
                   error,
                 );
                 return null;
@@ -231,7 +231,7 @@ function createSearchGenreSourceTextTool(deps: GenreChatToolDependencies) {
             }
           }
         } catch (error) {
-          console.warn(`[phenex:genres] search source ${source.id} failed:`, error);
+          console.warn(`[litra:genres] search source ${source.id} failed:`, error);
         }
       }
 

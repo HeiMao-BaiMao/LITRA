@@ -7,7 +7,7 @@ const EPISODES_FILE = "episodes.json";
 const MANUSCRIPT_FILE = "manuscript.md";
 
 function projectPath(projectId: string, ...parts: string[]): string {
-  return `phenex/projects/${projectId}/${parts.join("/")}`;
+  return `litra/projects/${projectId}/${parts.join("/")}`;
 }
 
 function padEpisodeNumber(index: number): string {
@@ -88,7 +88,7 @@ async function loadEpisodeForReindex(
     if (text.length > 0) {
       if (fileName !== episode.fileName) {
         console.warn(
-          `[phenex] recovered episode text for ${episode.id} from ${fileName}; listed file was ${episode.fileName}`,
+          `[litra] recovered episode text for ${episode.id} from ${fileName}; listed file was ${episode.fileName}`,
         );
       }
       return { text, sourceFileName: fileName };
@@ -239,7 +239,7 @@ export async function reorderEpisodes(
     }
   }
   if (newEpisodes.length !== list.episodes.length) {
-    console.warn("[phenex] reorderEpisodes: some episode IDs were missing, ignoring reorder");
+    console.warn("[litra] reorderEpisodes: some episode IDs were missing, ignoring reorder");
     return;
   }
   list.episodes = newEpisodes;

@@ -32,7 +32,7 @@ async function loadThreadListDocument(
     if (error instanceof Error && error.message?.includes("No such file")) {
       return { schemaVersion: GENRE_SCHEMA_VERSION, threads: [] };
     }
-    console.warn(`[phenex:genres] failed to load chat thread list for ${genreId}:`, error);
+    console.warn(`[litra:genres] failed to load chat thread list for ${genreId}:`, error);
   }
   return { schemaVersion: GENRE_SCHEMA_VERSION, threads: [] };
 }

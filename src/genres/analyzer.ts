@@ -376,7 +376,7 @@ export async function analyzeSource(
           run.completedSegments += 1;
         } catch (error) {
           run.failedSegments += 1;
-          console.error(`[phenex:genres] segment ${index} analysis failed:`, error);
+          console.error(`[litra:genres] segment ${index} analysis failed:`, error);
         }
 
         progressCallback?.({
@@ -431,7 +431,7 @@ export async function analyzeSource(
     );
 
     console.log(
-      `[phenex:genres] created ${createdCandidates.length} knowledge candidates for ${sourceId}`,
+      `[litra:genres] created ${createdCandidates.length} knowledge candidates for ${sourceId}`,
     );
 
     run.status = "completed";

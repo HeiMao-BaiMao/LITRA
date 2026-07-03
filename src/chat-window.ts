@@ -44,7 +44,7 @@ async function init(): Promise<void> {
     providerConfig = await loadProviderConfig();
     populateChatProviderOptions(providerSelect, providerConfig);
   } catch (error) {
-    console.error("[phenex:chat-window] failed to load provider config:", error);
+    console.error("[litra:chat-window] failed to load provider config:", error);
   }
 
   listen<ChatSyncPayload>("chat-sync", (event) => {

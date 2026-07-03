@@ -38,7 +38,7 @@ async function loadSourceListDocument(genreId: string): Promise<GenreSourceListD
     if (error instanceof Error && error.message?.includes("No such file")) {
       return { schemaVersion: GENRE_SCHEMA_VERSION, sources: [] };
     }
-    console.warn(`[phenex:genres] failed to load source list for ${genreId}:`, error);
+    console.warn(`[litra:genres] failed to load source list for ${genreId}:`, error);
   }
   return { schemaVersion: GENRE_SCHEMA_VERSION, sources: [] };
 }

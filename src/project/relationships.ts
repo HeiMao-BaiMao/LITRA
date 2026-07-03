@@ -8,7 +8,7 @@ import {
 const RELATIONSHIPS_FILE = "relationships.json";
 
 function projectPath(projectId: string, ...parts: string[]): string {
-  return `phenex/projects/${projectId}/${parts.join("/")}`;
+  return `litra/projects/${projectId}/${parts.join("/")}`;
 }
 
 export async function loadRelationships(projectId: string): Promise<CharacterRelationshipMap> {

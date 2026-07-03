@@ -7,7 +7,7 @@ const CHARACTERS_FILE = "settings/characters.json";
 const WORLD_FILE = "settings/world.json";
 
 function projectPath(projectId: string, ...parts: string[]): string {
-  return `phenex/projects/${projectId}/${parts.join("/")}`;
+  return `litra/projects/${projectId}/${parts.join("/")}`;
 }
 
 async function ensureSettingsDir(projectId: string): Promise<void> {

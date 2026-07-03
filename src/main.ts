@@ -930,7 +930,7 @@ async function streamChatWithAutoContinuation(
       }
 
       toolCallRetryCount++;
-      console.warn("[phenex] model did not emit a tool call; retrying with tool-call directive", {
+      console.warn("[litra] model did not emit a tool call; retrying with tool-call directive", {
         retry: toolCallRetryCount,
       });
       const missedText = markLastAssistantToolCallMissed(
@@ -950,12 +950,12 @@ async function streamChatWithAutoContinuation(
 
     if (shouldContinueAfterToolResult(run)) {
       if (toolResultContinuationCount >= CHAT_TOOL_RESULT_CONTINUATION_LIMIT) {
-        console.warn("[phenex] tool result continuation limit reached");
+        console.warn("[litra] tool result continuation limit reached");
         break;
       }
 
       toolResultContinuationCount++;
-      console.warn("[phenex] model stopped after tool result; requesting final response", {
+      console.warn("[litra] model stopped after tool result; requesting final response", {
         retry: toolResultContinuationCount,
       });
       messages = buildToolResultContinuationMessages(messages, run);
@@ -968,7 +968,7 @@ async function streamChatWithAutoContinuation(
       break;
     }
 
-    console.warn("[phenex] chat output hit maxOutputTokens; auto-continuing");
+    console.warn("[litra] chat output hit maxOutputTokens; auto-continuing");
     messages = [
       ...buildChatMessagesForModel(settings),
       { role: "user", content: CHAT_LENGTH_CONTINUATION_PROMPT },
@@ -1129,7 +1129,7 @@ async function openMemoWindow(): Promise<void> {
     "memo",
     {
       url: "memo-window.html",
-      title: "覚え書き - Phenex",
+      title: "覚え書き - LITRA",
       width: 420,
       height: 640,
       minWidth: 280,
@@ -1159,7 +1159,7 @@ async function openChatWindow(): Promise<void> {
     "chat",
     {
       url: "chat-window.html",
-      title: "AI チャット - Phenex",
+      title: "リトラチャット - LITRA",
       width: 480,
       height: 640,
       minWidth: 200,
@@ -1192,7 +1192,7 @@ async function openSummaryWindow(): Promise<void> {
     "summary",
     {
       url: "summary-window.html",
-      title: "エピソード要約 - Phenex",
+      title: "エピソード要約 - LITRA",
       width: 420,
       height: 640,
       minWidth: 280,
@@ -1220,7 +1220,7 @@ async function openSettingsWindow(): Promise<void> {
     "settings",
     {
       url: "settings-window.html",
-      title: "設定 - Phenex",
+      title: "設定 - LITRA",
       width: 640,
       height: 700,
       minWidth: 420,
@@ -1261,7 +1261,7 @@ async function openProjectMemosWindow(): Promise<void> {
     "projectMemos",
     {
       url: "project-memo-window.html",
-      title: "メモ - Phenex",
+      title: "メモ - LITRA",
       width: 480,
       height: 640,
       minWidth: 280,
@@ -1289,7 +1289,7 @@ async function openProjectMemosWindow(): Promise<void> {
 async function openGenreLibraryWindow(): Promise<void> {
   await openManagedWindow("genre-library", {
     url: "genre-library.html",
-    title: "ジャンルライブラリ - Phenex",
+    title: "ジャンルライブラリ - LITRA",
     width: 960,
     height: 720,
     minWidth: 640,
@@ -1322,7 +1322,7 @@ async function restoreDetachedWindows(): Promise<void> {
         await openProjectMemosWindow();
       }
     } catch (error) {
-      console.error(`[phenex] failed to restore ${label} window:`, error);
+      console.error(`[litra] failed to restore ${label} window:`, error);
     }
   }
 }
@@ -1686,7 +1686,7 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       if (summary || oneLiner) {
         syncSummaryToWindow();
         invoke("rebuild_search_index", { projectId: currentProject.id }).catch((error) => {
-          console.warn("[phenex] failed to rebuild search index after summary update:", error);
+          console.warn("[litra] failed to rebuild search index after summary update:", error);
         });
       }
     }
@@ -1776,7 +1776,7 @@ async function loadProjectData(project: Project): Promise<void> {
   hideProjectModal();
 
   invoke("rebuild_search_index", { projectId: project.id }).catch((error) => {
-    console.error("[phenex] failed to rebuild search index:", error);
+    console.error("[litra] failed to rebuild search index:", error);
   });
 }
 
@@ -1799,7 +1799,7 @@ async function handleCreateProjectMemo(title: string): Promise<void> {
     renderMemosView();
     syncProjectMemosToWindow();
   } catch (error) {
-    console.error("[phenex] failed to create project memo:", error);
+    console.error("[litra] failed to create project memo:", error);
     window.alert(`メモの作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -1817,7 +1817,7 @@ async function handleUpdateProjectMemo(id: string, updates: { title?: string; co
     renderMemosView();
     syncProjectMemosToWindow();
   } catch (error) {
-    console.error("[phenex] failed to update project memo:", error);
+    console.error("[litra] failed to update project memo:", error);
   }
 }
 
@@ -1834,7 +1834,7 @@ async function handleDeleteProjectMemo(id: string): Promise<void> {
     renderMemosView();
     syncProjectMemosToWindow();
   } catch (error) {
-    console.error("[phenex] failed to delete project memo:", error);
+    console.error("[litra] failed to delete project memo:", error);
     window.alert(`メモの削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -2323,7 +2323,7 @@ async function handleChatMessage(): Promise<void> {
   chatMessageInFlight = true;
   const chatSettings = resolveChatRunSettings(currentSettings);
   console.log(
-    "[phenex] handleChatMessage start",
+    "[litra] handleChatMessage start",
     JSON.stringify({
       provider: chatSettings.provider,
       model: chatSettings.model,
@@ -2347,7 +2347,7 @@ async function handleChatMessage(): Promise<void> {
     }
 
     const messages = buildChatMessagesForModel(chatSettings);
-    console.log("[phenex] streaming chat with messages:", messages.length);
+    console.log("[litra] streaming chat with messages:", messages.length);
 
     const run = await streamChatWithAutoContinuation(messages, controller, chatSettings);
     if (run.stoppedAfterToolActivity) {
@@ -2368,9 +2368,9 @@ async function handleChatMessage(): Promise<void> {
     }
 
     await saveCurrentChat();
-    console.log("[phenex] handleChatMessage finished");
+    console.log("[litra] handleChatMessage finished");
   } catch (error) {
-    console.error("[phenex] chat error:", error);
+    console.error("[litra] chat error:", error);
     removeLastEmptyAssistantMessage();
     if (!(error instanceof Error && error.name === "AbortError")) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2535,7 +2535,7 @@ async function handleSelectImportFolder(): Promise<void> {
     pendingImportCandidates = candidates;
     renderImportPreview(candidates, pendingImportContentMode);
   } catch (error) {
-    console.error("[phenex:import] classification failed", error);
+    console.error("[litra:import] classification failed", error);
     window.alert(`ファイル分類に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     hideImportPreviewModal();
   }
@@ -2563,7 +2563,7 @@ async function handleImportModeChange(): Promise<void> {
       pendingImportCandidates = candidates;
       renderImportPreview(candidates, nextMode);
     } catch (error) {
-      console.error("[phenex:import] reclassification failed", error);
+      console.error("[litra:import] reclassification failed", error);
       window.alert(`ファイル再分類に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
       hideImportPreviewModal();
     }
@@ -2632,7 +2632,7 @@ async function handleConfirmImport(): Promise<void> {
       hideImportPreviewModal();
     }, 3000);
   } catch (error) {
-    console.error("[phenex:import] import failed", error);
+    console.error("[litra:import] import failed", error);
     window.alert(`取り込みに失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     hideImportPreviewModal();
   }
@@ -2762,32 +2762,32 @@ function bindUiEvents(): void {
 }
 
 async function init(): Promise<void> {
-  console.log("[phenex] init started");
+  console.log("[litra] init started");
   bindUiEvents();
   resetChatInputHeight = bindAutoResize(getElements().chatInput, 15);
-  console.log("[phenex] UI events bound");
+  console.log("[litra] UI events bound");
 
   try {
     await initResizablePanels();
-    console.log("[phenex] resizable panels initialized");
+    console.log("[litra] resizable panels initialized");
   } catch (error) {
-    console.error("[phenex] failed to initialize resizable panels:", error);
+    console.error("[litra] failed to initialize resizable panels:", error);
   }
 
   try {
     providerConfig = await loadProviderConfig();
-    console.log("[phenex] provider config loaded");
+    console.log("[litra] provider config loaded");
   } catch (error) {
-    console.error("[phenex] failed to load provider config:", error);
+    console.error("[litra] failed to load provider config:", error);
     window.alert(`プロバイダー設定の読み込みに失敗しました: ${error instanceof Error ? error.message : error}`);
     providerConfig = { providers: [] };
   }
 
   try {
     currentSettings = await loadSettings();
-    console.log("[phenex] settings loaded");
+    console.log("[litra] settings loaded");
   } catch (error) {
-    console.error("[phenex] failed to load settings:", error);
+    console.error("[litra] failed to load settings:", error);
     window.alert(`設定の読み込みに失敗しました: ${error instanceof Error ? error.message : error}`);
     currentSettings = {
       provider: "openai",
@@ -2808,6 +2808,13 @@ async function init(): Promise<void> {
       maxTokens: 8192,
       maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
     };
+  }
+
+  try {
+    const migrated = await invoke("migrate_legacy_app_data");
+    console.log("[litra] legacy data migration checked", migrated);
+  } catch (error) {
+    console.warn("[litra] failed to check legacy data migration:", error);
   }
 
   renderChatProviderOptions();
@@ -2970,19 +2977,19 @@ async function init(): Promise<void> {
         }
       }
     } catch (error) {
-      console.error("[phenex] failed to close child windows:", error);
+      console.error("[litra] failed to close child windows:", error);
     }
 
     await mainWindow.destroy();
   }).catch((error) => {
-    console.error("[phenex] failed to listen main window close:", error);
+    console.error("[litra] failed to listen main window close:", error);
   });
 
   try {
     await loadInitialProject();
-    console.log("[phenex] initial project loaded");
+    console.log("[litra] initial project loaded");
   } catch (error) {
-    console.error("[phenex] failed to load initial project:", error);
+    console.error("[litra] failed to load initial project:", error);
   }
 
   await restoreDetachedWindows();
@@ -3015,7 +3022,7 @@ async function initResizablePanels(): Promise<void> {
 
 function startApp(): void {
   void init().catch((error) => {
-    console.error("[phenex] unhandled init error:", error);
+    console.error("[litra] unhandled init error:", error);
   });
 }
 

@@ -2,11 +2,11 @@ use std::path::PathBuf;
 use tauri::{Manager, WebviewWindowBuilder};
 
 #[tauri::command]
-pub async fn open_genre_chat_window(
-    app: tauri::AppHandle,
-    genre_id: String,
-) -> Result<(), String> {
-    let label = format!("genre-chat-{}", genre_id.replace(|c: char| !c.is_alphanumeric(), "_"));
+pub async fn open_genre_chat_window(app: tauri::AppHandle, genre_id: String) -> Result<(), String> {
+    let label = format!(
+        "genre-chat-{}",
+        genre_id.replace(|c: char| !c.is_alphanumeric(), "_")
+    );
 
     if let Some(existing) = app.get_webview_window(&label) {
         existing
@@ -17,18 +17,19 @@ pub async fn open_genre_chat_window(
 
     let url = format!("genre-chat-window.html?genreId={}", genre_id);
 
-    let _webview = WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App(PathBuf::from(url)))
-        .title("ジャンルAIチャット - Phenex")
-        .inner_size(800.0, 640.0)
-        .min_inner_size(480.0, 360.0)
-        .resizable(true)
-        .maximizable(true)
-        .minimizable(true)
-        .closable(true)
-        .decorations(true)
-        .drag_and_drop(false)
-        .build()
-        .map_err(|e| format!("Failed to create genre chat window: {}", e))?;
+    let _webview =
+        WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App(PathBuf::from(url)))
+            .title("ジャンルリトラチャット - LITRA")
+            .inner_size(800.0, 640.0)
+            .min_inner_size(480.0, 360.0)
+            .resizable(true)
+            .maximizable(true)
+            .minimizable(true)
+            .closable(true)
+            .decorations(true)
+            .drag_and_drop(false)
+            .build()
+            .map_err(|e| format!("Failed to create genre chat window: {}", e))?;
 
     Ok(())
 }
