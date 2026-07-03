@@ -16,13 +16,17 @@
   --bg-primary: #1a1a1a;
   --bg-secondary: #252525;
   --bg-tertiary: #333333;
+  --bg-hover: #3e3e3e;
   --border-color: #3a3a3a;
+  --border-strong: #4d4d4d;
   --accent: #5c7cfa;
   --accent-hover: #748ffc;
+  --accent-soft: rgba(92, 124, 250, 0.18);
   --text-primary: #e8e8e8;
   --text-secondary: #a0a0a0;
   --danger: #ff6b6b;
   --danger-hover: #ff8787;
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 
 /* Custom scrollbar */
@@ -105,8 +109,30 @@ body,
 
 .toolbar-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
+}
+
+.toolbar-actions button {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button {
@@ -119,16 +145,37 @@ button {
   color: var(--text-primary);
   background-color: var(--bg-tertiary);
   cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
 button:hover:not(:disabled) {
-  background-color: var(--accent);
+  background-color: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 主要アクション（送信・保存・作成・取り込み実行）はアクセント色で区別する */
+button[type="submit"],
+#btn-create-project,
+#btn-confirm-import {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button[type="submit"]:hover:not(:disabled),
+#btn-create-project:hover:not(:disabled),
+#btn-confirm-import:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 button#btn-cancel {
@@ -222,7 +269,7 @@ button#btn-cancel:hover:not(:disabled) {
   resize: none;
   border: none;
   border-radius: 6px;
-  padding: 1rem;
+  padding: 1.25rem 1.5rem;
   font-family: "Noto Serif JP", "Yu Mincho", Georgia, "Hiragino Mincho ProN", serif;
   font-size: 1.1rem;
   line-height: 1.9;
@@ -343,13 +390,13 @@ button#btn-cancel:hover:not(:disabled) {
 
 .chat-message.user {
   align-self: flex-end;
-  background-color: var(--bg-tertiary);
+  background-color: color-mix(in srgb, var(--accent) 24%, var(--bg-primary));
   color: var(--text-primary);
 }
 
 .chat-message.assistant {
   align-self: flex-start;
-  background-color: #2a2f45;
+  background-color: var(--bg-tertiary);
   color: var(--text-primary);
 }
 
@@ -466,7 +513,7 @@ button#btn-cancel:hover:not(:disabled) {
   border: 1px solid var(--border-color);
   border-left: 4px solid var(--text-secondary);
   border-radius: 8px;
-  background-color: #202638;
+  background-color: var(--bg-primary);
   color: var(--text-primary);
   overflow: hidden;
 }
@@ -723,6 +770,7 @@ button#btn-cancel:hover:not(:disabled) {
   background-color: var(--accent);
   border: none;
   border-radius: 4px;
+  color: #fff;
 }
 
 .btn-inline:hover:not(:disabled) {
@@ -792,6 +840,11 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
+  outline: none;
+}
+
+.chat-settings-row select:focus {
+  border-color: var(--accent);
 }
 
 #summary-section.detached,
@@ -831,7 +884,7 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .nav-episode-item.active {
-  background-color: rgba(92, 124, 250, 0.2);
+  background-color: var(--accent-soft);
 }
 
 .nav-episode-move-controls {
@@ -910,7 +963,7 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
-.nav-episode-delete:hover {
+.nav-episode-delete:hover:not(:disabled) {
   background-color: var(--danger);
   color: var(--text-primary);
 }
@@ -952,9 +1005,14 @@ button#btn-cancel:hover:not(:disabled) {
   font-size: 0.85rem;
 }
 
-.nav-settings-btn:hover,
-.nav-settings-btn.active {
-  background-color: var(--accent);
+.nav-settings-btn:hover:not(:disabled) {
+  background-color: var(--bg-tertiary);
+  border-color: transparent;
+}
+
+.nav-settings-btn.active,
+.nav-settings-btn.active:hover:not(:disabled) {
+  background-color: var(--accent-soft);
 }
 
 .settings-panel,
@@ -1012,7 +1070,7 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .settings-list-item.active {
-  background-color: rgba(92, 124, 250, 0.2);
+  background-color: var(--accent-soft);
 }
 
 .settings-list-name {
@@ -1041,7 +1099,7 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
-.settings-list-delete:hover {
+.settings-list-delete:hover:not(:disabled) {
   background-color: var(--danger);
   color: var(--text-primary);
 }
@@ -1086,7 +1144,7 @@ button#btn-cancel:hover:not(:disabled) {
 }
 
 .memos-list-item.active {
-  background-color: rgba(92, 124, 250, 0.2);
+  background-color: var(--accent-soft);
 }
 
 .memos-list-name {
@@ -1115,7 +1173,7 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
-.memos-list-delete:hover {
+.memos-list-delete:hover:not(:disabled) {
   background-color: var(--danger);
   color: var(--text-primary);
 }
@@ -1315,23 +1373,47 @@ button#btn-cancel:hover:not(:disabled) {
   position: absolute;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.6);
+  animation: modal-backdrop-in 0.15s ease-out;
 }
 
 .modal-dialog {
   position: relative;
-  width: 80%;
+  width: min(640px, 92vw);
   max-height: 90vh;
   overflow-y: auto;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  padding: 1.25rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-modal);
+  animation: modal-dialog-in 0.15s ease-out;
+}
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .modal-dialog {
+    animation: none;
+  }
 }
 
 .modal-dialog h2 {
   margin: 0 0 1rem;
-  font-size: 1.2rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 1.15rem;
 }
 
 .settings-form {
@@ -1418,8 +1500,9 @@ button#btn-cancel:hover:not(:disabled) {
   align-self: flex-start;
 }
 
-.danger-button:hover {
+.danger-button:hover:not(:disabled) {
   background-color: rgba(255, 107, 107, 0.1);
+  border-color: var(--danger-hover);
 }
 
 .import-preview-list {
@@ -1536,7 +1619,7 @@ button#btn-cancel:hover:not(:disabled) {
 
 .project-list-item.active {
   border-color: var(--accent);
-  background-color: rgba(92, 124, 250, 0.12);
+  background-color: var(--accent-soft);
 }
 
 .project-list-info {
@@ -1646,7 +1729,7 @@ button.danger:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
-.custom-field-delete:hover {
+.custom-field-delete:hover:not(:disabled) {
   background-color: var(--danger);
   color: var(--text-primary);
 }
@@ -1788,11 +1871,17 @@ button.danger:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
-.settings-tab.active,
 .settings-tab:hover:not(:disabled) {
+  background-color: var(--bg-tertiary);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.settings-tab.active,
+.settings-tab.active:hover:not(:disabled) {
   background-color: var(--accent);
   border-color: var(--accent);
-  color: var(--text-primary);
+  color: #fff;
 }
 
 .settings-container {
@@ -1878,7 +1967,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .panel-nav-btn.active {
-  background-color: rgba(92, 124, 250, 0.2);
+  background-color: var(--accent-soft);
 }
 
 .panel-content {
@@ -1999,7 +2088,7 @@ button.danger:hover:not(:disabled) {
   cursor: pointer;
 }
 
-.relationship-delete:hover {
+.relationship-delete:hover:not(:disabled) {
   background-color: var(--danger);
   color: var(--text-primary);
 }
@@ -2015,9 +2104,9 @@ button.danger:hover:not(:disabled) {
   font-size: 0.85rem;
 }
 
-.relationship-add-button:hover {
-  background-color: var(--accent);
-  border-color: var(--accent);
+.relationship-add-button:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 @media (max-width: 48rem) {
@@ -2076,10 +2165,11 @@ button.danger:hover:not(:disabled) {
   display: none;
 }
 
-.genre-tab-button.active {
+.genre-tab-button.active,
+.genre-tab-button.active:hover:not(:disabled) {
   background-color: var(--accent);
   border-color: var(--accent);
-  color: var(--text-primary);
+  color: #fff;
 }
 
 .genre-library-main {
@@ -2132,7 +2222,7 @@ button.danger:hover:not(:disabled) {
 
 .genre-list-item.active,
 .genre-list-item.selected {
-  background-color: rgba(92, 124, 250, 0.2);
+  background-color: var(--accent-soft);
 }
 
 .genre-list-title-container {
