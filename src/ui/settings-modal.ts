@@ -12,6 +12,7 @@ import {
   getProviderModelIds,
   type ProviderConfig,
   type ProviderEntry,
+  type ProviderModelDefaults,
 } from "../providers/config.ts";
 import {
   DEEPSEEK_FIXED_MODELS,
@@ -285,6 +286,51 @@ function updateCapacityControlsVisibility(provider: Provider): void {
   setCapacityControlsEnabled(provider !== "opencode");
 }
 
+// モデル定義に存在しない（undefined）パラメータを disabled にする。
+// プロバイダ単位で既に disabled にしているフィールドは触らない（追加適用のみ）。
+// disabled のみで hidden にはしない（入力値は見える）。
+function applyModelBasedDisabling(provider: Provider, defaults: ProviderModelDefaults | undefined): void {
+  if (!defaults) return;
+
+  const {
+    settingTemperature,
+    settingTopP,
+    settingTopK,
+    settingFrequencyPenalty,
+    settingPresencePenalty,
+    settingMaxTokens,
+    settingMaxContextTokens,
+  } = getElements();
+
+  // sampling 系: プロバイダ単位で enabled の場合のみモデル単位で判定する
+  // - deepseek: プロバイダ単位で disabled+hidden → スキップ
+  // - opencode: プロバイダ単位で disabled → スキップ
+  // - その他: モデル defaults で undefined のフィールドを disabled にする
+  if (provider !== "deepseek" && provider !== "opencode") {
+    if (defaults.temperature === undefined) settingTemperature.disabled = true;
+    if (defaults.topP === undefined) settingTopP.disabled = true;
+    if (defaults.topK === undefined) settingTopK.disabled = true;
+  }
+
+  // penalty 系: プロバイダ単位で enabled の場合のみモデル単位で判定する
+  // - deepseek: プロバイダ単位で disabled+hidden → スキップ
+  // - opencode: プロバイダ単位で disabled → スキップ
+  // - sakura:  プロバイダ単位で disabled → スキップ
+  // - その他: モデル defaults で undefined のフィールドを disabled にする
+  if (provider !== "deepseek" && provider !== "opencode" && provider !== "sakura") {
+    if (defaults.frequencyPenalty === undefined) settingFrequencyPenalty.disabled = true;
+    if (defaults.presencePenalty === undefined) settingPresencePenalty.disabled = true;
+  }
+
+  // capacity 系: プロバイダ単位で enabled の場合のみモデル単位で判定する
+  // - opencode: プロバイダ単位で disabled → スキップ
+  // - その他: モデル defaults で undefined のフィールドを disabled にする
+  if (provider !== "opencode") {
+    if (defaults.maxTokens === undefined) settingMaxTokens.disabled = true;
+    if (defaults.maxContextTokens === undefined) settingMaxContextTokens.disabled = true;
+  }
+}
+
 function populateConfiguredModelList(entry: ProviderEntry | undefined): void {
   populateModelList(getProviderModelIds(entry));
 }
@@ -305,7 +351,7 @@ async function renderWebDavSettings(): Promise<void> {
   settingWebdavFolder.value = config.remoteFolder ?? "";
 }
 
-function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string): void {
+function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string, provider: Provider): void {
   const defaults = getProviderModelDefaults(entry, modelId);
   if (!defaults) return;
 
@@ -334,6 +380,9 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string): 
   settingDeepseekReasoningEffort.value = defaults.deepseekReasoningEffort ?? "";
   settingAnthropicThinkingEnabled.checked = defaults.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(defaults.anthropicThinkingBudget);
+
+  // モデル定義に存在しないパラメータを disabled にする（プロバイダ単位で enabled のもののみ）。
+  applyModelBasedDisabling(provider, defaults);
 }
 
 export function renderSettings(settings: AiSettings, config: ProviderConfig): void {
@@ -385,6 +434,13 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   updateModelInputMode(settings.provider);
   updateSamplingControlsVisibility(settings.provider);
   updateCapacityControlsVisibility(settings.provider);
+  // 初期描画時にも、保存されたモデルに対応する defaults でモデル単位の disabled を適用する。
+  // 値は settings から既に流し込み済み（上書きしない）なので、disabled のみ反映する。
+  {
+    const initialEntry = getProviderEntry(config, settings.provider);
+    const initialModelId = modalProviderConfigs[settings.provider].model;
+    applyModelBasedDisabling(settings.provider, getProviderModelDefaults(initialEntry, initialModelId));
+  }
   populateFixedModelSelect(settings.provider, modalProviderConfigs[settings.provider].model);
   populateConfiguredModelList(getProviderEntry(config, settings.provider));
 
@@ -517,21 +573,21 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     updateCapacityControlsVisibility(provider);
     populateFixedModelSelect(provider, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
     populateConfiguredModelList(entry);
-    applyModelDefaults(entry, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
+    applyModelDefaults(entry, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "", provider);
   });
 
   settingModel.addEventListener("change", () => {
     if (!modalProviderConfig) return;
     const provider = modalCurrentProvider;
     captureProviderConfig(provider);
-    applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "");
+    applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "", provider);
   });
 
   settingModelSelect.addEventListener("change", () => {
     if (!modalProviderConfig) return;
     const provider = modalCurrentProvider;
     captureProviderConfig(provider);
-    applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "");
+    applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "", provider);
   });
 }
 
