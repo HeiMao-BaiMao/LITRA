@@ -1,0 +1,50 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "child-windows",
+  "description": "Capabilities for all windows including detached children",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-focus",
+    "core:window:allow-scale-factor",
+    "core:window:allow-close",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:webview:allow-set-webview-zoom",
+    "core:webview:allow-create-webview-window",
+    {
+      "identifier": "http:default",
+      "allow": [
+        "https://*:*",
+        "https://*",
+        "http://localhost:*",
+        "http://127.0.0.1:*"
+      ]
+    },
+    "store:default",
+    "fs:default",
+    "fs:allow-appconfig-read",
+    "fs:allow-appconfig-write",
+    "fs:allow-appconfig-meta",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-read-dir",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-rename",
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPCONFIG" },
+        { "path": "$APPCONFIG/**" },
+        { "path": "$APPDATA" },
+        { "path": "$APPDATA/**" },
+        { "path": "$DOCUMENT/phenex" },
+        { "path": "$DOCUMENT/phenex/**" }
+      ]
+    }
+  ]
+}

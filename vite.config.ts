@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
+// @ts-expect-error type error without @types/node package
+import { resolve } from "node:path";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
@@ -25,6 +27,19 @@ export default defineConfig(() => ({
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
+    },
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(import.meta.dirname, "index.html"),
+        memo: resolve(import.meta.dirname, "memo-window.html"),
+        chat: resolve(import.meta.dirname, "chat-window.html"),
+        summary: resolve(import.meta.dirname, "summary-window.html"),
+        settings: resolve(import.meta.dirname, "settings-window.html"),
+        "genre-library": resolve(import.meta.dirname, "genre-library.html"),
+        "genre-chat": resolve(import.meta.dirname, "genre-chat-window.html"),
+      },
     },
   },
 }));

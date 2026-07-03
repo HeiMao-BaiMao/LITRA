@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI チャット - Phenex</title>
+    <script type="module" src="/src/chat-window.ts" defer></script>
+  </head>
+
+  <body class="detachable-window">
+    <aside class="chat-panel detached">
+      <div class="chat-panel-header">
+        <h3>AI チャット</h3>
+      </div>
+      <div class="chat-settings-row">
+        <select id="chat-provider" title="プロバイダー"></select>
+        <select id="chat-model" title="モデル"></select>
+      </div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <form id="chat-form" class="chat-form">
+        <textarea
+          id="chat-input"
+          class="chat-input"
+          placeholder="AI と自由に話す..."
+          rows="2"
+        ></textarea>
+        <div class="chat-controls">
+          <button id="btn-send" type="submit">送信</button>
+          <button id="btn-cancel" type="button" class="hidden" disabled>
+            停止
+          </button>
+        </div>
+      </form>
+    </aside>
+  </body>
+</html>

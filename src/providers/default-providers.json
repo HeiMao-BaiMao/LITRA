@@ -1,0 +1,342 @@
+{
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.openai.com/v1",
+      "defaultModel": "gpt-5.5",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium"
+        },
+        {
+          "id": "gpt-5.4",
+          "label": "GPT-5.4",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium"
+        },
+        {
+          "id": "gpt-5.4-mini",
+          "label": "GPT-5.4 Mini",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 400000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "none"
+        }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "sdkType": "anthropic",
+      "defaultBaseUrl": "https://api.anthropic.com",
+      "defaultModel": "claude-sonnet-4-6",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "claude-opus-4-8",
+          "label": "Claude Opus 4.8",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "label": "Claude Sonnet 4.6",
+          "temperature": 1.0,
+          "maxTokens": 64000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "label": "Claude Haiku 4.5",
+          "temperature": 1.0,
+          "maxTokens": 8192,
+          "maxContextTokens": 200000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.deepseek.com",
+      "defaultModel": "deepseek-v4-flash",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek-V4 Flash",
+          "temperature": 1.0,
+          "maxTokens": 384000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "deepseekReasoningEffort": "high"
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek-V4 Pro",
+          "temperature": 1.0,
+          "maxTokens": 384000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "deepseekReasoningEffort": "high"
+        }
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "sdkType": "google",
+      "defaultBaseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "defaultModel": "gemini-3.5-flash",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "gemini-3.5-flash",
+          "label": "Gemini 3.5 Flash",
+          "temperature": 1.0,
+          "maxTokens": 8192,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "topK": 64
+        },
+        {
+          "id": "gemini-3.1-pro-preview",
+          "label": "Gemini 3.1 Pro Preview",
+          "temperature": 1.0,
+          "maxTokens": 8192,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "topK": 64
+        },
+        {
+          "id": "gemini-3-flash-preview",
+          "label": "Gemini 3 Flash Preview",
+          "temperature": 1.0,
+          "maxTokens": 8192,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "topK": 64
+        },
+        {
+          "id": "gemini-3.1-flash-lite",
+          "label": "Gemini 3.1 Flash-Lite",
+          "temperature": 1.0,
+          "maxTokens": 8192,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "topK": 64
+        }
+      ]
+    },
+    {
+      "id": "llamacpp",
+      "name": "llama.cpp",
+      "sdkType": "openai",
+      "defaultBaseUrl": "http://127.0.0.1:8080/v1",
+      "defaultModel": "gpt-3.5-turbo",
+      "requiresApiKey": false,
+      "models": [
+        {
+          "id": "gpt-3.5-turbo",
+          "label": "llama.cpp loaded model",
+          "temperature": 1.0,
+          "maxTokens": 4096,
+          "maxContextTokens": 32768,
+          "topP": 1.0
+        },
+        {
+          "id": "local-model",
+          "label": "local-model",
+          "temperature": 1.0,
+          "maxTokens": 4096,
+          "maxContextTokens": 32768,
+          "topP": 1.0
+        }
+      ]
+    },
+    {
+      "id": "sakura",
+      "name": "さくらの AI Engine",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.ai.sakura.ad.jp/v1",
+      "defaultModel": "gpt-oss-120b",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "gpt-oss-120b",
+          "label": "GPT-OSS 120B",
+          "temperature": 0.7,
+          "maxTokens": 32000,
+          "maxContextTokens": 131072,
+          "topP": 0.95,
+          "frequencyPenalty": 0.1,
+          "presencePenalty": 0
+        },
+        {
+          "id": "preview/Kimi-K2.6",
+          "label": "Kimi-K2.6 Preview",
+          "temperature": 0.85,
+          "maxTokens": 16000,
+          "maxContextTokens": 262144,
+          "topP": 0.95,
+          "frequencyPenalty": 0.15,
+          "presencePenalty": 0.05
+        },
+        {
+          "id": "preview/Qwen3.6-35B-A3B",
+          "label": "Qwen3.6 35B A3B Preview",
+          "temperature": 0.65,
+          "maxTokens": 24576,
+          "maxContextTokens": 1010000,
+          "topP": 0.9,
+          "frequencyPenalty": 0.05,
+          "presencePenalty": 0
+        }
+      ]
+    },
+    {
+      "id": "plamo",
+      "name": "PLaMo",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.platform.preferredai.jp/v1",
+      "defaultModel": "plamo-3.0-prime",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "plamo-3.0-prime",
+          "label": "PLaMo 3.0 Prime",
+          "temperature": 0.3,
+          "maxTokens": 20000,
+          "maxContextTokens": 262144,
+          "topP": 1.0
+        }
+      ]
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode Go",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://opencode.ai/zen/go/v1",
+      "defaultModel": "deepseek-v4-flash",
+      "requiresApiKey": true,
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash",
+          "temperature": 0.3,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro",
+          "temperature": 0.25,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "minimax-m3",
+          "label": "MiniMax M3",
+          "temperature": 0.3,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "glm-5.2",
+          "label": "GLM-5.2",
+          "temperature": 0.2,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "mimo-v2.5",
+          "label": "MiMo-V2.5",
+          "temperature": 0.35,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "mimo-v2.5-pro",
+          "label": "MiMo-V2.5-Pro",
+          "temperature": 0.3,
+          "maxTokens": 65536,
+          "maxContextTokens": 1048576,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "qwen3.6-plus",
+          "label": "Qwen3.6 Plus",
+          "temperature": 0.7,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "qwen3.7-plus",
+          "label": "Qwen3.7 Plus",
+          "temperature": 0.7,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "qwen3.7-max",
+          "label": "Qwen3.7 Max",
+          "temperature": 0.7,
+          "maxTokens": 65536,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        }
+      ]
+    }
+  ]
+}

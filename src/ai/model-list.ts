@@ -1,0 +1,258 @@
+import { fetch } from "@tauri-apps/plugin-http";
+import type { AiSettings } from "../settings.ts";
+import {
+  getProviderEntry,
+  getProviderModelIds,
+  loadProviderConfig,
+  providerRequiresApiKey,
+} from "../providers/config.ts";
+
+export interface ModelListResult {
+  models: string[];
+  error?: string;
+}
+
+/**
+ * DeepSeek API は OpenAI 互換の `/v1/models` エンドポイントを提供していない。
+ * 取得に失敗した場合は、公式ドキュメントで公開されている既知のモデル一覧を
+ * フォールバックとして返す。
+ */
+export interface FixedModel {
+  id: string;
+  label: string;
+}
+
+/**
+ * DeepSeek の固定モデル選択肢。
+ * V4 系は thinking がデフォルトで有効。
+ */
+export const DEEPSEEK_FIXED_MODELS: FixedModel[] = [
+  { id: "deepseek-v4-flash", label: "DeepSeek-V4 Flash" },
+  { id: "deepseek-v4-pro", label: "DeepSeek-V4 Pro" },
+];
+
+/**
+ * Sakura AI Engine は当面アプリ側で利用モデルを固定する。
+ */
+export const SAKURA_FIXED_MODELS: FixedModel[] = [
+  { id: "gpt-oss-120b", label: "GPT-OSS 120B" },
+  { id: "preview/Kimi-K2.6", label: "Kimi-K2.6 Preview" },
+  { id: "preview/Qwen3.6-35B-A3B", label: "Qwen3.6 35B A3B Preview" },
+];
+
+/**
+ * OpenCode Go はアプリ側で利用モデルを半固定にする。
+ * MiniMax 系と Qwen 系は Anthropic Messages 互換、
+ * それ以外は OpenAI chat completions 互換。
+ */
+export const OPENCODE_GO_FIXED_MODELS: FixedModel[] = [
+  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+  { id: "minimax-m3", label: "MiniMax M3" },
+  { id: "glm-5.2", label: "GLM-5.2" },
+  { id: "mimo-v2.5", label: "MiMo-V2.5" },
+  { id: "mimo-v2.5-pro", label: "MiMo-V2.5-Pro" },
+  { id: "qwen3.6-plus", label: "Qwen3.6 Plus" },
+  { id: "qwen3.7-plus", label: "Qwen3.7 Plus" },
+  { id: "qwen3.7-max", label: "Qwen3.7 Max" },
+];
+
+function getOpenAiFixedModels(providerId: string, baseUrl: string): string[] | undefined {
+  const isDeepSeek =
+    providerId === "deepseek" || baseUrl.includes("api.deepseek.com");
+  if (isDeepSeek) {
+    return DEEPSEEK_FIXED_MODELS.map((m) => m.id);
+  }
+
+  const isSakura =
+    providerId === "sakura" || baseUrl.includes("api.ai.sakura.ad.jp");
+  if (isSakura) {
+    return SAKURA_FIXED_MODELS.map((m) => m.id);
+  }
+
+  const isOpenCodeGo =
+    providerId === "opencode" || baseUrl.includes("opencode.ai/zen/go");
+  if (isOpenCodeGo) {
+    return OPENCODE_GO_FIXED_MODELS.map((m) => m.id);
+  }
+
+  return undefined;
+}
+
+function getOpenAiFallbackModels(
+  providerId: string,
+  baseUrl: string,
+  configuredModels: string[],
+): string[] | undefined {
+  const isDeepSeek =
+    providerId === "deepseek" || baseUrl.includes("api.deepseek.com");
+  if (isDeepSeek) {
+    return Array.from(new Set([...configuredModels, ...DEEPSEEK_FIXED_MODELS.map((m) => m.id)]));
+  }
+  const isSakura =
+    providerId === "sakura" || baseUrl.includes("api.ai.sakura.ad.jp");
+  if (isSakura) {
+    return SAKURA_FIXED_MODELS.map((m) => m.id);
+  }
+  const isOpenCodeGo =
+    providerId === "opencode" || baseUrl.includes("opencode.ai/zen/go");
+  if (isOpenCodeGo) {
+    return OPENCODE_GO_FIXED_MODELS.map((m) => m.id);
+  }
+  if (configuredModels.length > 0) {
+    return configuredModels;
+  }
+  return undefined;
+}
+
+async function fetchOpenAiCompatibleModels(
+  settings: AiSettings,
+  providerId: string,
+  configuredModels: string[],
+): Promise<ModelListResult> {
+  try {
+    const { default: OpenAI } = await import("openai");
+    const client = new OpenAI({
+      apiKey: settings.apiKey || "sk-no-key-required",
+      baseURL: settings.baseUrl,
+      fetch,
+      dangerouslyAllowBrowser: true,
+    });
+
+    const response = await client.models.list();
+    const fetchedModels = response.data
+      .map((model) => model.id)
+      .filter((id): id is string => typeof id === "string");
+
+    // DeepSeek の /v1/models は返すモデルが不完全なことがあるため、
+    // 取得結果と既知のフォールバック一覧を統合する。
+    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl, configuredModels);
+    const models =
+      fallback && fallback.length > 0
+        ? Array.from(new Set([...fetchedModels, ...fallback])).sort()
+        : [...fetchedModels].sort();
+
+    return { models };
+  } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? (error as { status?: number }).status
+        : undefined;
+
+    // 認証エラー時はフォールバックせず、そのままエラーを返す。
+    if (status === 401 || status === 403) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { models: [], error: message };
+    }
+
+    const fallback = getOpenAiFallbackModels(providerId, settings.baseUrl, configuredModels);
+    if (fallback && fallback.length > 0) {
+      return { models: fallback };
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return { models: [], error: message };
+  }
+}
+
+async function fetchAnthropicModels(
+  settings: AiSettings,
+): Promise<ModelListResult> {
+  try {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic({
+      apiKey: settings.apiKey,
+      baseURL: settings.baseUrl,
+      fetch,
+      dangerouslyAllowBrowser: true,
+    });
+
+    const response = await client.models.list();
+    const models = response.data
+      .map((model) => model.id)
+      .filter((id): id is string => typeof id === "string")
+      .sort();
+
+    return { models };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { models: [], error: message };
+  }
+}
+
+interface GoogleModelEntry {
+  name?: string;
+  displayName?: string;
+  supportedGenerationMethods?: string[];
+}
+
+interface GoogleModelsResponse {
+  models?: GoogleModelEntry[];
+}
+
+async function fetchGoogleModels(
+  settings: AiSettings,
+): Promise<ModelListResult> {
+  try {
+    const baseUrl = settings.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+    const response = await fetch(`${baseUrl}/models`, {
+      method: "GET",
+      headers: {
+        "x-goog-api-key": settings.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      return { models: [], error: `モデル一覧の取得に失敗しました: ${response.status} ${text}` };
+    }
+
+    const data = (await response.json()) as GoogleModelsResponse;
+    const models = (data.models ?? [])
+      .filter(
+        (model) =>
+          model.name &&
+          (!model.supportedGenerationMethods ||
+            model.supportedGenerationMethods.includes("generateContent")),
+      )
+      .map((model) => model.name!.replace(/^models\//, ""))
+      .filter((id): id is string => typeof id === "string")
+      .sort();
+
+    return { models };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { models: [], error: message };
+  }
+}
+
+export async function fetchAvailableModels(
+  settings: AiSettings,
+): Promise<ModelListResult> {
+  const config = await loadProviderConfig();
+  const entry = getProviderEntry(config, settings.provider);
+
+  if (!entry) {
+    return { models: [], error: "未知のプロバイダーです。" };
+  }
+
+  const configuredModels = getProviderModelIds(entry);
+
+  if (entry.sdkType === "openai") {
+    const fixedModels = getOpenAiFixedModels(entry.id, settings.baseUrl);
+    if (fixedModels) return { models: fixedModels };
+  }
+
+  if (providerRequiresApiKey(entry) && !settings.apiKey) {
+    return { models: [], error: "API キーが設定されていません。" };
+  }
+
+  switch (entry.sdkType) {
+    case "openai":
+      return fetchOpenAiCompatibleModels(settings, entry.id, configuredModels);
+    case "anthropic":
+      return fetchAnthropicModels(settings);
+    case "google":
+      return fetchGoogleModels(settings);
+  }
+}

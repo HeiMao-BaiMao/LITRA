@@ -1,43 +1,360 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
+    <title>Phenex - AI 支援小説執筆ツール</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <div id="app" class="app">
+      <header class="toolbar">
+        <div class="toolbar-left">
+          <div class="toolbar-title">Phenex</div>
+          <span id="toolbar-project-name" class="toolbar-project-name">プロジェクト未選択</span>
+        </div>
+        <div class="toolbar-actions">
+          <button id="btn-projects" type="button">プロジェクト</button>
+          <button id="btn-import" type="button">取り込み</button>
+          <button id="btn-continue" type="button">続きを書く</button>
+          <button id="btn-rewrite" type="button">選択部分を書き直す</button>
+          <button id="btn-feedback" type="button">選択部分へのフィードバック</button>
+          <button id="btn-settings" type="button">設定</button>
+          <button id="btn-genre-library" type="button">ジャンル</button>
+        </div>
+      </header>
 
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+      <main class="main">
+        <nav id="project-nav" class="project-nav">
+          <div class="nav-section">
+            <h3>エピソード</h3>
+            <div id="episode-list" class="episode-list"></div>
+            <button id="btn-new-episode" type="button">＋ 新規エピソード</button>
+          </div>
+          <div id="summary-section" class="nav-section">
+            <div class="nav-section-header">
+              <h3>エピソード要約</h3>
+              <div class="header-actions">
+                <button id="btn-popout-summary" type="button" class="btn-popout" title="別ウィンドウで開く">
+                  ↗
+                </button>
+              </div>
+            </div>
+            <textarea
+              id="episode-summary"
+              class="episode-summary"
+              placeholder="エピソードを選択してください..."
+              rows="4"
+              disabled
+            ></textarea>
+            <button id="btn-generate-summary" type="button" class="btn-inline" disabled>
+              AI に書かせる
+            </button>
+          </div>
+          <div id="memo-section" class="nav-section collapsible">
+            <div class="nav-section-header">
+              <h3>エピソード覚え書き</h3>
+              <div class="header-actions">
+                <button id="btn-popout-memo" type="button" class="btn-popout" title="別ウィンドウで開く">
+                  ↗
+                </button>
+                <button id="btn-toggle-memo" type="button" class="btn-toggle" aria-expanded="true">
+                  −
+                </button>
+              </div>
+            </div>
+            <div class="collapsible-body">
+              <textarea
+                id="episode-memo"
+                class="episode-memo"
+                placeholder="エピソードを選択してください..."
+                rows="6"
+                disabled
+              ></textarea>
+            </div>
+          </div>
+          <div id="settings-section" class="nav-section">
+            <div class="nav-section-header">
+              <h3>設定</h3>
+              <div class="header-actions">
+                <button id="btn-popout-settings" type="button" class="btn-popout" title="別ウィンドウで開く">
+                  ↗
+                </button>
+              </div>
+            </div>
+            <button id="nav-characters" type="button" class="nav-settings-btn">キャラクター</button>
+            <button id="nav-world" type="button" class="nav-settings-btn">世界観</button>
+            <button id="nav-relationships" type="button" class="nav-settings-btn">人間関係</button>
+          </div>
+          <div id="memos-section" class="nav-section">
+            <div class="nav-section-header">
+              <h3>メモ</h3>
+              <div class="header-actions">
+                <button id="btn-popout-memos" type="button" class="btn-popout" title="別ウィンドウで開く">
+                  ↗
+                </button>
+              </div>
+            </div>
+            <button id="nav-memos" type="button" class="nav-settings-btn">メモ一覧</button>
+          </div>
+        </nav>
+
+        <section id="editor-section" class="editor-section">
+          <textarea
+            id="editor"
+            class="editor"
+            placeholder="ここから小説を書き始めましょう..."
+            spellcheck="false"
+          ></textarea>
+        </section>
+
+        <section id="settings-panel" class="settings-panel hidden"></section>
+
+        <section id="memos-panel" class="memos-panel hidden"></section>
+
+        <aside id="chat-panel" class="chat-panel collapsible">
+          <div class="chat-panel-header">
+            <h3>AI チャット</h3>
+            <div class="header-actions">
+              <button id="btn-popout-chat" type="button" class="btn-popout" title="別ウィンドウで開く">
+                ↗
+              </button>
+              <button id="btn-toggle-chat" type="button" class="btn-toggle" aria-expanded="true">
+                −
+              </button>
+            </div>
+          </div>
+          <div class="collapsible-body">
+            <div class="chat-settings-row">
+              <select id="chat-provider" title="プロバイダー"></select>
+              <select id="chat-model" title="モデル"></select>
+            </div>
+            <div id="chat-messages" class="chat-messages"></div>
+            <form id="chat-form" class="chat-form">
+            <textarea
+              id="chat-input"
+              class="chat-input"
+              placeholder="AI と自由に話す..."
+              rows="1"
+            ></textarea>
+            <div class="chat-controls">
+              <button id="btn-send" type="submit">送信</button>
+              <button id="btn-cancel" type="button" class="hidden" disabled>
+                停止
+              </button>
+            </div>
+          </form>
+          </div>
+        </aside>
+      </main>
+
+      <div id="settings-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-dialog">
+          <h2>AI 設定</h2>
+          <form id="settings-form" class="settings-form">
+            <label>
+              <span>プロバイダー</span>
+              <select id="setting-provider">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="google">Google</option>
+                <option value="plamo">PLaMo</option>
+              </select>
+            </label>
+            <label>
+              <span>API キー</span>
+              <input
+                id="setting-api-key"
+                type="password"
+                autocomplete="off"
+              />
+            </label>
+            <label>
+              <span>ベース URL</span>
+              <input id="setting-base-url" type="url" />
+            </label>
+            <label>
+              <span>モデル名</span>
+              <div class="model-input-row">
+                <input
+                  id="setting-model"
+                  type="text"
+                  list="setting-model-list"
+                  placeholder="モデルを選択または入力"
+                />
+                <select id="setting-model-select" class="hidden"></select>
+                <datalist id="setting-model-list"></datalist>
+                <button id="btn-fetch-models" type="button">取得</button>
+              </div>
+            </label>
+            <label>
+              <span>温度 (temperature)</span>
+              <input id="setting-temperature" type="number" step="0.01" min="0" max="2" />
+            </label>
+            <label>
+              <span>最大トークン数 (max tokens)</span>
+              <input id="setting-max-tokens" type="number" min="1" />
+            </label>
+            <label>
+              <span>最大コンテキスト数 (context tokens)</span>
+              <input id="setting-max-context-tokens" type="number" min="2048" />
+            </label>
+
+            <button
+              id="advanced-settings-toggle"
+              type="button"
+              class="advanced-settings-toggle"
+              aria-expanded="false"
+            >
+              詳細設定を表示
+            </button>
+
+            <div id="advanced-settings" class="advanced-settings hidden">
+              <h3>詳細設定</h3>
+
+              <label>
+                <span>topP（ nucleus sampling ）</span>
+                <input id="setting-top-p" type="number" step="0.01" min="0" max="1" placeholder="未指定" />
+              </label>
+              <label>
+                <span>topK</span>
+                <input id="setting-top-k" type="number" step="1" min="1" placeholder="未指定" />
+              </label>
+              <label>
+                <span>frequency penalty</span>
+                <input id="setting-frequency-penalty" type="number" step="0.01" min="-2" max="2" placeholder="未指定" />
+              </label>
+              <label>
+                <span>presence penalty</span>
+                <input id="setting-presence-penalty" type="number" step="0.01" min="-2" max="2" placeholder="未指定" />
+              </label>
+
+              <div class="provider-field-openai hidden">
+                <label>
+                  <span>OpenAI reasoning effort</span>
+                  <select id="setting-openai-reasoning-effort">
+                    <option value="">未指定</option>
+                    <option value="none">none</option>
+                    <option value="minimal">minimal</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="provider-field-deepseek hidden">
+                <label>
+                  <span>DeepSeek reasoning effort</span>
+                  <select id="setting-deepseek-reasoning-effort">
+                    <option value="">未指定</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                    <option value="max">max</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="provider-field-anthropic hidden">
+                <label class="checkbox-label">
+                  <input id="setting-anthropic-thinking-enabled" type="checkbox" />
+                  <span>Anthropic thinking を有効化</span>
+                </label>
+                <label>
+                  <span>Anthropic thinking budget tokens</span>
+                  <input id="setting-anthropic-thinking-budget" type="number" step="1" min="0" placeholder="未指定" />
+                </label>
+              </div>
+            </div>
+
+            <div class="modal-actions">
+              <button id="btn-save-settings" type="submit">保存</button>
+              <button id="btn-cancel-settings" type="button">キャンセル</button>
+            </div>
+
+            <div class="settings-initialize-section">
+              <p>保存されている AI 設定・レイアウト・ウィンドウ状態をすべて削除し、初期状態に戻します。</p>
+              <button id="btn-initialize-settings" type="button" class="danger-button">
+                設定を初期化
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+      <div id="project-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-dialog">
+          <h2>プロジェクト管理</h2>
+          <div class="project-form">
+            <input
+              id="project-title-input"
+              type="text"
+              placeholder="新しいプロジェクト名"
+            />
+            <button id="btn-create-project" type="button">新規作成</button>
+          </div>
+          <div id="project-list" class="project-list"></div>
+          <div class="modal-actions">
+            <input
+              type="file"
+              id="folder-import-input"
+              webkitdirectory
+              directory
+              style="display: none"
+            />
+            <button id="btn-import-folder" type="button">フォルダから取り込む</button>
+            <button id="btn-close-project-modal" type="button">閉じる</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="import-preview-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-dialog">
+          <h2 id="import-preview-title">フォルダ取り込み</h2>
+          <div id="import-preview-list" class="import-preview-list"></div>
+          <div class="import-preview-options">
+            <fieldset class="import-preview-option-group">
+              <legend>取り込み範囲</legend>
+              <label class="import-preview-option">
+                <input
+                  type="radio"
+                  name="import-content-mode"
+                  id="radio-import-body-and-settings"
+                  value="bodyAndSettings"
+                  checked
+                />
+                本文 + 設定
+              </label>
+              <label class="import-preview-option">
+                <input
+                  type="radio"
+                  name="import-content-mode"
+                  id="radio-import-settings-only"
+                  value="settingsOnly"
+                />
+                設定のみ
+              </label>
+            </fieldset>
+            <label class="import-preview-option">
+              <input type="checkbox" id="chk-import-double-check" />
+              取り込み後に整合性チェックを行う（二重化）
+            </label>
+          </div>
+          <div class="modal-actions">
+            <button id="btn-confirm-import" type="button">取り込む</button>
+            <button id="btn-cancel-import" type="button">キャンセル</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

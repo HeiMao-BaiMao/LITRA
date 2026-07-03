@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>エピソード要約 - Phenex</title>
+    <script type="module" src="/src/summary-window.ts" defer></script>
+  </head>
+
+  <body class="detachable-window">
+    <header class="detachable-header">
+      <h2>エピソード要約</h2>
+    </header>
+    <main class="detachable-body">
+      <textarea
+        id="summary-textarea"
+        class="episode-summary"
+        placeholder="エピソードを選択してください..."
+        disabled
+      ></textarea>
+      <button id="btn-generate-summary" type="button" class="btn-inline" disabled>
+        AI に書かせる
+      </button>
+    </main>
+  </body>
+</html>
