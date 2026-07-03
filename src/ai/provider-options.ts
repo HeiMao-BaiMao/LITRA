@@ -63,3 +63,31 @@ export function buildProviderOptions(
       return undefined;
   }
 }
+
+/**
+ * debugFetch が独自のリトライ（カスタムバックオフ）を行うプロバイダでは
+ * AI SDK の標準リトライを無効化し、二重リトライによる過剰な待ち時間を防ぐ。
+ * それ以外のプロバイダでは AI SDK のデフォルトリトライ（2回）を維持する。
+ */
+export function buildRetryOption(settings: AiSettings): { maxRetries?: number } {
+  if (settings.provider === "opencode" || settings.provider === "sakura") {
+    return { maxRetries: 0 };
+  }
+  return {};
+}
+
+/**
+ * AI 呼び出しのエラーメッセージをユーザー向けに整形する。
+ * 一時的な上流エラーやレートリミットの場合は再試行を促すヒントを追加する。
+ */
+export function formatAiErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (
+    /upstream request failed|upstream error|upstream unavailable|overloaded|temporarily unavailable|service unavailable|rate[- ]?limit|too many requests|throttl/i.test(
+      raw,
+    )
+  ) {
+    return `${raw}\n\n時間をおいて再度送信してください。`;
+  }
+  return raw;
+}
