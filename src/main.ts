@@ -16,6 +16,7 @@ import {
   type AiSettings,
   type Provider,
   resolveChatSettings,
+  resolveBackgroundSettings,
   getProviderSpecificSettings,
 } from "./settings.ts";
 import { applyImport, classifyFilesWithAI, type AiImportCandidate, type ImportContentMode } from "./project/import.ts";
@@ -29,6 +30,7 @@ import {
   type StreamToolEvent,
 } from "./ai/service.ts";
 import { buildSummaryPrompt, limitPromptText, parseSummaryOutput, samplePromptText } from "./ai/prompts.ts";
+import { formatAiErrorMessage } from "./ai/provider-options.ts";
 import {
   createCheckConsistencyTool,
   createCreateCharacterTool,
@@ -96,15 +98,18 @@ import { renderChatMessageHtml } from "./markdown.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
   bindAdvancedSettingsToggle,
+  bindBackgroundProviderChangeAction,
   bindModelFetchAction,
   bindProviderChangeAction,
   bindSettingsActions,
   hideSettingsModal,
   populateModelList,
+  readWebDavSyncConfigFromModal,
   renderProviderOptions,
   renderSettings,
   showSettingsModal,
 } from "./ui/settings-modal.ts";
+import { saveWebDavSyncConfig } from "./sync/webdav.ts";
 import {
   bindFolderImportActions,
   bindProjectModalActions,
@@ -307,6 +312,18 @@ function resolveChatRunSettings(settings: AiSettings): AiSettings {
   const entry = getProviderEntry(providerConfig, resolved.provider);
   const usesChatOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
   return applyRuntimeModelDefaults(resolved, getProviderModelDefaults(entry, resolved.model), usesChatOverride);
+}
+
+function resolveBackgroundRunSettings(settings: AiSettings): AiSettings {
+  const resolved = resolveBackgroundSettings(settings);
+  const entry = getProviderEntry(providerConfig, resolved.provider);
+  const usesBackgroundOverride =
+    resolved.provider !== settings.provider || resolved.model !== settings.model;
+  return applyRuntimeModelDefaults(
+    resolved,
+    getProviderModelDefaults(entry, resolved.model),
+    usesBackgroundOverride,
+  );
 }
 
 function getProviderProtocol(settings: AiSettings): string {
@@ -588,6 +605,7 @@ function createAiTools(): ToolSet | undefined {
     checkConsistency: createCheckConsistencyTool({
       projectId: currentProject.id,
       settings: currentSettings,
+      resolveSettings: () => resolveBackgroundRunSettings(currentSettings),
       currentEpisodeId: state.currentEpisodeId ?? undefined,
     }),
   };
@@ -1642,12 +1660,17 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
   try {
     const messages: ModelMessage[] = [{ role: "user", content: prompt }];
 
-    const isDeepSeek = currentSettings.provider === "deepseek";
+    const resolvedRunSettings = resolveBackgroundRunSettings(currentSettings);
+    // プロバイダ判定は解決後の設定で行う(バックグラウンドでは opencode になる場合がある)。
+    // OpenCode クライアントは通常 tool_choice を省略するため、OpenCode Go では undefined を渡す。
+    // DeepSeek 直接は "auto"、それ以外は "required"。
+    const isDeepSeek = resolvedRunSettings.provider === "deepseek";
+    const isOpencodeGo = resolvedRunSettings.provider === "opencode";
     const run = await streamChat({
-      settings: currentSettings,
+      settings: resolvedRunSettings,
       messages,
       tools: summaryTools,
-      toolChoice: isDeepSeek ? "auto" : "required",
+      toolChoice: isOpencodeGo ? undefined : isDeepSeek ? "auto" : "required",
       stopWhen: hasToolCall("saveEpisodeSummaryAndOneLiner"),
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
@@ -2373,7 +2396,7 @@ async function handleChatMessage(): Promise<void> {
     console.error("[litra] chat error:", error);
     removeLastEmptyAssistantMessage();
     if (!(error instanceof Error && error.name === "AbortError")) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = formatAiErrorMessage(error);
       appendMessage("assistant", `⚠️ **エラーが発生しました**\n\n${message}`, true);
     }
   } finally {
@@ -2479,8 +2502,18 @@ function openSettings(): void {
 }
 
 async function saveAndCloseSettings(settings: AiSettings): Promise<void> {
-  currentSettings = settings;
-  await saveSettings(settings);
+  // 設定モーダルから chatProvider/chatModel/backgroundProvider/backgroundModel が
+  // 欠落するケースに備えて、既存の currentSettings の値でマージして保持する。
+  const merged: AiSettings = {
+    ...settings,
+    chatProvider: settings.chatProvider ?? currentSettings.chatProvider,
+    chatModel: settings.chatModel ?? currentSettings.chatModel,
+    backgroundProvider: settings.backgroundProvider ?? currentSettings.backgroundProvider,
+    backgroundModel: settings.backgroundModel ?? currentSettings.backgroundModel,
+  };
+  currentSettings = merged;
+  await saveSettings(merged);
+  await saveWebDavSyncConfig(readWebDavSyncConfigFromModal());
   renderChatProviderOptions();
   updateChatSelectorsFromSettings();
   hideSettingsModal();
@@ -2732,6 +2765,8 @@ function bindUiEvents(): void {
   bindProviderChangeAction({
     onChange: handleProviderChange,
   });
+
+  bindBackgroundProviderChangeAction();
 
   bindAdvancedSettingsToggle();
   bindChatSettingsSelectors();

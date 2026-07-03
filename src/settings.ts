@@ -27,6 +27,8 @@ export interface AiSettings {
   providerConfigs: Record<Provider, ProviderSpecificSettings>;
   chatProvider?: Provider;
   chatModel?: string;
+  backgroundProvider?: Provider;
+  backgroundModel?: string;
   temperature: number;
   maxTokens: number;
   maxContextTokens: number;
@@ -55,6 +57,8 @@ const SETTINGS_STORE_KEYS = [
   "providerConfigs",
   "chatProvider",
   "chatModel",
+  "backgroundProvider",
+  "backgroundModel",
   "temperature",
   "maxTokens",
   "maxContextTokens",
@@ -273,6 +277,10 @@ export async function loadSettings(): Promise<AiSettings> {
   const chatProvider = await store.get("chatProvider");
   const chatModel = trimmedString(await store.get("chatModel"));
 
+  const backgroundProviderRaw = await store.get("backgroundProvider");
+  const backgroundProvider = isProvider(backgroundProviderRaw) ? backgroundProviderRaw : undefined;
+  const backgroundModel = trimmedString(await store.get("backgroundModel"));
+
   const base: AiSettings = {
     provider,
     apiKey: activeConfig.apiKey,
@@ -281,6 +289,8 @@ export async function loadSettings(): Promise<AiSettings> {
     providerConfigs,
     chatProvider: isProvider(chatProvider) ? chatProvider : undefined,
     chatModel: chatModel || undefined,
+    backgroundProvider,
+    backgroundModel: backgroundModel || undefined,
     temperature: optionalNumber(await store.get("temperature")) ?? modelDefaults?.temperature ?? 0.7,
     maxTokens: optionalNumber(await store.get("maxTokens")) ?? modelDefaults?.maxTokens ?? 8192,
     maxContextTokens: optionalNumber(await store.get("maxContextTokens")) ?? modelDefaults?.maxContextTokens ?? 65536,
@@ -342,6 +352,8 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("providerConfigs", settings.providerConfigs);
   await store.set("chatProvider", settings.chatProvider ?? null);
   await store.set("chatModel", settings.chatModel ?? null);
+  await store.set("backgroundProvider", settings.backgroundProvider ?? null);
+  await store.set("backgroundModel", settings.backgroundModel ?? null);
   await store.set("temperature", settings.temperature);
   await store.set("maxTokens", settings.maxTokens);
   await store.set("maxContextTokens", settings.maxContextTokens);
@@ -378,6 +390,25 @@ export function resolveChatSettings(settings: AiSettings): AiSettings {
     apiKey: specific.apiKey,
     baseUrl: specific.baseUrl,
     model: chatModel || specific.model,
+  };
+}
+
+/**
+ * 要約や整合性チェックなどバックグラウンドタスク用の設定を解決する。
+ * フォールバック順序: backgroundProvider ?? chatProvider ?? provider
+ * モデル: backgroundModel ?? chatModel ?? specific.model
+ */
+export function resolveBackgroundSettings(settings: AiSettings): AiSettings {
+  const provider = settings.backgroundProvider ?? settings.chatProvider ?? settings.provider;
+  const specific = getProviderSpecificSettings(settings, provider);
+  const backgroundModel = trimmedString(settings.backgroundModel);
+  const fallbackModel = trimmedString(settings.chatModel);
+  return {
+    ...settings,
+    provider,
+    apiKey: specific.apiKey,
+    baseUrl: specific.baseUrl,
+    model: backgroundModel || fallbackModel || specific.model,
   };
 }
 

@@ -165,6 +165,15 @@
                 <option value="plamo">PLaMo</option>
               </select>
             </label>
+            <label class="chat-provider-row">
+              <span>バックグラウンドタスク用プロバイダー</span>
+              <select id="setting-background-provider">
+                <option value="">チャット欄に同期</option>
+              </select>
+              <select id="setting-background-model">
+                <option value="">チャット欄に同期</option>
+              </select>
+            </label>
             <label>
               <span>API キー</span>
               <input
@@ -272,6 +281,30 @@
                   <input id="setting-anthropic-thinking-budget" type="number" step="1" min="0" placeholder="未指定" />
                 </label>
               </div>
+            </div>
+
+            <div class="sync-settings">
+              <h3>WebDAV 同期</h3>
+              <label class="checkbox-label">
+                <input id="setting-webdav-enabled" type="checkbox" />
+                <span>保存時に WebDAV へ同期</span>
+              </label>
+              <label>
+                <span>WebDAV URL</span>
+                <input id="setting-webdav-url" type="url" placeholder="https://example.com/remote.php/dav/files/user" />
+              </label>
+              <label>
+                <span>保存先フォルダ</span>
+                <input id="setting-webdav-folder" type="text" placeholder="litra" />
+              </label>
+              <label>
+                <span>ユーザー名</span>
+                <input id="setting-webdav-username" type="text" autocomplete="username" />
+              </label>
+              <label>
+                <span>パスワード</span>
+                <input id="setting-webdav-password" type="password" autocomplete="current-password" />
+              </label>
             </div>
 
             <div class="modal-actions">

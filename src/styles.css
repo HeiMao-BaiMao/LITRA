@@ -1489,6 +1489,21 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
+.sync-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.sync-settings h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
 .danger-button {
   background-color: transparent;
   color: #ff6b6b;

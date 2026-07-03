@@ -645,6 +645,12 @@ export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
 export interface CheckConsistencyToolDependencies {
   projectId: string;
   settings: AiSettings;
+  /**
+   * 実行時に最新の AiSettings を解決する関数。
+   * バックグラウンドタスク用設定（要約や整合性チェックなど）の上書きを反映するため、
+   * クロージャで固定した settings ではなく、この関数が返す最新の解決済み settings を使う。
+   */
+  resolveSettings?: () => AiSettings;
   currentEpisodeId?: string;
 }
 
@@ -682,7 +688,7 @@ export function createCheckConsistencyTool(
           };
         }
         const result = await checkConsistency(
-          deps.settings,
+          deps.resolveSettings?.() ?? deps.settings,
           deps.projectId,
           targetEpisodeId,
           focus,

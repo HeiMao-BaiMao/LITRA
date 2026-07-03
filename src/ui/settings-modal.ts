@@ -19,6 +19,10 @@ import {
   SAKURA_FIXED_MODELS,
   type FixedModel,
 } from "../ai/model-list.ts";
+import {
+  loadWebDavSyncConfig,
+  type WebDavSyncConfig,
+} from "../sync/webdav.ts";
 
 let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = null;
 let modalProviderConfig: ProviderConfig | null = null;
@@ -94,6 +98,50 @@ export function renderProviderOptions(config: ProviderConfig): void {
 
   if (currentValue) {
     settingProvider.value = currentValue;
+  }
+}
+
+export function renderBackgroundProviderOptions(config: ProviderConfig): void {
+  const { settingBackgroundProvider } = getElements();
+  settingBackgroundProvider.innerHTML = "";
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "チャット欄に同期";
+  settingBackgroundProvider.appendChild(emptyOption);
+  for (const provider of config.providers) {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.name;
+    settingBackgroundProvider.appendChild(option);
+  }
+}
+
+function renderBackgroundModelOptions(
+  config: ProviderConfig | null,
+  provider: Provider | "",
+  currentModel?: string,
+): void {
+  const { settingBackgroundModel } = getElements();
+  settingBackgroundModel.innerHTML = "";
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "チャット欄に同期";
+  settingBackgroundModel.appendChild(emptyOption);
+
+  if (provider !== "" && config) {
+    const entry = getProviderEntry(config, provider);
+    for (const model of entry?.models ?? []) {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.label ?? model.id;
+      settingBackgroundModel.appendChild(option);
+    }
+  }
+
+  if (currentModel && Array.from(settingBackgroundModel.options).some((opt) => opt.value === currentModel)) {
+    settingBackgroundModel.value = currentModel;
+  } else {
+    settingBackgroundModel.value = "";
   }
 }
 
@@ -209,6 +257,22 @@ function populateConfiguredModelList(entry: ProviderEntry | undefined): void {
   populateModelList(getProviderModelIds(entry));
 }
 
+async function renderWebDavSettings(): Promise<void> {
+  const {
+    settingWebdavEnabled,
+    settingWebdavUrl,
+    settingWebdavUsername,
+    settingWebdavPassword,
+    settingWebdavFolder,
+  } = getElements();
+  const config = await loadWebDavSyncConfig();
+  settingWebdavEnabled.checked = config.enabled;
+  settingWebdavUrl.value = config.baseUrl;
+  settingWebdavUsername.value = config.username ?? "";
+  settingWebdavPassword.value = config.password ?? "";
+  settingWebdavFolder.value = config.remoteFolder ?? "";
+}
+
 function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string): void {
   const defaults = getProviderModelDefaults(entry, modelId);
   if (!defaults) return;
@@ -290,11 +354,35 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   updateSamplingControlsVisibility(settings.provider);
   populateFixedModelSelect(settings.provider, modalProviderConfigs[settings.provider].model);
   populateConfiguredModelList(getProviderEntry(config, settings.provider));
+
+  renderBackgroundProviderOptions(config);
+  renderBackgroundModelOptions(config, settings.backgroundProvider ?? "", settings.backgroundModel);
+
+  void renderWebDavSettings();
+}
+
+export function readWebDavSyncConfigFromModal(): WebDavSyncConfig {
+  const {
+    settingWebdavEnabled,
+    settingWebdavUrl,
+    settingWebdavUsername,
+    settingWebdavPassword,
+    settingWebdavFolder,
+  } = getElements();
+  return {
+    enabled: settingWebdavEnabled.checked,
+    baseUrl: settingWebdavUrl.value.trim(),
+    username: settingWebdavUsername.value.trim(),
+    password: settingWebdavPassword.value,
+    remoteFolder: settingWebdavFolder.value.trim(),
+  };
 }
 
 export function readSettingsFromModal(): AiSettings {
   const {
     settingProvider,
+    settingBackgroundProvider,
+    settingBackgroundModel,
     settingTemperature,
     settingMaxTokens,
     settingMaxContextTokens,
@@ -317,12 +405,17 @@ export function readSettingsFromModal(): AiSettings {
 
   const activeConfig = modalProviderConfigs[provider];
 
+  const backgroundProviderValue = settingBackgroundProvider.value;
+  const backgroundModelValue = settingBackgroundModel.value.trim();
+
   return {
     provider,
     apiKey: activeConfig.apiKey,
     baseUrl: activeConfig.baseUrl,
     model: activeConfig.model,
     providerConfigs: modalProviderConfigs,
+    backgroundProvider: backgroundProviderValue === "" ? undefined : (backgroundProviderValue as Provider),
+    backgroundModel: backgroundModelValue === "" ? undefined : backgroundModelValue,
     temperature: Number(settingTemperature.value),
     maxTokens: Number(settingMaxTokens.value),
     maxContextTokens: Number(settingMaxContextTokens.value),
@@ -435,5 +528,23 @@ export function bindAdvancedSettingsToggle(): void {
     const isHidden = advancedSettings.classList.toggle("hidden");
     advancedSettingsToggle.textContent = isHidden ? "詳細設定を表示" : "詳細設定を隠す";
     advancedSettingsToggle.setAttribute("aria-expanded", String(!isHidden));
+  });
+}
+
+export function bindBackgroundProviderChangeAction(): void {
+  const { settingBackgroundProvider, settingBackgroundModel } = getElements();
+
+  settingBackgroundProvider.addEventListener("change", () => {
+    const value = settingBackgroundProvider.value;
+    if (value === "") {
+      settingBackgroundModel.innerHTML = "";
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "チャット欄に同期";
+      settingBackgroundModel.appendChild(emptyOption);
+      settingBackgroundModel.value = "";
+      return;
+    }
+    renderBackgroundModelOptions(modalProviderConfig, value as Provider);
   });
 }

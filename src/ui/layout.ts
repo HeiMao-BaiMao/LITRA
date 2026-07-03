@@ -43,6 +43,8 @@ export interface AppElements {
   settingsModal: HTMLElement;
   settingsForm: HTMLFormElement;
   settingProvider: HTMLSelectElement;
+  settingBackgroundProvider: HTMLSelectElement;
+  settingBackgroundModel: HTMLSelectElement;
   settingApiKey: HTMLInputElement;
   settingBaseUrl: HTMLInputElement;
   settingModel: HTMLInputElement;
@@ -61,6 +63,11 @@ export interface AppElements {
   settingDeepseekReasoningEffort: HTMLSelectElement;
   settingAnthropicThinkingEnabled: HTMLInputElement;
   settingAnthropicThinkingBudget: HTMLInputElement;
+  settingWebdavEnabled: HTMLInputElement;
+  settingWebdavUrl: HTMLInputElement;
+  settingWebdavUsername: HTMLInputElement;
+  settingWebdavPassword: HTMLInputElement;
+  settingWebdavFolder: HTMLInputElement;
   btnSaveSettings: HTMLButtonElement;
   btnCancelSettings: HTMLButtonElement;
   btnInitializeSettings: HTMLButtonElement;
@@ -132,6 +139,8 @@ export function getElements(): AppElements {
   const settingsModal = document.querySelector<HTMLElement>("#settings-modal");
   const settingsForm = document.querySelector<HTMLFormElement>("#settings-form");
   const settingProvider = document.querySelector<HTMLSelectElement>("#setting-provider");
+  const settingBackgroundProvider = document.querySelector<HTMLSelectElement>("#setting-background-provider");
+  const settingBackgroundModel = document.querySelector<HTMLSelectElement>("#setting-background-model");
   const settingApiKey = document.querySelector<HTMLInputElement>("#setting-api-key");
   const settingBaseUrl = document.querySelector<HTMLInputElement>("#setting-base-url");
   const settingModel = document.querySelector<HTMLInputElement>("#setting-model");
@@ -150,6 +159,11 @@ export function getElements(): AppElements {
   const settingDeepseekReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-deepseek-reasoning-effort");
   const settingAnthropicThinkingEnabled = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-enabled");
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
+  const settingWebdavEnabled = document.querySelector<HTMLInputElement>("#setting-webdav-enabled");
+  const settingWebdavUrl = document.querySelector<HTMLInputElement>("#setting-webdav-url");
+  const settingWebdavUsername = document.querySelector<HTMLInputElement>("#setting-webdav-username");
+  const settingWebdavPassword = document.querySelector<HTMLInputElement>("#setting-webdav-password");
+  const settingWebdavFolder = document.querySelector<HTMLInputElement>("#setting-webdav-folder");
   const btnSaveSettings = document.querySelector<HTMLButtonElement>("#btn-save-settings");
   const btnCancelSettings = document.querySelector<HTMLButtonElement>("#btn-cancel-settings");
   const btnInitializeSettings = document.querySelector<HTMLButtonElement>("#btn-initialize-settings");
@@ -184,6 +198,8 @@ export function getElements(): AppElements {
     !settingsModal ||
     !settingsForm ||
     !settingProvider ||
+    !settingBackgroundProvider ||
+    !settingBackgroundModel ||
     !settingApiKey ||
     !settingBaseUrl ||
     !settingModel ||
@@ -202,6 +218,11 @@ export function getElements(): AppElements {
     !settingDeepseekReasoningEffort ||
     !settingAnthropicThinkingEnabled ||
     !settingAnthropicThinkingBudget ||
+    !settingWebdavEnabled ||
+    !settingWebdavUrl ||
+    !settingWebdavUsername ||
+    !settingWebdavPassword ||
+    !settingWebdavFolder ||
     !btnSaveSettings ||
     !btnCancelSettings ||
     !btnInitializeSettings ||
@@ -299,6 +320,8 @@ export function getElements(): AppElements {
     settingsModal,
     settingsForm,
     settingProvider,
+    settingBackgroundProvider,
+    settingBackgroundModel,
     settingApiKey,
     settingBaseUrl,
     settingModel,
@@ -317,6 +340,11 @@ export function getElements(): AppElements {
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingWebdavEnabled,
+    settingWebdavUrl,
+    settingWebdavUsername,
+    settingWebdavPassword,
+    settingWebdavFolder,
     btnSaveSettings,
     btnCancelSettings,
     btnInitializeSettings,
