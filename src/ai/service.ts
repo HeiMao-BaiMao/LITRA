@@ -134,6 +134,7 @@ export interface StreamRunResult {
   stoppedAfterToolResult: boolean;
   stoppedAfterToolActivity: boolean;
   pendingToolCallIds: string[];
+  responseMessages: ModelMessage[];
 }
 
 export type StreamToolEvent =
@@ -279,6 +280,12 @@ function createThinkTagRouter(
 async function consumeStream(
   result: {
     fullStream: AsyncIterable<TextStreamPart<ToolSet>>;
+    response: PromiseLike<{
+      id: string;
+      modelId: string;
+      timestamp?: Date;
+      messages: ModelMessage[];
+    }>;
   },
   onChunk: (chunk: string) => void,
   onToolEvent?: (event: StreamToolEvent) => void,
@@ -293,6 +300,7 @@ async function consumeStream(
   let toolErrorCount = 0;
   let finishReason: string | undefined;
   let response: StreamRunResult["response"];
+  let responseMessages: ModelMessage[] = [];
   let lastSignificantPart: "text" | "reasoning" | "tool-input" | "tool-call" | "tool-result" | "tool-error" | undefined;
   const pendingToolCallIds = new Set<string>();
 
@@ -408,6 +416,20 @@ async function consumeStream(
 
   textRouter.flush();
 
+  try {
+    const streamResponse = await result.response;
+    response = {
+      id: streamResponse.id,
+      modelId: streamResponse.modelId,
+      timestamp: streamResponse.timestamp instanceof Date
+        ? streamResponse.timestamp.toISOString()
+        : undefined,
+    };
+    responseMessages = streamResponse.messages;
+  } catch (error) {
+    console.warn("[phenex:ai] failed to read response messages:", error);
+  }
+
   console.log(`[phenex:ai] stream finished. text chunks: ${chunkCount}, tool results: ${toolResultCount}, finish: ${finishReason ?? "unknown"}`);
   return {
     textChunkCount: chunkCount,
@@ -426,6 +448,7 @@ async function consumeStream(
       lastSignificantPart === "tool-result" ||
       lastSignificantPart === "tool-error",
     pendingToolCallIds: [...pendingToolCallIds],
+    responseMessages,
   };
 }
 
@@ -643,10 +666,11 @@ export async function streamContinuation({
     const toolsEnabled = hasTools(tools);
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
 
+    // 設定資料は system ではなく本文プロンプト側に注入する(弱いモデルの recency 対策)
     const result = streamText<ToolSet>({
       model: createModel(s),
-      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
-      prompt: buildContinuationPrompt(context),
+      system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
+      prompt: buildContinuationPrompt(context, settingsContext),
       ...buildTemperatureOption(s, toolsEnabled),
       maxOutputTokens: s.maxTokens,
       abortSignal,
@@ -675,8 +699,8 @@ export async function streamRewrite({
     const s = normalizeSettings(settings);
     const result = streamText<ToolSet>({
       model: createModel(s),
-      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false }),
-      prompt: buildRewritePrompt(selection, context),
+      system: buildAssistantSystemPrompt({ toolsEnabled: false }),
+      prompt: buildRewritePrompt(selection, context, settingsContext),
       ...buildTemperatureOption(s, false),
       maxOutputTokens: s.maxTokens,
       abortSignal,
@@ -702,8 +726,8 @@ export async function streamFeedback({
     const s = normalizeSettings(settings);
     const result = streamText<ToolSet>({
       model: createModel(s),
-      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false }),
-      prompt: buildFeedbackPrompt(selection),
+      system: buildAssistantSystemPrompt({ toolsEnabled: false }),
+      prompt: buildFeedbackPrompt(selection, settingsContext),
       ...buildTemperatureOption(s, false),
       maxOutputTokens: s.maxTokens,
       abortSignal,

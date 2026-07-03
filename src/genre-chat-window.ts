@@ -88,7 +88,7 @@ let resetInputHeight: (() => void) | undefined;
 const TOOL_TRACE_MAX_CHARS = 12000;
 const GENRE_CHAT_MAX_LENGTH_CONTINUATIONS = 2;
 const GENRE_CHAT_TOOL_RECOVERY_PROMPT =
-  "直前の応答はツール実行後に最終回答へ進まず停止しました。以下のツール実行結果と会話文脈だけを根拠に、ユーザーへの最終応答を日本語で簡潔に返してください。追加のツール呼び出しはできません。";
+  "直前の応答はツール実行後に最終回答へ進まず停止しました。直前までのツール実行結果と会話文脈だけを根拠に、ユーザーへの最終応答を日本語で簡潔に返してください。追加のツール呼び出しはできません。";
 const GENRE_CHAT_LENGTH_CONTINUATION_PROMPT =
   "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを日本語で続けてください。前置き、見出し、注釈は不要です。";
 
@@ -405,6 +405,37 @@ function formatToolTrace(events: StreamToolEvent[]): string {
   return limitToolTraceText(lines.join("\n\n"));
 }
 
+function canUseStructuredToolRecovery(result: StreamRunResult): boolean {
+  return result.stoppedAfterToolResult && result.pendingToolCallIds.length === 0 && result.responseMessages.length > 0;
+}
+
+function buildToolRecoveryMessages(
+  modelMessages: ModelMessage[],
+  result: StreamRunResult,
+  assistantContent: string,
+  toolEvents: StreamToolEvent[],
+): ModelMessage[] {
+  if (canUseStructuredToolRecovery(result)) {
+    return [
+      ...modelMessages,
+      ...result.responseMessages,
+      { role: "user", content: GENRE_CHAT_TOOL_RECOVERY_PROMPT },
+    ];
+  }
+
+  const toolTrace = formatToolTrace(toolEvents);
+  return [
+    ...modelMessages,
+    ...(assistantContent.trim()
+      ? [{ role: "assistant" as const, content: assistantContent }]
+      : []),
+    {
+      role: "user",
+      content: `${GENRE_CHAT_TOOL_RECOVERY_PROMPT}\n\n【ツール実行結果】\n${toolTrace || "（ツール結果なし）"}`,
+    },
+  ];
+}
+
 function toolEventStatus(event: StreamToolEvent): string {
   switch (event.type) {
     case "input-start":
@@ -530,17 +561,7 @@ async function sendMessage(content: string): Promise<void> {
       !controller.signal.aborted &&
       streamResult.stoppedAfterToolActivity
     ) {
-      const toolTrace = formatToolTrace(toolEvents);
-      const recoveryMessages: ModelMessage[] = [
-        ...modelMessages,
-        ...(assistantContent.trim()
-          ? [{ role: "assistant" as const, content: assistantContent }]
-          : []),
-        {
-          role: "user",
-          content: `${GENRE_CHAT_TOOL_RECOVERY_PROMPT}\n\n【ツール実行結果】\n${toolTrace || "（ツール結果なし）"}`,
-        },
-      ];
+      const recoveryMessages = buildToolRecoveryMessages(modelMessages, streamResult, assistantContent, toolEvents);
       streamResult = await streamChat({
         settings,
         messages: recoveryMessages,

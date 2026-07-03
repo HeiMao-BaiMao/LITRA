@@ -222,8 +222,11 @@ const TOOL_DISPLAY_OUTPUT_MAX_CHARS = 12000;
 const CHAT_LENGTH_CONTINUATION_PROMPT =
   "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを書いてください。前置き、見出し、注釈は不要です。";
 const CHAT_TOOL_CALL_RETRY_LIMIT = 3;
+const CHAT_TOOL_RESULT_CONTINUATION_LIMIT = 1;
 const CHAT_TOOL_CALL_RETRY_PROMPT =
   "直前の応答は、必要なツール呼び出しに到達しないまま説明文で終わっています。説明、手順、expectedText/replacementText の表示を続けず、直ちに必要なツールを呼び出してください。本文編集では findEpisodeLines または getEpisodeLines で確認し、単一範囲なら editEpisode、明確な複数範囲なら editEpisodeBatch を1回だけ呼び出してください。曖昧または高リスクな編集だけ事前確認し、範囲ごとの逐次確認はしないでください。ユーザーへの文章回答はツール実行後に editSummary または editedLineRanges を使って一度だけ行ってください。";
+const CHAT_TOOL_RESULT_CONTINUATION_PROMPT =
+  "直前のツール実行は完了しています。追加のツール呼び出しはせず、ツール結果だけを踏まえてユーザーへの最終返答を日本語で簡潔に返してください。ツールが失敗している場合は、失敗内容と必要な次の指示を短く伝えてください。";
 
 interface PromptContextBudgets {
   settingsField: number;
@@ -691,6 +694,21 @@ function shouldRetryMissingToolCall(messages: ModelMessage[], run: StreamRunResu
   return textLooksLikeToolRequired(`${lastUserText}\n${lastAssistantText}`);
 }
 
+function shouldContinueAfterToolResult(run: StreamRunResult): boolean {
+  if (controllerWasAborted()) return false;
+  if (!run.stoppedAfterToolResult) return false;
+  if (run.pendingToolCallIds.length > 0) return false;
+  return run.responseMessages.length > 0;
+}
+
+function buildToolResultContinuationMessages(messages: ModelMessage[], run: StreamRunResult): ModelMessage[] {
+  return [
+    ...messages,
+    ...run.responseMessages,
+    { role: "user", content: CHAT_TOOL_RESULT_CONTINUATION_PROMPT },
+  ];
+}
+
 function controllerWasAborted(): boolean {
   return state.abortController?.signal.aborted === true;
 }
@@ -900,6 +918,7 @@ async function streamChatWithAutoContinuation(
 ) {
   let messages = initialMessages;
   let toolCallRetryCount = 0;
+  let toolResultContinuationCount = 0;
   let run = await streamChatOnce(messages, controller, true, settings);
   finalizeToolRun(run);
 
@@ -925,6 +944,22 @@ async function streamChatWithAutoContinuation(
         },
       ];
       run = await streamChatOnce(messages, controller, true, settings);
+      finalizeToolRun(run);
+      continue;
+    }
+
+    if (shouldContinueAfterToolResult(run)) {
+      if (toolResultContinuationCount >= CHAT_TOOL_RESULT_CONTINUATION_LIMIT) {
+        console.warn("[phenex] tool result continuation limit reached");
+        break;
+      }
+
+      toolResultContinuationCount++;
+      console.warn("[phenex] model stopped after tool result; requesting final response", {
+        retry: toolResultContinuationCount,
+      });
+      messages = buildToolResultContinuationMessages(messages, run);
+      run = await streamChatOnce(messages, controller, false, settings);
       finalizeToolRun(run);
       continue;
     }
