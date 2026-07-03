@@ -349,12 +349,12 @@ function buildReviewPrompt(params: {
     .join("\n");
 
   return `TASK:
-Review the recent folder-import result against the current project data and return only strongly supported corrective operations.
+Review the recent folder-import result against the current project data. Return ONLY corrections that the data strongly supports. When in doubt, return nothing.
 
-PERSISTED-DATA LANGUAGE RULE:
-- Write every new or updated descriptive setting value, relationship description, memo title, and memo content in Japanese.
-- Preserve IDs, enum values, existing proper names, exact quotations, code, URLs, filenames, and literal identifiers.
-- Never write English explanatory prose into a persisted field merely because these instructions are English.
+LANGUAGE RULES:
+- Write every new or updated descriptive value, relationship description, memo title, and memo content in Japanese. 保存する説明文は必ず日本語で書くこと。
+- Keep unchanged: IDs, enum values, existing proper names, exact quotations, code, URLs, filenames, and literal identifiers.
+- These instructions are English. That is NEVER a reason to write English prose into a persisted field.
 
 CURRENT IMPORT SUMMARY:
 ${params.importSummary}
@@ -378,16 +378,16 @@ CURRENT EPISODE MEMOS:
 ${episodeMemoLines || "（なし）"}
 
 CORRECTION RULES:
-- Treat names, readings, aliases, surnames, ranks/titles, forms of address, and English/Japanese spelling variants as possible references to the same character only when evidence is clear.
-- When a newly imported character appears to duplicate an existing character, update the existing character's empty reading/alias/details instead of implying that a separate character should exist.
-- Fill an empty character field only when other project data explicitly supports the value.
-- Add only clearly missing relationships.
-- Correct a relationship direction or description only when explicit evidence shows it is wrong.
-- For family or role relationship additions, use A=the central or known person and B=the relative or role holder; use direction=b-to-a when B's role points toward A.
+- Treat two names as the same character only when the evidence is clear. Compare names, readings, aliases, surnames, ranks/titles, forms of address, and English/Japanese spelling variants.
+- IF a newly imported character duplicates an existing character → update the existing character's empty reading/alias/details. NEVER suggest that a separate character should exist.
+- Fill an empty character field only when other project data explicitly states the value.
+- Add a relationship only when it is clearly missing.
+- Change a relationship direction or description only when explicit evidence shows it is wrong.
+- For family or role relationship additions: A = the central or known person. B = the relative or role holder. Use direction=b-to-a when B's role points toward A.
 - Add a missed worldbuilding item or memo only when explicit imported evidence supports it.
-- Never create a relationship using a character name absent from CURRENT CHARACTERS.
-- Do not invent settings, relationships, or memos from weak inference.
-- Return empty arrays when no correction is necessary.
+- NEVER create a relationship using a character name that is absent from CURRENT CHARACTERS.
+- NEVER invent settings, relationships, or memos from weak inference.
+- IF no correction is necessary → return empty arrays.
 - Follow the JSON schema exactly.`;
 }
 
@@ -442,7 +442,7 @@ export async function reviewAndFixImportedData(
     model: createModel(settings),
     schema: reviewSchema,
     system:
-      "Review imported creative-writing data and return only necessary corrections as structured JSON. Keep control fields in the schema unchanged. All natural-language values that will be persisted must be Japanese.",
+      "You review imported creative-writing data. Return only necessary corrections, as structured JSON that follows the schema exactly. Keep IDs and enum values unchanged. Write every natural-language value that will be persisted in Japanese. 保存する説明文は必ず日本語で書くこと。",
     prompt: buildReviewPrompt({
       characters,
       worldEntries,

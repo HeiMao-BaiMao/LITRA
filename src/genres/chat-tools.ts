@@ -534,7 +534,8 @@ function createProposeChatConclusionsTool(deps: GenreChatToolDependencies) {
       const result = await generateObject({
         model: createModel(s),
         schema: aiChatConclusionExtractionSchema,
-        system: "You are a genre research assistant. Extract proposed conclusions only. Output in Japanese.",
+        system:
+          "You are a genre research assistant. Extract proposals only. NEVER finalize anything. Return ONLY a JSON object that follows the schema exactly. Write every natural-language value in Japanese. 自然文の値は必ず日本語で書くこと。",
         prompt,
         maxOutputTokens: s.maxTokens ?? 8192,
         temperature: 0.3,

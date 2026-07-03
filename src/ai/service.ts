@@ -483,7 +483,7 @@ async function verifyToolCallNeed(
       model: createModel(settings),
       schema: toolCallNeedSchema,
       system:
-        "You audit assistant responses and determine whether an actual available tool call was required. Follow the schema exactly.",
+        "You audit assistant responses. Decide one thing: did the request require an actual tool call that the assistant failed to perform? Return ONLY a JSON object that follows the schema exactly. IF uncertain → set needsTools=false.",
       prompt: buildToolCallNeedPrompt(userRequest, assistantResponse, availableToolNames),
       maxOutputTokens: 1024,
       temperature: 0.1,
