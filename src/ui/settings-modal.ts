@@ -227,30 +227,62 @@ function updateModelFetchState(provider: Provider): void {
   btnFetchModels.textContent = isFixed ? "モデルは固定" : "取得";
 }
 
-function setSamplingControlsEnabled(enabled: boolean): void {
-  const {
-    settingTemperature,
-    settingTopP,
-    settingTopK,
-    settingFrequencyPenalty,
-    settingPresencePenalty,
-  } = getElements();
-  const inputs = [
-    settingTemperature,
-    settingTopP,
-    settingTopK,
-    settingFrequencyPenalty,
-    settingPresencePenalty,
-  ];
+// sampling 系（temperature / topP / topK）の disabled と hidden を制御する。
+// hide=true のときは disabled + hidden、hide=false のときは disabled のみ（値は見える）。
+function setSamplingParamsEnabled(enabled: boolean, hide: boolean): void {
+  const { settingTemperature, settingTopP, settingTopK } = getElements();
+  const inputs = [settingTemperature, settingTopP, settingTopK];
   for (const input of inputs) {
     input.disabled = !enabled;
-    input.parentElement?.classList.toggle("hidden", !enabled);
+    input.parentElement?.classList.toggle("hidden", !enabled && hide);
   }
 }
 
+// penalty 系（frequencyPenalty / presencePenalty）の disabled と hidden を制御する。
+// hide=true のときは disabled + hidden、hide=false のときは disabled のみ（値は見える）。
+function setPenaltyParamsEnabled(enabled: boolean, hide: boolean): void {
+  const { settingFrequencyPenalty, settingPresencePenalty } = getElements();
+  const inputs = [settingFrequencyPenalty, settingPresencePenalty];
+  for (const input of inputs) {
+    input.disabled = !enabled;
+    input.parentElement?.classList.toggle("hidden", !enabled && hide);
+  }
+}
+
+// maxTokens / maxContextTokens の disabled を制御する。
+// 値は見えるまま（hidden にはしない）。
+function setCapacityControlsEnabled(enabled: boolean): void {
+  const { settingMaxTokens, settingMaxContextTokens } = getElements();
+  settingMaxTokens.disabled = !enabled;
+  settingMaxContextTokens.disabled = !enabled;
+}
+
 function updateSamplingControlsVisibility(provider: Provider): void {
-  // DeepSeek の thinking モードでは temperature / top_p / top_k / ペナルティ類は無視される。
-  setSamplingControlsEnabled(provider !== "deepseek");
+  // service.ts の buildTemperatureOption / buildAdvancedOptions に対応させる。
+  // - deepseek: sampling / penalty とも disabled + hidden（thinking モードでは API に送られないため現状維持）。
+  // - opencode: sampling / penalty とも disabled のみ（API に送られない。値は見える）。
+  // - sakura:   penalty のみ disabled（sampling は送られる。値は見える）。
+  // - 上記以外: すべて enabled。
+  if (provider === "deepseek") {
+    setSamplingParamsEnabled(false, true);
+    setPenaltyParamsEnabled(false, true);
+  } else if (provider === "opencode") {
+    setSamplingParamsEnabled(false, false);
+    setPenaltyParamsEnabled(false, false);
+  } else if (provider === "sakura") {
+    setSamplingParamsEnabled(true, false);
+    setPenaltyParamsEnabled(false, false);
+  } else {
+    setSamplingParamsEnabled(true, false);
+    setPenaltyParamsEnabled(true, false);
+  }
+}
+
+function updateCapacityControlsVisibility(provider: Provider): void {
+  // OpenCode Go では maxTokens / maxContextTokens は settings.ts の applyProviderCapacityCap で
+  // 保存時にクランプ / 上書きされるため UI でも disabled にする。
+  // hidden にはしない（現在のクランプ結果の値は見える）。
+  setCapacityControlsEnabled(provider !== "opencode");
 }
 
 function populateConfiguredModelList(entry: ProviderEntry | undefined): void {
@@ -352,6 +384,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   updateModelFetchState(settings.provider);
   updateModelInputMode(settings.provider);
   updateSamplingControlsVisibility(settings.provider);
+  updateCapacityControlsVisibility(settings.provider);
   populateFixedModelSelect(settings.provider, modalProviderConfigs[settings.provider].model);
   populateConfiguredModelList(getProviderEntry(config, settings.provider));
 
@@ -481,6 +514,7 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     updateModelFetchState(provider);
     updateModelInputMode(provider);
     updateSamplingControlsVisibility(provider);
+    updateCapacityControlsVisibility(provider);
     populateFixedModelSelect(provider, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
     populateConfiguredModelList(entry);
     applyModelDefaults(entry, modalProviderConfigs?.[provider].model ?? entry?.defaultModel ?? "");
