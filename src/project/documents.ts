@@ -1,4 +1,5 @@
-import { BaseDirectory, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, readTextFile } from "@tauri-apps/plugin-fs";
+import { writeDocumentTextFile } from "../sync/webdav.ts";
 import type { ChatMessage } from "../state.ts";
 
 const CHAT_DOCUMENT_VERSION = 2;
@@ -45,10 +46,9 @@ export async function saveChat(
     },
   };
 
-  await writeTextFile(
+  await writeDocumentTextFile(
     projectPath(projectId, "chat.json"),
     JSON.stringify(document, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 

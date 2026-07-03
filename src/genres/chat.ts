@@ -1,4 +1,5 @@
-import { BaseDirectory, readTextFile, writeTextFile, remove } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, readTextFile } from "@tauri-apps/plugin-fs";
+import { removeDocumentPath, writeDocumentTextFile } from "../sync/webdav.ts";
 import {
   GENRE_SCHEMA_VERSION,
   genreChatDocumentSchema,
@@ -42,10 +43,9 @@ async function saveThreadListDocument(
   document: GenreChatThreadListDocument,
 ): Promise<void> {
   await ensureGenreDataDirs(genreId);
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreChatsDir(genreId)}/index.json`,
     JSON.stringify(document, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 
@@ -78,10 +78,9 @@ export async function createGenreChatThread(
     messages: [],
   };
 
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreChatsDir(genreId)}/${thread.id}.json`,
     JSON.stringify(document, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 
   const list = await loadThreadListDocument(genreId);
@@ -113,10 +112,9 @@ export async function saveGenreChatThread(
 ): Promise<void> {
   await ensureGenreDataDirs(genreId);
   const validated = genreChatDocumentSchema.parse(document);
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreChatsDir(genreId)}/${document.thread.id}.json`,
     JSON.stringify(validated, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 
   const list = await loadThreadListDocument(genreId);
@@ -134,9 +132,7 @@ export async function deleteGenreChatThread(
   genreId: string,
   threadId: string,
 ): Promise<void> {
-  await remove(`${genreChatsDir(genreId)}/${threadId}.json`, {
-    baseDir: BaseDirectory.Document,
-  });
+  await removeDocumentPath(`${genreChatsDir(genreId)}/${threadId}.json`);
 
   const list = await loadThreadListDocument(genreId);
   list.threads = list.threads.filter((t) => t.id !== threadId);
@@ -170,10 +166,9 @@ export async function saveContextSnapshot(
   snapshot: import("./schema.ts").GenreChatContextSnapshot,
 ): Promise<void> {
   await ensureGenreDataDirs(genreId);
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreChatContextDir(genreId)}/${snapshot.id}.json`,
     JSON.stringify(snapshot, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 

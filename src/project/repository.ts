@@ -4,9 +4,8 @@ import {
   mkdir,
   readDir,
   readTextFile,
-  remove,
-  writeTextFile,
 } from "@tauri-apps/plugin-fs";
+import { removeDocumentPath, writeDocumentTextFile } from "../sync/webdav.ts";
 
 const PROJECTS_ROOT = "litra/projects";
 
@@ -84,27 +83,19 @@ export async function createProject(title: string): Promise<Project> {
   await mkdir(`${dir}/episodes`, { baseDir: BaseDirectory.Document, recursive: true });
   await mkdir(`${dir}/settings`, { baseDir: BaseDirectory.Document, recursive: true });
 
-  await writeTextFile(projectJsonPath(id), JSON.stringify(project, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
-  await writeTextFile(`${dir}/episodes.json`, JSON.stringify({ episodes: [] }, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
-  await writeTextFile(`${dir}/settings/characters.json`, JSON.stringify({ characters: [] }, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
-  await writeTextFile(`${dir}/settings/world.json`, JSON.stringify({ entries: [] }, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
-  await writeTextFile(`${dir}/chat.json`, JSON.stringify([]), {
-    baseDir: BaseDirectory.Document,
-  });
-  await writeTextFile(`${dir}/summaries.json`, JSON.stringify({ summaries: {} }, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
-  await writeTextFile(`${dir}/memos.json`, JSON.stringify({ memos: {} }, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
+  await writeDocumentTextFile(projectJsonPath(id), JSON.stringify(project, null, 2));
+  await writeDocumentTextFile(`${dir}/episodes.json`, JSON.stringify({ episodes: [] }, null, 2));
+  await writeDocumentTextFile(
+    `${dir}/settings/characters.json`,
+    JSON.stringify({ characters: [] }, null, 2),
+  );
+  await writeDocumentTextFile(
+    `${dir}/settings/world.json`,
+    JSON.stringify({ entries: [] }, null, 2),
+  );
+  await writeDocumentTextFile(`${dir}/chat.json`, JSON.stringify([]));
+  await writeDocumentTextFile(`${dir}/summaries.json`, JSON.stringify({ summaries: {} }, null, 2));
+  await writeDocumentTextFile(`${dir}/memos.json`, JSON.stringify({ memos: {} }, null, 2));
 
   return project;
 }
@@ -122,11 +113,9 @@ export async function loadProject(projectId: string): Promise<Project> {
 
 export async function saveProject(project: Project): Promise<void> {
   const updated: Project = { ...project, updatedAt: new Date().toISOString() };
-  await writeTextFile(projectJsonPath(project.id), JSON.stringify(updated, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
+  await writeDocumentTextFile(projectJsonPath(project.id), JSON.stringify(updated, null, 2));
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  await remove(projectDir(projectId), { baseDir: BaseDirectory.Document, recursive: true });
+  await removeDocumentPath(projectDir(projectId), { recursive: true });
 }

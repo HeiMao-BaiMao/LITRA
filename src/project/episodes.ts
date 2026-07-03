@@ -1,4 +1,5 @@
-import { BaseDirectory, exists, mkdir, readTextFile, remove, writeTextFile } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, exists, mkdir, readTextFile } from "@tauri-apps/plugin-fs";
+import { removeDocumentPath, writeDocumentTextFile } from "../sync/webdav.ts";
 import type { Episode, EpisodeList } from "./schema.ts";
 import { isEpisodeList } from "./schema.ts";
 
@@ -34,9 +35,7 @@ export async function loadEpisodeList(projectId: string): Promise<EpisodeList> {
 }
 
 export async function saveEpisodeList(projectId: string, list: EpisodeList): Promise<void> {
-  await writeTextFile(projectPath(projectId, EPISODES_FILE), JSON.stringify(list, null, 2), {
-    baseDir: BaseDirectory.Document,
-  });
+  await writeDocumentTextFile(projectPath(projectId, EPISODES_FILE), JSON.stringify(list, null, 2));
 }
 
 export async function loadEpisode(projectId: string, fileName: string): Promise<string> {
@@ -58,9 +57,7 @@ export async function saveEpisode(
   fileName: string,
   text: string,
 ): Promise<void> {
-  await writeTextFile(projectPath(projectId, EPISODES_DIR, fileName), text, {
-    baseDir: BaseDirectory.Document,
-  });
+  await writeDocumentTextFile(projectPath(projectId, EPISODES_DIR, fileName), text);
 }
 
 function episodeFileName(episodeId: string): string {
@@ -128,9 +125,7 @@ export async function deleteEpisode(projectId: string, episodeId: string): Promi
   if (index === -1) return;
 
   const [removed] = list.episodes.splice(index, 1);
-  await remove(projectPath(projectId, EPISODES_DIR, removed.fileName), {
-    baseDir: BaseDirectory.Document,
-  });
+  await removeDocumentPath(projectPath(projectId, EPISODES_DIR, removed.fileName));
 
   // order を振り直す
   for (let i = 0; i < list.episodes.length; i++) {
@@ -177,9 +172,7 @@ async function reindexEpisodes(projectId: string, list: EpisodeList): Promise<vo
   for (const oldFileName of oldFileNames) {
     const stillUsed = list.episodes.some((ep) => ep.fileName === oldFileName);
     if (!stillUsed) {
-      await remove(projectPath(projectId, EPISODES_DIR, oldFileName), {
-        baseDir: BaseDirectory.Document,
-      });
+      await removeDocumentPath(projectPath(projectId, EPISODES_DIR, oldFileName));
     }
   }
 }

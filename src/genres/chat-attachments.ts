@@ -1,4 +1,5 @@
-import { BaseDirectory, mkdir, readTextFile, writeTextFile, remove } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, mkdir, readTextFile } from "@tauri-apps/plugin-fs";
+import { removeDocumentPath, writeDocumentTextFile } from "../sync/webdav.ts";
 import { genreChatAttachmentsDir } from "./repository.ts";
 import type { GenreChatAttachment } from "./schema.ts";
 
@@ -33,7 +34,7 @@ export async function saveChatAttachment(
     recursive: true,
   });
 
-  await writeTextFile(path, input.content, { baseDir: BaseDirectory.Document });
+  await writeDocumentTextFile(path, input.content);
 
   return {
     id: attachmentId,
@@ -60,9 +61,9 @@ export async function deleteChatAttachmentsForMessage(
 ): Promise<void> {
   const dir = `${genreChatAttachmentsDir(genreId)}/${threadId}/${messageId}`;
   try {
-    await remove(dir, { baseDir: BaseDirectory.Document });
+    await removeDocumentPath(dir, { recursive: true });
   } catch (error) {
-    if (error instanceof Error && error.message?.includes("No such file")) {
+    if (isMissingPathError(error)) {
       return;
     }
     throw error;
@@ -75,13 +76,17 @@ export async function deleteChatAttachmentsForThread(
 ): Promise<void> {
   const dir = `${genreChatAttachmentsDir(genreId)}/${threadId}`;
   try {
-    await remove(dir, { baseDir: BaseDirectory.Document });
+    await removeDocumentPath(dir, { recursive: true });
   } catch (error) {
-    if (error instanceof Error && error.message?.includes("No such file")) {
+    if (isMissingPathError(error)) {
       return;
     }
     throw error;
   }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return String(error).includes("No such file") || String(error).includes("not found");
 }
 
 export function detectNovelText(content: string): boolean {

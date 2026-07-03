@@ -8,6 +8,7 @@ import {
   rename,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
+import { removeDocumentPath, writeDocumentTextFile } from "../sync/webdav.ts";
 import {
   GENRE_SCHEMA_VERSION,
   isGenre,
@@ -115,6 +116,7 @@ async function safeWriteJson(
     }
 
     await rename(tmpPath, path, { oldPathBaseDir: BaseDirectory.Document, newPathBaseDir: BaseDirectory.Document });
+    await writeDocumentTextFile(path, json);
   } catch (error) {
     try {
       await remove(tmpPath, { baseDir: BaseDirectory.Document });
@@ -348,7 +350,7 @@ export async function updateGenre(
 }
 
 export async function deleteGenre(genreId: string): Promise<void> {
-  await remove(genreDir(genreId), { baseDir: BaseDirectory.Document, recursive: true });
+  await removeDocumentPath(genreDir(genreId), { recursive: true });
   const index = await loadGenreIndexDocument();
   index.genres = index.genres.filter((entry) => entry.id !== genreId);
   await saveGenreIndexDocument(index);

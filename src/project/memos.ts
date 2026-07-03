@@ -1,4 +1,5 @@
-import { BaseDirectory, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, readTextFile } from "@tauri-apps/plugin-fs";
+import { writeDocumentTextFile } from "../sync/webdav.ts";
 import type { EpisodeMemo, EpisodeMemoMap } from "./schema.ts";
 import { isEpisodeMemoMap } from "./schema.ts";
 
@@ -27,10 +28,9 @@ export async function saveMemos(
   projectId: string,
   map: EpisodeMemoMap,
 ): Promise<void> {
-  await writeTextFile(
+  await writeDocumentTextFile(
     projectPath(projectId),
     JSON.stringify(map, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 

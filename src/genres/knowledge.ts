@@ -1,4 +1,5 @@
-import { readTextFile, writeTextFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { readTextFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { writeDocumentTextFile } from "../sync/webdav.ts";
 import {
   GENRE_SCHEMA_VERSION,
   genreKnowledgeDocumentSchema,
@@ -56,10 +57,9 @@ async function saveKnowledgeDocument(
 ): Promise<void> {
   await ensureGenreDataDirs(genreId);
   const validated = genreKnowledgeDocumentSchema.parse(document);
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreKnowledgeDir(genreId)}/current.json`,
     JSON.stringify(validated, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 
@@ -75,10 +75,9 @@ async function snapshotKnowledge(
     items: document.items,
     createdAt: new Date().toISOString(),
   };
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreKnowledgeHistoryDir(genreId)}/${document.revision}.json`,
     JSON.stringify(snapshot, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 

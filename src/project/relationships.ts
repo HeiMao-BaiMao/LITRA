@@ -1,4 +1,5 @@
-import { BaseDirectory, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, readTextFile } from "@tauri-apps/plugin-fs";
+import { writeDocumentTextFile } from "../sync/webdav.ts";
 import {
   isCharacterRelationshipMap,
   type CharacterRelationshipMap,
@@ -30,10 +31,9 @@ export async function saveRelationships(
   projectId: string,
   map: CharacterRelationshipMap,
 ): Promise<void> {
-  await writeTextFile(
+  await writeDocumentTextFile(
     projectPath(projectId, RELATIONSHIPS_FILE),
     JSON.stringify(map, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 

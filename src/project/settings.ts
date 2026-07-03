@@ -1,4 +1,5 @@
-import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, exists, mkdir, readTextFile } from "@tauri-apps/plugin-fs";
+import { writeDocumentTextFile } from "../sync/webdav.ts";
 import type { Character, CharacterList, WorldEntry, WorldEntryList } from "./schema.ts";
 import { isCharacterList, isWorldEntryList, normalizeCharacter, normalizeWorldEntry } from "./schema.ts";
 
@@ -41,10 +42,9 @@ export async function saveCharacters(
   list: CharacterList,
 ): Promise<void> {
   await ensureSettingsDir(projectId);
-  await writeTextFile(
+  await writeDocumentTextFile(
     projectPath(projectId, CHARACTERS_FILE),
     JSON.stringify(list, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 
@@ -104,10 +104,9 @@ export async function saveWorldEntries(
   list: WorldEntryList,
 ): Promise<void> {
   await ensureSettingsDir(projectId);
-  await writeTextFile(
+  await writeDocumentTextFile(
     projectPath(projectId, WORLD_FILE),
     JSON.stringify(list, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 

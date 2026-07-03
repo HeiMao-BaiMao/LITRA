@@ -2,9 +2,8 @@ import {
   BaseDirectory,
   exists,
   readTextFile,
-  remove,
-  writeTextFile,
 } from "@tauri-apps/plugin-fs";
+import { removeDocumentPath, writeDocumentTextFile } from "../sync/webdav.ts";
 import { computeTextHash } from "./hash.ts";
 import { segmentSourceText } from "./segmentation.ts";
 import {
@@ -48,10 +47,9 @@ async function saveSourceListDocument(
   document: GenreSourceListDocument,
 ): Promise<void> {
   await ensureGenreDataDirs(genreId);
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreSourcesDir(genreId)}/index.json`,
     JSON.stringify(document, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 
@@ -85,10 +83,9 @@ async function saveSegmentDocument(
   segments: GenreSourceSegment[],
 ): Promise<void> {
   await ensureGenreDataDirs(genreId);
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreSourceSegmentsDir(genreId)}/${sourceId}.json`,
     JSON.stringify({ schemaVersion: GENRE_SCHEMA_VERSION, sourceId, segments }, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 
@@ -154,10 +151,9 @@ export async function createGenreSource(
     updatedAt: now,
   };
 
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreSourcesDir(genreId)}/${id}.md`,
     input.content,
-    { baseDir: BaseDirectory.Document },
   );
   await saveSegmentDocument(genreId, id, segments);
 
@@ -208,10 +204,9 @@ export async function updateGenreSource(
     updatedAt: new Date().toISOString(),
   };
 
-  await writeTextFile(
+  await writeDocumentTextFile(
     `${genreSourcesDir(genreId)}/${sourceId}.md`,
     content,
-    { baseDir: BaseDirectory.Document },
   );
   await saveSegmentDocument(genreId, sourceId, segments);
 
@@ -228,14 +223,12 @@ export async function deleteGenreSource(genreId: string, sourceId: string): Prom
   await saveSourceListDocument(genreId, document);
 
   try {
-    await remove(`${genreSourcesDir(genreId)}/${sourceId}.md`, { baseDir: BaseDirectory.Document });
+    await removeDocumentPath(`${genreSourcesDir(genreId)}/${sourceId}.md`);
   } catch {
     // ignore
   }
   try {
-    await remove(`${genreSourceSegmentsDir(genreId)}/${sourceId}.json`, {
-      baseDir: BaseDirectory.Document,
-    });
+    await removeDocumentPath(`${genreSourceSegmentsDir(genreId)}/${sourceId}.json`);
   } catch {
     // ignore
   }

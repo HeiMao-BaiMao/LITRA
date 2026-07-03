@@ -33,3 +33,5 @@ src-tauri/Cargo.lock
 !/.cocoindex_code/settings.yml
 
 session_*.zip
+
+/sample

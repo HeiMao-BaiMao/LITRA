@@ -1,4 +1,5 @@
-import { BaseDirectory, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { BaseDirectory, readTextFile } from "@tauri-apps/plugin-fs";
+import { writeDocumentTextFile } from "../sync/webdav.ts";
 import type { EpisodeSummary, EpisodeSummaryMap } from "./schema.ts";
 
 const SUMMARIES_FILE = "summaries.json";
@@ -39,10 +40,9 @@ export async function saveSummaries(
   projectId: string,
   map: EpisodeSummaryMap,
 ): Promise<void> {
-  await writeTextFile(
+  await writeDocumentTextFile(
     projectPath(projectId),
     JSON.stringify(map, null, 2),
-    { baseDir: BaseDirectory.Document },
   );
 }
 
