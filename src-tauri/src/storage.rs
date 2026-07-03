@@ -346,7 +346,9 @@ pub fn ensure_parent_dir(path: &Path) -> Result<(), String> {
 
 pub fn write_text(path: &Path, content: &str) -> Result<(), String> {
     ensure_parent_dir(path)?;
-    fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+    fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+    crate::webdav_sync::enqueue_put_path(path, content.to_string());
+    Ok(())
 }
 
 pub fn write_json(path: &Path, value: &Value) -> Result<(), String> {
