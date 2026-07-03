@@ -10,9 +10,9 @@ import { loadGenreChatThread } from "./chat.ts";
 import { loadChatAttachment } from "./chat-attachments.ts";
 import { buildChatMessagesText } from "./chat-context.ts";
 import { extractSegmentContent } from "./segmentation.ts";
-import { generateObject } from "ai";
 import { createModel } from "../ai/provider.ts";
-import { buildProviderOptions } from "../ai/provider-options.ts";
+import { buildProviderOptions, buildRetryOption } from "../ai/provider-options.ts";
+import { generateStructuredObject } from "../ai/structured-output.ts";
 import type { AiSettings } from "../settings.ts";
 import { loadGenre, updateGenre } from "./repository.ts";
 
@@ -531,8 +531,9 @@ function createProposeChatConclusionsTool(deps: GenreChatToolDependencies) {
       );
 
       const s = deps.settings;
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(s),
+        ...buildRetryOption(s),
         schema: aiChatConclusionExtractionSchema,
         system:
           "You are a genre research assistant. Extract proposals only. NEVER finalize anything. Return ONLY a JSON object that follows the schema exactly. Write every natural-language value in Japanese. 自然文の値は必ず日本語で書くこと。",
@@ -540,6 +541,7 @@ function createProposeChatConclusionsTool(deps: GenreChatToolDependencies) {
         maxOutputTokens: s.maxTokens ?? 8192,
         temperature: 0.3,
         ...(buildProviderOptions(s, false) && { providerOptions: buildProviderOptions(s, false) }),
+        settings: s,
       });
 
       const candidates = await Promise.all(

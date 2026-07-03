@@ -1,6 +1,6 @@
-import { generateObject, isLoopFinished, stepCountIs, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
+import { generateText, isLoopFinished, stepCountIs, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
-import { buildProviderOptions } from "./provider-options.ts";
+import { buildProviderOptions, buildRetryOption } from "./provider-options.ts";
 import {
   buildAssistantSystemPrompt,
   buildContinuationPrompt,
@@ -23,13 +23,21 @@ function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean):
 
 function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
   // DeepSeek の thinking モードでは temperature は無視される。
-  return isDeepSeekThinkingEnabled(settings, toolsEnabled) ? {} : { temperature: settings.temperature };
+  // OpenCode Go プロバイダでは OpenCode クライアントに合わせて temperature を送らない
+  // (OpenCode の transform.ts:481-498 で DeepSeek/GLM/MiniMax/MiMo 等は undefined を返す)。
+  if (isDeepSeekThinkingEnabled(settings, toolsEnabled)) return {};
+  if (settings.provider === "opencode") return {};
+  return { temperature: settings.temperature };
 }
 
 function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
   const providerOptions = buildProviderOptions(settings, toolsEnabled);
-  const ignoreSampling = isDeepSeekThinkingEnabled(settings, toolsEnabled);
-  const ignorePenalty = settings.provider === "sakura";
+  // OpenCode Go プロバイダでは OpenCode クライアントに合わせるため、
+  // topP / topK / frequencyPenalty / presencePenalty をすべて送らない
+  // (transform.ts:500-507 と native-request.ts:135-143 で populate されない)。
+  const ignoreSampling =
+    isDeepSeekThinkingEnabled(settings, toolsEnabled) || settings.provider === "opencode";
+  const ignorePenalty = settings.provider === "sakura" || settings.provider === "opencode";
   return {
     ...(!ignoreSampling && settings.topP !== undefined && { topP: settings.topP }),
     ...(!ignoreSampling && settings.topK !== undefined && { topK: settings.topK }),
@@ -500,22 +508,55 @@ async function verifyToolCallNeed(
   userRequest: string,
   assistantResponse: string,
   availableToolNames: string[],
+  abortSignal?: AbortSignal,
 ): Promise<boolean> {
+  // 非クリティカルな検証呼び出しは長時間待たない。
+  // debugFetch のリトライ（最長71秒）を打ち切り、ユーザー体験をブロックしない。
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      controller.abort();
+    } else {
+      abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
   try {
-    const result = await generateObject({
+    // generateObject は response_format: json_schema を自動付与するが、
+    // OpenCode Go 上流（DeepSeek）が json_schema + strict を処理できず 400 になる。
+    // そのため generateText で通常チャットを行い、レスポンスをクライアント側で Zod 検証する。
+    const basePrompt = buildToolCallNeedPrompt(userRequest, assistantResponse, availableToolNames);
+    const jsonPrompt = `${basePrompt}\n\nReturn ONLY a valid JSON object with this exact shape. No markdown, no code fence, no explanation:\n{"needsTools": boolean, "missingTools": string[], "reason": string}\nIf missingTools is unnecessary, omit it or use an empty array.`;
+    const result = await generateText({
       model: createModel(settings),
-      schema: toolCallNeedSchema,
+      ...buildRetryOption(settings),
       system:
-        "You audit assistant responses. Decide one thing: did the request require an actual tool call that the assistant failed to perform? Return ONLY a JSON object that follows the schema exactly. IF uncertain → set needsTools=false.",
-      prompt: buildToolCallNeedPrompt(userRequest, assistantResponse, availableToolNames),
+        "You audit assistant responses. Decide one thing: did the request require an actual tool call that the assistant failed to perform? Return ONLY a JSON object. IF uncertain → set needsTools=false.",
+      prompt: jsonPrompt,
       maxOutputTokens: 1024,
       temperature: 0.1,
+      abortSignal: controller.signal,
     });
-    console.log("[litra:ai] tool-call need check:", result.object);
-    return result.object.needsTools;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (error) {
+      console.error("[litra:ai] tool-call need JSON parse failed:", error, "raw:", result.text.slice(0, 200));
+      return false;
+    }
+    const validated = toolCallNeedSchema.safeParse(parsed);
+    if (!validated.success) {
+      console.error("[litra:ai] tool-call need schema validation failed:", validated.error);
+      return false;
+    }
+    console.log("[litra:ai] tool-call need check:", validated.data);
+    return validated.data.needsTools;
   } catch (error) {
     console.error("[litra:ai] tool-call need verification failed:", error);
     return false;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -594,6 +635,7 @@ export async function streamChat({
 
     const result = streamText<ToolSet>({
       model: createModel(s),
+      ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
       messages,
       ...buildTemperatureOption(s, toolsEnabled),
@@ -616,7 +658,7 @@ export async function streamChat({
       !abortSignal?.aborted
     ) {
       const userRequest = getLastUserMessageContent(messages);
-      const needsTools = await verifyToolCallNeed(s, userRequest, assistantText, toolNames);
+      const needsTools = await verifyToolCallNeed(s, userRequest, assistantText, toolNames, abortSignal);
       if (needsTools) {
         console.log("[litra:ai] retrying with tool-call requirement");
         const retryMessages: ModelMessage[] = [
@@ -630,13 +672,14 @@ export async function streamChat({
         ];
         const retryResult = streamText<ToolSet>({
           model: createModel(s),
+          ...buildRetryOption(s),
           system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames }),
           messages: retryMessages,
           ...buildTemperatureOption(s, toolsEnabled),
           maxOutputTokens: s.maxTokens,
           abortSignal,
           tools,
-          toolChoice: "required",
+          toolChoice: s.provider === "opencode" ? undefined : "required",
           stopWhen: toolLoopStopConditions(isLoopFinished() as StopCondition<ToolSet>),
           ...buildAdvancedOptions(s, toolsEnabled),
         });
@@ -669,6 +712,7 @@ export async function streamContinuation({
     // 設定資料は system ではなく本文プロンプト側に注入する(弱いモデルの recency 対策)
     const result = streamText<ToolSet>({
       model: createModel(s),
+      ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
       prompt: buildContinuationPrompt(context, settingsContext),
       ...buildTemperatureOption(s, toolsEnabled),
@@ -699,6 +743,7 @@ export async function streamRewrite({
     const s = normalizeSettings(settings);
     const result = streamText<ToolSet>({
       model: createModel(s),
+      ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled: false }),
       prompt: buildRewritePrompt(selection, context, settingsContext),
       ...buildTemperatureOption(s, false),
@@ -726,6 +771,7 @@ export async function streamFeedback({
     const s = normalizeSettings(settings);
     const result = streamText<ToolSet>({
       model: createModel(s),
+      ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled: false }),
       prompt: buildFeedbackPrompt(selection, settingsContext),
       ...buildTemperatureOption(s, false),

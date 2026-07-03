@@ -1,8 +1,9 @@
-import { generateObject } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { createModel } from "../ai/provider.ts";
+import { buildRetryOption } from "../ai/provider-options.ts";
 import { formatPromptDataBlock, samplePromptText } from "../ai/prompts.ts";
+import { generateStructuredObject } from "../ai/structured-output.ts";
 import type { AiSettings } from "../settings.ts";
 
 export type ImportItemType =
@@ -920,8 +921,9 @@ async function classifyOneFileWithAI(
     previousContent = classifyContent.content;
     previousOutputTokens = limits.maxOutputTokens;
     try {
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(settings),
+        ...buildRetryOption(settings),
         schema,
         system: IMPORT_SYSTEM_PROMPT,
         prompt: buildClassifyPrompt({
@@ -934,6 +936,7 @@ async function classifyOneFileWithAI(
         }),
         maxOutputTokens: limits.maxOutputTokens,
         temperature: 0.2,
+        settings,
       });
       return classificationToCandidates(file, result.object);
     } catch (error) {
@@ -1224,8 +1227,9 @@ async function validateRelationshipsWithAI(
   const budget = getPromptCharBudget(settings, outputTokens);
   const cappedContent =
     budget === undefined ? content : samplePromptText(content, budget);
-  const result = await generateObject({
+  const result = await generateStructuredObject({
     model: createModel(settings),
+    ...buildRetryOption(settings),
     schema: relationshipTransformSchema,
     system: IMPORT_SYSTEM_PROMPT,
     prompt: buildRelationshipContextValidationPrompt(
@@ -1237,6 +1241,7 @@ async function validateRelationshipsWithAI(
     ),
     maxOutputTokens: outputTokens,
     temperature: 0.1,
+    settings,
   });
 
   return normalizeRelationshipResults(result.object.relationships);
@@ -1305,46 +1310,54 @@ async function transformOneWithContent(
 
   switch (candidate.type) {
     case "character": {
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(settings),
+        ...buildRetryOption(settings),
         schema: characterTransformSchema,
         system,
         prompt: buildCharacterTransformPrompt(candidate.title, content),
         maxOutputTokens: clampOutputTokens(settings, 8192),
         temperature: 0.3,
+        settings,
       });
       return { title: result.object.title, fields: result.object.fields };
     }
     case "world": {
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(settings),
+        ...buildRetryOption(settings),
         schema: worldTransformSchema,
         system,
         prompt: buildWorldTransformPrompt(candidate.title, content),
         maxOutputTokens: clampOutputTokens(settings, 8192),
         temperature: 0.3,
+        settings,
       });
       return { title: result.object.title, fields: result.object.fields };
     }
     case "episode": {
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(settings),
+        ...buildRetryOption(settings),
         schema: episodeTransformSchema,
         system,
         prompt: buildEpisodeTransformPrompt(candidate.title, content),
         maxOutputTokens: clampOutputTokens(settings, 16384),
         temperature: 0.3,
+        settings,
       });
       return { title: result.object.title, content: result.object.content };
     }
     case "memo": {
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(settings),
+        ...buildRetryOption(settings),
         schema: memoTransformSchema,
         system,
         prompt: buildMemoTransformPrompt(candidate.title, content),
         maxOutputTokens: clampOutputTokens(settings, 8192),
         temperature: 0.3,
+        settings,
       });
       return {
         episodeTitle: result.object.episodeTitle,
@@ -1352,19 +1365,22 @@ async function transformOneWithContent(
       };
     }
     case "projectMemo": {
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(settings),
+        ...buildRetryOption(settings),
         schema: projectMemoTransformSchema,
         system,
         prompt: buildProjectMemoTransformPrompt(candidate.title, content),
         maxOutputTokens: clampOutputTokens(settings, 8192),
         temperature: 0.3,
+        settings,
       });
       return { title: result.object.title, content: result.object.content };
     }
     case "relationship": {
-      const result = await generateObject({
+      const result = await generateStructuredObject({
         model: createModel(settings),
+        ...buildRetryOption(settings),
         schema: relationshipTransformSchema,
         system,
         prompt: buildRelationshipTransformPrompt(
@@ -1376,6 +1392,7 @@ async function transformOneWithContent(
         ),
         maxOutputTokens: clampOutputTokens(settings, 8192),
         temperature: 0.3,
+        settings,
       });
       let relationships = normalizeRelationshipResults(
         result.object.relationships,
