@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import type {
   GenreAnalysisRun,
   GenreSegmentAnalysis,
@@ -125,12 +126,12 @@ export function renderAnalysisList(
     if (run.synthesis) {
       const synthesis = document.createElement("div");
       synthesis.className = "analysis-run-synthesis";
-      synthesis.innerHTML = `
+      synthesis.innerHTML = DOMPurify.sanitize(`
         <p><strong>資料要約:</strong> ${run.synthesis.sourceSummary}</p>
         <p><strong>ジャンルへの貢献:</strong> ${run.synthesis.contributionToGenre.join("、 ")}</p>
         <p><strong>逸脱:</strong> ${run.synthesis.deviationsFromGenre.join("、 ")}</p>
         <p><strong>作品固有要素:</strong> ${run.synthesis.workSpecificElements.join("、 ")}</p>
-      `;
+      `);
       el.appendChild(synthesis);
     }
 
@@ -153,7 +154,7 @@ export function renderSegmentAnalysis(
 
   const summary = document.createElement("div");
   summary.className = "segment-analysis-summary";
-  summary.innerHTML = `<h4>セグメント要約</h4><p>${analysis.summary}</p>`;
+  summary.innerHTML = DOMPurify.sanitize(`<h4>セグメント要約</h4><p>${analysis.summary}</p>`);
   container.appendChild(summary);
 
   const sections: Array<{ title: string; items: GenreSegmentAnalysis["proseFeatures"] }> = [
@@ -186,11 +187,11 @@ export function renderSegmentAnalysis(
     for (const item of section.items) {
       const itemEl = document.createElement("div");
       itemEl.className = "feature-observation";
-      itemEl.innerHTML = `
+      itemEl.innerHTML = DOMPurify.sanitize(`
         <p class="feature-statement">${item.statement}</p>
         <p class="feature-explanation">${item.explanation}</p>
         <p class="feature-confidence">確信度: ${Math.round(item.confidence * 100)}%</p>
-      `;
+      `);
       sectionEl.appendChild(itemEl);
     }
 

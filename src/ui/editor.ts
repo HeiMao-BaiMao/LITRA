@@ -1,12 +1,22 @@
 import { getElements } from "./layout.ts";
 import { state } from "../state.ts";
 
-let inputCallback: ((text: string) => void) | null = null;
+let inputCallback: ((text: string) => void | Promise<void>) | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTOSAVE_DELAY_MS = 500;
 
-export function setEditorInputCallback(callback: (text: string) => void): void {
+export function setEditorInputCallback(callback: (text: string) => void | Promise<void>): void {
   inputCallback = callback;
+}
+
+/// デバウンス待機中の自動保存があれば即座に確定させる。
+/// 保留中の保存が無ければ何もしない。呼び出し側は返り値を await して
+/// 保存の完了を待ってから後続処理（同期など）を行うこと。
+export function flushPendingAutosave(): void | Promise<void> {
+  if (!debounceTimer) return;
+  clearTimeout(debounceTimer);
+  debounceTimer = null;
+  return inputCallback?.(getElements().editor.value);
 }
 
 export function getEditorText(): string {

@@ -45,6 +45,8 @@ pub fn run() {
             webdav_sync::save_webdav_sync_config,
             webdav_sync::write_document_text_file,
             webdav_sync::remove_document_path,
+            webdav_sync::pull_webdav_all,
+            webdav_sync::push_webdav_all,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

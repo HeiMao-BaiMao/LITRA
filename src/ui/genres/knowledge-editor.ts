@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import type {
   GenreKnowledgeCandidate,
   GenreKnowledgeCategory,
@@ -63,7 +64,7 @@ export function renderKnowledgeEditor(
   for (const candidate of candidates.filter((c) => c.status === "pending")) {
     const el = document.createElement("div");
     el.className = "knowledge-candidate";
-    el.innerHTML = `
+    el.innerHTML = DOMPurify.sanitize(`
       <div class="knowledge-candidate-header">
         <span class="knowledge-category">${CATEGORY_LABELS[candidate.category]}</span>
         <span class="knowledge-title">${candidate.title}</span>
@@ -72,7 +73,7 @@ export function renderKnowledgeEditor(
       <p class="knowledge-statement">${candidate.statement}</p>
       <p class="knowledge-explanation">${candidate.explanation}</p>
       <p class="knowledge-confidence">確信度: ${Math.round(candidate.confidence * 100)}%</p>
-    `;
+    `);
 
     const actionsEl = document.createElement("div");
     actionsEl.className = "knowledge-actions";
@@ -111,7 +112,7 @@ export function renderKnowledgeEditor(
   for (const item of items) {
     const el = document.createElement("div");
     el.className = `knowledge-item ${item.status === "disabled" ? "disabled" : ""}`;
-    el.innerHTML = `
+    el.innerHTML = DOMPurify.sanitize(`
       <div class="knowledge-item-header">
         <span class="knowledge-category">${CATEGORY_LABELS[item.category]}</span>
         <span class="knowledge-title">${item.title}</span>
@@ -120,7 +121,7 @@ export function renderKnowledgeEditor(
       </div>
       <p class="knowledge-statement">${item.statement}</p>
       <p class="knowledge-explanation">${item.explanation}</p>
-    `;
+    `);
 
     const actionsEl = document.createElement("div");
     actionsEl.className = "knowledge-actions";

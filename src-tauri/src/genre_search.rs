@@ -103,7 +103,7 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
     for source in sources["sources"].as_array().unwrap_or(&Vec::new()) {
         let source_id = source["id"].as_str().unwrap_or_default();
         let title = source["title"].as_str().unwrap_or_default();
-        let segments_dir = base.join("sources").join("segments").join(&source_id);
+        let segments_dir = base.join("sources").join("segments").join(source_id);
 
         if segments_dir.exists() {
             let mut entries: Vec<PathBuf> = fs::read_dir(&segments_dir)
@@ -127,7 +127,7 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
 
             if !content.is_empty() {
                 let mut doc = TantivyDocument::default();
-                doc.add_text(id_field, &format!("source-{}-fullText", source_id));
+                doc.add_text(id_field, format!("source-{}-fullText", source_id));
                 doc.add_text(genre_id_field, &genre_id);
                 doc.add_text(doc_type_field, "source");
                 doc.add_text(title_field, title);
@@ -150,10 +150,10 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
                     .unwrap_or_default();
                 if !summary.is_empty() {
                     let mut doc = TantivyDocument::default();
-                    doc.add_text(id_field, &format!("source-{}-analysis", source_id));
+                    doc.add_text(id_field, format!("source-{}-analysis", source_id));
                     doc.add_text(genre_id_field, &genre_id);
                     doc.add_text(doc_type_field, "analysis");
-                    doc.add_text(title_field, &format!("{} の分析", title));
+                    doc.add_text(title_field, format!("{} の分析", title));
                     doc.add_text(content_field, summary);
                     index_writer
                         .add_document(doc)
@@ -177,7 +177,7 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
         let content = format!("{}\n{}", statement, explanation);
         if !content.trim().is_empty() {
             let mut doc = TantivyDocument::default();
-            doc.add_text(id_field, &format!("knowledge-{}", item_id));
+            doc.add_text(id_field, format!("knowledge-{}", item_id));
             doc.add_text(genre_id_field, &genre_id);
             doc.add_text(doc_type_field, "knowledge");
             doc.add_text(title_field, title);

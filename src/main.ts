@@ -75,6 +75,7 @@ import { getElements } from "./ui/layout.ts";
 import {
   initEditor,
   setEditorInputCallback,
+  flushPendingAutosave,
   getSelection,
   insertAtCursor,
   replaceSelection,
@@ -109,7 +110,13 @@ import {
   renderSettings,
   showSettingsModal,
 } from "./ui/settings-modal.ts";
-import { saveWebDavSyncConfig } from "./sync/webdav.ts";
+import {
+  pullWebDavAll,
+  pushWebDavAll,
+  onSyncProgress,
+  saveWebDavSyncConfig,
+  type SyncProgressPayload,
+} from "./sync/webdav.ts";
 import {
   bindFolderImportActions,
   bindProjectModalActions,
@@ -1877,9 +1884,9 @@ function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = 
     .join("\n");
   const relevanceText = `${state.editorText}\n${recentConversation}`;
 
-  function scoreTerms(terms: string[]): number {
+  function scoreTerms(terms: (string | undefined | null)[]): number {
     return terms.reduce((score, raw) => {
-      const term = raw.trim();
+      const term = raw?.trim();
       if (!term || !relevanceText.includes(term)) return score;
       return score + (term.length >= 2 ? 10 : 3);
     }, 0);
@@ -2723,6 +2730,67 @@ async function loadInitialProject(): Promise<void> {
   }
 }
 
+// --- WebDav 同期オーバーレイ -------------------------------------------------
+
+function createSyncOverlay(): HTMLDivElement {
+  const overlay = document.createElement("div");
+  overlay.id = "litra-sync-overlay";
+  overlay.style.cssText =
+    "position: fixed; top: 0; left: 0; width: 100%; height: 100%;" +
+    " background: rgba(0, 0, 0, 0.5); display: none;" +
+    " align-items: center; justify-content: center; z-index: 99999;" +
+    " font-family: sans-serif;";
+  overlay.innerHTML =
+    '<div style="background: #1e1e2e; color: #cdd6f4; padding: 32px 48px;' +
+    ' border-radius: 12px; text-align: center; min-width: 320px;">' +
+    '<div id="litra-sync-message" style="font-size: 16px; margin-bottom: 16px;">同期中...</div>' +
+    '<div style="background: #313244; border-radius: 8px; height: 8px; overflow: hidden;">' +
+    '<div id="litra-sync-progress-bar" style="background: #89b4fa; height: 100%; width: 0%;' +
+    ' transition: width 0.2s;"></div>' +
+    '</div>' +
+    '<div id="litra-sync-count" style="font-size: 13px; color: #a6adc8; margin-top: 8px;"></div>' +
+    "</div>";
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function showSyncOverlay(message: string): void {
+  const overlay = document.getElementById("litra-sync-overlay");
+  if (!overlay) return;
+  overlay.style.display = "flex";
+  const msg = document.getElementById("litra-sync-message");
+  if (msg) msg.textContent = message;
+  const bar = document.getElementById("litra-sync-progress-bar");
+  if (bar) bar.style.width = "0%";
+  const count = document.getElementById("litra-sync-count");
+  if (count) count.textContent = "";
+}
+
+function updateSyncOverlay(progress: SyncProgressPayload): void {
+  const msg = document.getElementById("litra-sync-message");
+  if (msg) {
+    msg.textContent =
+      progress.phase === "pull" ? "WebDavから同期中..." : "WebDavに同期中...";
+  }
+  const bar = document.getElementById("litra-sync-progress-bar");
+  if (bar) {
+    const pct = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
+    bar.style.width = `${pct}%`;
+  }
+  const count = document.getElementById("litra-sync-count");
+  if (count) {
+    count.textContent =
+      progress.total > 0
+        ? `${progress.current} / ${progress.total}`
+        : `${progress.current}`;
+  }
+}
+
+function hideSyncOverlay(): void {
+  const overlay = document.getElementById("litra-sync-overlay");
+  if (overlay) overlay.style.display = "none";
+}
+
 function bindUiEvents(): void {
   getElements();
   initEditor();
@@ -2801,6 +2869,29 @@ async function init(): Promise<void> {
   bindUiEvents();
   resetChatInputHeight = bindAutoResize(getElements().chatInput, 15);
   console.log("[litra] UI events bound");
+
+  // WebDav 同期オーバーレイを準備
+  createSyncOverlay();
+
+  // 進捗イベントリスナーを登録
+  try {
+    await onSyncProgress((payload) => {
+      updateSyncOverlay(payload);
+    });
+  } catch (error) {
+    console.error("[litra] failed to subscribe sync progress:", error);
+  }
+
+  // 起動時に WebDav から pull（無効設定時は空サマリーですぐ返る）
+  try {
+    showSyncOverlay("WebDavから同期中...");
+    const summary = await pullWebDavAll();
+    console.log("[litra] WebDav pull complete:", summary);
+  } catch (error) {
+    console.error("[litra] WebDav pull failed:", error);
+  } finally {
+    hideSyncOverlay();
+  }
 
   try {
     await initResizablePanels();
@@ -3003,6 +3094,24 @@ async function init(): Promise<void> {
     if (isMainClosing) return;
     event.preventDefault();
     isMainClosing = true;
+
+    // 未確定のデバウンス保存があれば push 前にディスクへ反映する
+    try {
+      await flushPendingAutosave();
+    } catch (error) {
+      console.error("[litra] failed to flush pending autosave:", error);
+    }
+
+    // 終了時に WebDav full push（無効設定時は空サマリーですぐ返る）
+    try {
+      showSyncOverlay("WebDavに同期中...");
+      const summary = await pushWebDavAll();
+      console.log("[litra] WebDav push complete:", summary);
+    } catch (error) {
+      console.error("[litra] WebDav push failed:", error);
+    } finally {
+      hideSyncOverlay();
+    }
 
     try {
       const windows = await getAllWebviewWindows();

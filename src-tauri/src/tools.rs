@@ -541,7 +541,7 @@ pub fn find_episode_lines(
     let raw_lines: Vec<&str> = text.split('\n').collect();
     let total_lines = raw_lines.len();
     let context_lines = req.context_lines.unwrap_or(3).min(50);
-    let max_matches = req.max_matches.unwrap_or(20).min(200).max(1);
+    let max_matches = req.max_matches.unwrap_or(20).clamp(1, 200);
     let case_sensitive = req.case_sensitive.unwrap_or(true);
 
     let mut query = raw_query;

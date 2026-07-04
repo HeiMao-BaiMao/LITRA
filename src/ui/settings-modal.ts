@@ -580,6 +580,11 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     if (!modalProviderConfig) return;
     const provider = modalCurrentProvider;
     captureProviderConfig(provider);
+    // モデル切替時は、まずプロバイダ単位の enabled/disabled 状態に戻してから
+    // モデル単位の disabled を適用する。そうしないと、前のモデルで disabled に
+    // されたパラメータ（例: topK 未対応モデル→対応モデル）が re-enable されない。
+    updateSamplingControlsVisibility(provider);
+    updateCapacityControlsVisibility(provider);
     applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "", provider);
   });
 
@@ -587,6 +592,8 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     if (!modalProviderConfig) return;
     const provider = modalCurrentProvider;
     captureProviderConfig(provider);
+    updateSamplingControlsVisibility(provider);
+    updateCapacityControlsVisibility(provider);
     applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "", provider);
   });
 }

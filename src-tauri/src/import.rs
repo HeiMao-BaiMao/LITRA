@@ -259,7 +259,7 @@ fn character_identity_keys(character: &Value) -> Vec<String> {
             character[*key]
                 .as_str()
                 .unwrap_or_default()
-                .split(|c| c == '\n' || c == '、' || c == ',')
+                .split(['\n', '、', ','])
         })
         .flat_map(character_identity_keys_from_text)
         .collect()
@@ -308,7 +308,7 @@ fn character_import_candidate_identity_keys(character: &Value) -> Vec<String> {
         character["alias"]
             .as_str()
             .unwrap_or_default()
-            .split(|c| c == '\n' || c == '、' || c == ',')
+            .split(['\n', '、', ','])
             .flat_map(character_reference_identity_keys_from_text),
     );
     unique_character_identity_keys(keys)
@@ -331,7 +331,7 @@ fn append_unique_text(existing: &str, addition: &str) -> String {
         return existing.to_string();
     }
     if existing
-        .split(|c| c == '、' || c == ',' || c == '\n')
+        .split(['、', ',', '\n'])
         .any(|part| {
             compact_character_identity_key(part) == compact_character_identity_key(addition)
         })
@@ -453,7 +453,7 @@ fn build_character(fields: &HashMap<String, String>, body: &str, title: &str) ->
 
     json!({
         "id": uuid::Uuid::new_v4().to_string(),
-        "name": get_field(fields, &["name"]).is_empty().then(|| title.to_string()).unwrap_or_else(|| get_field(fields, &["name"])),
+        "name": if get_field(fields, &["name"]).is_empty() { title.to_string() } else { get_field(fields, &["name"]) },
         "reading": get_field(fields, &["reading", "yomigana", "furigana", "kana", "よみがな", "読み仮名"]),
         "alias": get_field(fields, &["alias"]),
         "role": get_field(fields, &["role"]),
@@ -470,7 +470,7 @@ fn build_character(fields: &HashMap<String, String>, body: &str, title: &str) ->
         "specialSkills": get_field(fields, &["specialskills", "specialSkills"]),
         "upbringing": get_field(fields, &["upbringing"]),
         "background": get_field(fields, &["background"]),
-        "notes": get_field(fields, &["notes"]).is_empty().then(|| body.to_string()).unwrap_or_else(|| get_field(fields, &["notes"])),
+        "notes": if get_field(fields, &["notes"]).is_empty() { body.to_string() } else { get_field(fields, &["notes"]) },
         "customFields": extract_custom_fields(fields, &known_keys),
     })
 }
@@ -505,7 +505,7 @@ fn build_world_entry(fields: &HashMap<String, String>, body: &str, title: &str) 
 
     json!({
         "id": uuid::Uuid::new_v4().to_string(),
-        "name": get("name").is_empty().then(|| title.to_string()).unwrap_or_else(|| get("name")),
+        "name": if get("name").is_empty() { title.to_string() } else { get("name") },
         "category": get("category"),
         "era": get("era"),
         "geography": get("geography"),
@@ -520,7 +520,7 @@ fn build_world_entry(fields: &HashMap<String, String>, body: &str, title: &str) 
         "culture": get("culture"),
         "history": get("history"),
         "technology": get("technology"),
-        "notes": get("notes").is_empty().then(|| body.to_string()).unwrap_or_else(|| get("notes")),
+        "notes": if get("notes").is_empty() { body.to_string() } else { get("notes") },
         "customFields": extract_custom_fields(fields, &known_keys),
     })
 }

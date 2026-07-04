@@ -104,7 +104,7 @@ pub fn rebuild_search_index(project_id: String) -> Result<RebuildResult, String>
         let normalized = full_text.replace("\r\n", "\n");
         if !normalized.is_empty() {
             let mut doc = TantivyDocument::default();
-            doc.add_text(id_field, &format!("{}-fullText", ep_id));
+            doc.add_text(id_field, format!("{}-fullText", ep_id));
             doc.add_text(episode_id_field, ep_id);
             doc.add_text(title_field, title);
             doc.add_text(doc_type_field, "fullText");
@@ -120,7 +120,7 @@ pub fn rebuild_search_index(project_id: String) -> Result<RebuildResult, String>
             .unwrap_or_default();
         if !summary.is_empty() {
             let mut doc = TantivyDocument::default();
-            doc.add_text(id_field, &format!("{}-summary", ep_id));
+            doc.add_text(id_field, format!("{}-summary", ep_id));
             doc.add_text(episode_id_field, ep_id);
             doc.add_text(title_field, title);
             doc.add_text(doc_type_field, "summary");
