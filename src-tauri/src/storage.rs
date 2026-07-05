@@ -59,6 +59,10 @@ pub fn project_summaries_path(project_id: &str) -> Result<PathBuf, String> {
     Ok(project_dir(project_id)?.join("summaries.json"))
 }
 
+pub fn project_edit_log_path(project_id: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(project_id)?.join("edit-log.json"))
+}
+
 pub fn project_search_index_dir(project_id: &str) -> Result<PathBuf, String> {
     Ok(data_or_documents_dir()?
         .join(APP_DATA_DIR)

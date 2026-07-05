@@ -1,6 +1,7 @@
 use crate::storage::{
-    project_episodes_dir as episodes_dir, project_episodes_list_path as episode_list_path,
-    project_summaries_path as summary_file_path, read_json, write_json, write_text,
+    project_edit_log_path as edit_log_path, project_episodes_dir as episodes_dir,
+    project_episodes_list_path as episode_list_path,
+    project_summaries_path as summary_file_path, read_json, read_or_empty, write_json, write_text,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -29,6 +30,7 @@ pub struct EditRequest {
     pub end_line: usize,
     pub expected_text: String,
     pub replacement_text: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -38,6 +40,53 @@ pub struct BatchEditItem {
     pub end_line: usize,
     pub expected_text: String,
     pub replacement_text: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EditLogEntry {
+    pub id: String,
+    pub episode_id: String,
+    pub timestamp: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub before_text: String,
+    pub after_text: String,
+    pub reason: String,
+}
+
+const EDIT_LOG_MAX_ENTRIES: usize = 1000;
+
+fn append_edit_log_entries(project_id: &str, new_entries: Vec<EditLogEntry>) -> Result<(), String> {
+    if new_entries.is_empty() {
+        return Ok(());
+    }
+
+    let path = edit_log_path(project_id)?;
+    let mut document = read_or_empty(&path, json!({ "entries": [] }));
+
+    let entries = document
+        .get_mut("entries")
+        .and_then(|v| v.as_array_mut());
+    let entries = match entries {
+        Some(entries) => entries,
+        None => {
+            document["entries"] = json!([]);
+            document["entries"].as_array_mut().unwrap()
+        }
+    };
+
+    for entry in new_entries {
+        entries.push(serde_json::to_value(entry).map_err(|e| e.to_string())?);
+    }
+
+    if entries.len() > EDIT_LOG_MAX_ENTRIES {
+        let overflow = entries.len() - EDIT_LOG_MAX_ENTRIES;
+        entries.drain(0..overflow);
+    }
+
+    write_json(&path, &document)
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,6 +235,20 @@ pub fn edit_episode_text(req: EditRequest) -> Result<EditResult, String> {
     write_text(&file_path, &new_text)
         .map_err(|e| format!("Failed to write episode {}: {}", file_name, e))?;
 
+    append_edit_log_entries(
+        &req.project_id,
+        vec![EditLogEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            episode_id: req.episode_id.clone(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            start_line: req.start_line,
+            end_line: req.end_line,
+            before_text: expected_text,
+            after_text: replacement_text,
+            reason: req.reason.clone(),
+        }],
+    )?;
+
     Ok(EditResult {
         success: true,
         message: format!(
@@ -309,6 +372,9 @@ pub fn edit_episode_text_batch(req: BatchEditRequest) -> Result<BatchEditResult,
     let mut new_lines: Vec<String> = lines.iter().map(|line| (*line).to_string()).collect();
     normalized_edits.sort_by_key(|(_, edit, _, _)| std::cmp::Reverse(edit.start_line));
 
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let mut log_entries = Vec::new();
+
     for (index, edit, replacement_text, replacement_line_count) in normalized_edits {
         let start = edit.start_line - 1;
         let end = edit.end_line;
@@ -316,7 +382,7 @@ pub fn edit_episode_text_batch(req: BatchEditRequest) -> Result<BatchEditResult,
             .split('\n')
             .map(|line| line.to_string())
             .collect::<Vec<_>>();
-        new_lines.splice(start..end, replacement_lines);
+        new_lines.splice(start..end, replacement_lines.clone());
         edit_results.push(BatchEditItemResult {
             index,
             start_line: edit.start_line,
@@ -329,6 +395,16 @@ pub fn edit_episode_text_batch(req: BatchEditRequest) -> Result<BatchEditResult,
             actual_text: None,
             replacement_line_count,
         });
+        log_entries.push(EditLogEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            episode_id: req.episode_id.clone(),
+            timestamp: timestamp.clone(),
+            start_line: edit.start_line,
+            end_line: edit.end_line,
+            before_text: normalize_newlines(&edit.expected_text),
+            after_text: replacement_lines.join("\n"),
+            reason: edit.reason.clone(),
+        });
     }
 
     edit_results.sort_by_key(|result| result.index);
@@ -336,6 +412,8 @@ pub fn edit_episode_text_batch(req: BatchEditRequest) -> Result<BatchEditResult,
     let new_text = new_lines.join("\n");
     write_text(&file_path, &new_text)
         .map_err(|e| format!("Failed to write episode {}: {}", file_name, e))?;
+
+    append_edit_log_entries(&req.project_id, log_entries)?;
 
     Ok(BatchEditResult {
         success: true,
@@ -345,6 +423,40 @@ pub fn edit_episode_text_batch(req: BatchEditRequest) -> Result<BatchEditResult,
         applied_edits,
         edit_results,
     })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetEditLogRequest {
+    pub project_id: String,
+    pub episode_id: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[tauri::command]
+pub fn get_edit_log(req: GetEditLogRequest) -> Result<Vec<EditLogEntry>, String> {
+    let path = edit_log_path(&req.project_id)?;
+    let document = read_or_empty(&path, json!({ "entries": [] }));
+
+    let mut entries: Vec<EditLogEntry> = document["entries"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| serde_json::from_value::<EditLogEntry>(v.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if let Some(episode_id) = &req.episode_id {
+        entries.retain(|entry| &entry.episode_id == episode_id);
+    }
+
+    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+    let limit = req.limit.unwrap_or(20).clamp(1, 100);
+    entries.truncate(limit);
+
+    Ok(entries)
 }
 
 #[derive(Debug, Deserialize)]
@@ -809,12 +921,70 @@ mod tests {
             end_line: 1,
             expected_text: "旧テキスト".to_string(),
             replacement_text: "新テキスト".to_string(),
+            reason: "テストのための書き換え".to_string(),
         });
 
         let result = result.unwrap();
         assert!(result.success, "edit should succeed: {:?}", result.message);
         let written = fs::read_to_string(episodes_dir_path.join("ep-1.txt")).unwrap();
         assert!(written.starts_with("新テキスト"));
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn edit_episode_records_edit_log_entry() {
+        let project_id = test_project_id();
+        let base = project_dir(&project_id).unwrap();
+        let episodes_dir_path = base.join("episodes");
+        let _ = fs::create_dir_all(&episodes_dir_path);
+
+        let episodes = json!({
+            "episodes": [{
+                "id": "ep-1",
+                "title": "第一話",
+                "order": 1,
+                "fileName": "ep-1.txt"
+            }]
+        });
+        fs::write(
+            base.join("episodes.json"),
+            serde_json::to_string_pretty(&episodes).unwrap(),
+        )
+        .unwrap();
+        fs::write(episodes_dir_path.join("ep-1.txt"), "旧テキスト\n次の行").unwrap();
+
+        edit_episode_text(EditRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            start_line: 1,
+            end_line: 1,
+            expected_text: "旧テキスト".to_string(),
+            replacement_text: "新テキスト".to_string(),
+            reason: "視点人物の一人称のブレを修正".to_string(),
+        })
+        .unwrap();
+
+        let log = get_edit_log(GetEditLogRequest {
+            project_id: project_id.clone(),
+            episode_id: None,
+            limit: None,
+        })
+        .unwrap();
+
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].episode_id, "ep-1");
+        assert_eq!(log[0].before_text, "旧テキスト");
+        assert_eq!(log[0].after_text, "新テキスト");
+        assert_eq!(log[0].reason, "視点人物の一人称のブレを修正");
+
+        let filtered = get_edit_log(GetEditLogRequest {
+            project_id: project_id.clone(),
+            episode_id: Some("ep-2".to_string()),
+            limit: None,
+        })
+        .unwrap();
+        assert!(filtered.is_empty());
 
         cleanup(&project_id);
     }
@@ -848,6 +1018,7 @@ mod tests {
             end_line: 1,
             expected_text: "".to_string(),
             replacement_text: "差し込み".to_string(),
+            reason: "テストのための書き換え".to_string(),
         })
         .unwrap();
 
@@ -893,12 +1064,14 @@ mod tests {
                     end_line: 2,
                     expected_text: "二行目".to_string(),
                     replacement_text: "二行目A\n二行目B".to_string(),
+                    reason: "二行目を分割".to_string(),
                 },
                 BatchEditItem {
                     start_line: 5,
                     end_line: 5,
                     expected_text: "五行目".to_string(),
                     replacement_text: "五行目改".to_string(),
+                    reason: "五行目を修正".to_string(),
                 },
             ],
         })
@@ -915,6 +1088,16 @@ mod tests {
             written,
             "一行目\n二行目A\n二行目B\n三行目\n四行目\n五行目改"
         );
+
+        let log = get_edit_log(GetEditLogRequest {
+            project_id: project_id.clone(),
+            episode_id: Some("ep-1".to_string()),
+            limit: None,
+        })
+        .unwrap();
+        assert_eq!(log.len(), 2);
+        assert!(log.iter().any(|e| e.reason == "二行目を分割"));
+        assert!(log.iter().any(|e| e.reason == "五行目を修正"));
 
         cleanup(&project_id);
     }
@@ -950,12 +1133,14 @@ mod tests {
                     end_line: 1,
                     expected_text: "一行目".to_string(),
                     replacement_text: "一行目改".to_string(),
+                    reason: "一行目を修正".to_string(),
                 },
                 BatchEditItem {
                     start_line: 3,
                     end_line: 3,
                     expected_text: "違う三行目".to_string(),
                     replacement_text: "三行目改".to_string(),
+                    reason: "三行目を修正".to_string(),
                 },
             ],
         })
@@ -1018,6 +1203,7 @@ mod tests {
             end_line: found.matches[0].end_line,
             expected_text: found.matches[0].expected_text.clone(),
             replacement_text: "差し替え".to_string(),
+            reason: "テストのための書き換え".to_string(),
         })
         .unwrap();
 

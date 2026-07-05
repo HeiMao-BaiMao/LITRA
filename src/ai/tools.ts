@@ -486,6 +486,12 @@ const editInputSchema = z
       .describe(
         "Replacement text. Write natural-language prose in Japanese unless exact source preservation or an explicit user request requires otherwise.",
       ),
+    reason: z
+      .string()
+      .min(1)
+      .describe(
+        "Why this exact change is being made — the concrete problem it fixes or the goal it achieves, in Japanese. Saved permanently to a project edit log that other sessions and future consistency checks will read. State the reason itself, not a restatement of the diff or filler such as 'more natural'.",
+      ),
   })
   .refine((value) => value.endLine >= value.startLine, {
     message: "endLine must be greater than or equal to startLine.",
@@ -495,7 +501,7 @@ const editInputSchema = z
 export function createEditEpisodeTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "Replaces a line range only when expectedText exactly matches the current manuscript. Line numbers are 1-based and must be within the episode. Use getEpisodeLines first when uncertain. expectedText must preserve every character, line break, space, and width variant. replacementText must contain the final replacement; write natural-language prose in Japanese unless exact source preservation or an explicit user request requires otherwise. On success, report editSummary or editedLineRanges once instead of restating tool arguments.",
+      "Replaces a line range only when expectedText exactly matches the current manuscript. Line numbers are 1-based and must be within the episode. Use getEpisodeLines first when uncertain. expectedText must preserve every character, line break, space, and width variant. replacementText must contain the final replacement; write natural-language prose in Japanese unless exact source preservation or an explicit user request requires otherwise. reason is required and is saved to a persistent edit log other sessions can query via getEditLog. On success, report editSummary or editedLineRanges once instead of restating tool arguments.",
 
     inputSchema: editInputSchema,
     execute: wrapToolExecute(
@@ -506,6 +512,7 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
         endLine,
         expectedText,
         replacementText,
+        reason,
       }) => {
         const targetEpisodeId = episodeId ?? deps.episodeId;
         const result = await invoke<{
@@ -522,6 +529,7 @@ export function createEditEpisodeTool(deps: EditToolDependencies) {
             endLine,
             expectedText,
             replacementText,
+            reason,
           },
         });
         if (result.success && result.newText != null) {
@@ -584,7 +592,7 @@ const batchEditInputSchema = z.object({
 export function createEditEpisodeBatchTool(deps: EditToolDependencies) {
   return tool({
     description:
-      "Atomically replaces multiple non-contiguous ranges in one episode. Use this instead of repeated editEpisode calls when multiple clear ranges are requested. Every expectedText must exactly match the current text, including line breaks, spacing, and width variants. All ranges use 1-based line numbers from the same pre-edit manuscript and must not overlap. Use getEpisodeLines first when uncertain. All replacementText values must be Japanese natural-language prose unless exact source preservation or an explicit user request requires otherwise. On success, report editSummary or editedLineRanges once instead of asking for per-range confirmation.",
+      "Atomically replaces multiple non-contiguous ranges in one episode. Use this instead of repeated editEpisode calls when multiple clear ranges are requested. Every expectedText must exactly match the current text, including line breaks, spacing, and width variants. All ranges use 1-based line numbers from the same pre-edit manuscript and must not overlap. Use getEpisodeLines first when uncertain. All replacementText values must be Japanese natural-language prose unless exact source preservation or an explicit user request requires otherwise. Each edit's reason is required and is saved to a persistent edit log other sessions can query via getEditLog. On success, report editSummary or editedLineRanges once instead of asking for per-range confirmation.",
     inputSchema: batchEditInputSchema,
     execute: wrapToolExecute(
       "editEpisodeBatch",
@@ -875,6 +883,48 @@ export function createSearchEpisodesTool(deps: SearchDependencies) {
         req: {
           projectId: deps.projectId,
           query,
+          limit,
+        },
+      });
+    }),
+  });
+}
+
+interface EditLogEntryResponse {
+  id: string;
+  episodeId: string;
+  timestamp: string;
+  startLine: number;
+  endLine: number;
+  beforeText: string;
+  afterText: string;
+  reason: string;
+}
+
+const getEditLogInputSchema = z.object({
+  episodeId: z
+    .string()
+    .optional()
+    .describe("Limit to one episode. Omit for project-wide history."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Maximum number of entries, most recent first. Default: 20."),
+});
+
+export function createGetEditLogTool(deps: SearchDependencies) {
+  return tool({
+    description:
+      "Retrieves past manuscript edits (episode, line range, before/after text, and the stated reason), most recent first. Use this to learn why an earlier change was made — e.g. at the start of a new chat/session before continuing, rewriting, or judging previously edited text, or when the user asks about editing history or intent. Do not guess past intent from memory or from the text alone.",
+    inputSchema: getEditLogInputSchema,
+    execute: wrapToolExecute("getEditLog", async ({ episodeId, limit }) => {
+      return await invoke<EditLogEntryResponse[]>("get_edit_log", {
+        req: {
+          projectId: deps.projectId,
+          episodeId,
           limit,
         },
       });
