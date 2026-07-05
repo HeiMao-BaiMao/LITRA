@@ -65,6 +65,10 @@ fn read_config() -> Result<WebDavSyncConfig, String> {
     serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
+fn sync_enabled(config: &WebDavSyncConfig) -> bool {
+    config.enabled && !config.base_url.trim().is_empty()
+}
+
 fn write_config(config: &WebDavSyncConfig) -> Result<(), String> {
     let path = config_path()?;
     ensure_parent_dir(&path)?;
@@ -91,6 +95,9 @@ fn write_config(config: &WebDavSyncConfig) -> Result<(), String> {
     .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
     if let Ok(mut state) = state().lock() {
         state.ensured_dirs.clear();
+        if !sync_enabled(&normalized) {
+            state.queue.clear();
+        }
     }
     Ok(())
 }
@@ -147,7 +154,7 @@ fn enqueue(job: SyncJob) {
     let Ok(config) = read_config() else {
         return;
     };
-    if !config.enabled || config.base_url.trim().is_empty() {
+    if !sync_enabled(&config) {
         return;
     }
 
@@ -189,6 +196,10 @@ async fn drain_queue() {
 }
 
 async fn run_job(job: SyncJob) -> Result<(), String> {
+    if !sync_enabled(&read_config()?) {
+        return Ok(());
+    }
+
     match job {
         SyncJob::Put { path, content } => {
             put_remote_file(&path, content).await?;
@@ -800,7 +811,7 @@ async fn wait_queue_drain(timeout_ms: u64) -> bool {
 #[tauri::command]
 pub async fn pull_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
     let config = read_config()?;
-    if !config.enabled || config.base_url.trim().is_empty() {
+    if !sync_enabled(&config) {
         return Ok(SyncSummary::default());
     }
 
@@ -1072,7 +1083,7 @@ fn cleanup_empty_dirs(dir: &Path) -> Result<(), String> {
 #[tauri::command]
 pub async fn push_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
     let config = read_config()?;
-    if !config.enabled || config.base_url.trim().is_empty() {
+    if !sync_enabled(&config) {
         return Ok(SyncSummary::default());
     }
 

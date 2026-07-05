@@ -112,6 +112,7 @@ import {
   showSettingsModal,
 } from "./ui/settings-modal.ts";
 import {
+  loadWebDavSyncConfig,
   pullWebDavAll,
   pushWebDavAll,
   onSyncProgress,
@@ -2818,6 +2819,16 @@ function hideSyncOverlay(): void {
   if (overlay) overlay.style.display = "none";
 }
 
+async function shouldRunWebDavSync(): Promise<boolean> {
+  try {
+    const config = await loadWebDavSyncConfig();
+    return config.enabled && config.baseUrl.trim().length > 0;
+  } catch (error) {
+    console.error("[litra] failed to load WebDav sync config:", error);
+    return false;
+  }
+}
+
 function bindUiEvents(): void {
   getElements();
   initEditor();
@@ -2909,15 +2920,17 @@ async function init(): Promise<void> {
     console.error("[litra] failed to subscribe sync progress:", error);
   }
 
-  // 起動時に WebDav から pull（無効設定時は空サマリーですぐ返る）
-  try {
-    showSyncOverlay("WebDavから同期中...");
-    const summary = await pullWebDavAll();
-    console.log("[litra] WebDav pull complete:", summary);
-  } catch (error) {
-    console.error("[litra] WebDav pull failed:", error);
-  } finally {
-    hideSyncOverlay();
+  // 起動時に WebDav から pull
+  if (await shouldRunWebDavSync()) {
+    try {
+      showSyncOverlay("WebDavから同期中...");
+      const summary = await pullWebDavAll();
+      console.log("[litra] WebDav pull complete:", summary);
+    } catch (error) {
+      console.error("[litra] WebDav pull failed:", error);
+    } finally {
+      hideSyncOverlay();
+    }
   }
 
   try {
@@ -3129,15 +3142,17 @@ async function init(): Promise<void> {
       console.error("[litra] failed to flush pending autosave:", error);
     }
 
-    // 終了時に WebDav full push（無効設定時は空サマリーですぐ返る）
-    try {
-      showSyncOverlay("WebDavに同期中...");
-      const summary = await pushWebDavAll();
-      console.log("[litra] WebDav push complete:", summary);
-    } catch (error) {
-      console.error("[litra] WebDav push failed:", error);
-    } finally {
-      hideSyncOverlay();
+    // 終了時に WebDav full push
+    if (await shouldRunWebDavSync()) {
+      try {
+        showSyncOverlay("WebDavに同期中...");
+        const summary = await pushWebDavAll();
+        console.log("[litra] WebDav push complete:", summary);
+      } catch (error) {
+        console.error("[litra] WebDav push failed:", error);
+      } finally {
+        hideSyncOverlay();
+      }
     }
 
     try {

@@ -1504,6 +1504,11 @@ button#btn-cancel:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
+.sync-settings input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .danger-button {
   background-color: transparent;
   color: #ff6b6b;

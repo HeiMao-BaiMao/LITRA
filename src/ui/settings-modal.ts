@@ -364,6 +364,26 @@ async function renderWebDavSettings(): Promise<void> {
   settingWebdavUsername.value = config.username ?? "";
   settingWebdavPassword.value = config.password ?? "";
   settingWebdavFolder.value = config.remoteFolder ?? "";
+  updateWebDavControlsState();
+}
+
+function updateWebDavControlsState(): void {
+  const {
+    settingWebdavEnabled,
+    settingWebdavUrl,
+    settingWebdavUsername,
+    settingWebdavPassword,
+    settingWebdavFolder,
+  } = getElements();
+  const disabled = !settingWebdavEnabled.checked;
+  for (const input of [
+    settingWebdavUrl,
+    settingWebdavUsername,
+    settingWebdavPassword,
+    settingWebdavFolder,
+  ]) {
+    input.disabled = disabled;
+  }
 }
 
 function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string, provider: Provider): void {
@@ -624,13 +644,14 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
 }
 
 export function bindSettingsActions(actions: SettingsActions): void {
-  const { settingsForm, btnCancelSettings, btnInitializeSettings } = getElements();
+  const { settingsForm, btnCancelSettings, btnInitializeSettings, settingWebdavEnabled } = getElements();
 
   settingsForm.addEventListener("submit", (event) => {
     event.preventDefault();
     actions.onSave(readSettingsFromModal());
   });
 
+  settingWebdavEnabled.addEventListener("change", updateWebDavControlsState);
   btnCancelSettings.addEventListener("click", actions.onCancel);
   btnInitializeSettings.addEventListener("click", () => actions.onInitialize());
 }
