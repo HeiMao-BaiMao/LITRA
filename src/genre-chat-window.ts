@@ -683,13 +683,30 @@ function updateStreamingMessage(content: string, thinking?: string): void {
     ];
   }
 
-  const bubble = container.querySelector<HTMLElement>('.chat-message[data-message-id="streaming"]');
-  if (bubble) {
-    renderChatMessageContent(bubble, content, thinking);
-    container.scrollTop = container.scrollHeight;
-  } else {
-    renderMessages();
-  }
+  scheduleStreamingRender();
+}
+
+// ストリーミング描画は requestAnimationFrame で 1 フレーム 1 回に集約する。
+// チャンクごとに全文 Markdown を再レンダーすると長い返答で UI が固まるため。
+// state.messages の更新は同期のままなので、確定処理との整合は保たれる。
+let streamingRenderFrame: number | null = null;
+
+function scheduleStreamingRender(): void {
+  if (streamingRenderFrame !== null) return;
+  streamingRenderFrame = requestAnimationFrame(() => {
+    streamingRenderFrame = null;
+    const container = document.getElementById("chat-messages");
+    if (!container) return;
+    const message = state.messages.find((m) => m.id === "streaming");
+    if (!message) return; // 既に確定済み（最終描画は renderMessages が担う）
+    const bubble = container.querySelector<HTMLElement>('.chat-message[data-message-id="streaming"]');
+    if (bubble) {
+      renderChatMessageContent(bubble, message.content, message.thinking);
+      container.scrollTop = container.scrollHeight;
+    } else {
+      renderMessages();
+    }
+  });
 }
 
 function formatBytes(bytes: number): string {

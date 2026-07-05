@@ -12,6 +12,48 @@ function sync(): void {
   onSync?.([...state.chatMessages], state.isGenerating);
 }
 
+// --- ストリーミング中の描画・同期の間引き ---------------------------------
+// チャンクごとに全文 Markdown 再レンダー＋全履歴 IPC 送信を行うと、
+// 返答が長くなるにつれて UI が固まりリアルタイム性が失われる。
+// 描画は requestAnimationFrame で 1 フレームに 1 回へ集約し、
+// 別ウィンドウへの同期はトレーリング付きスロットルで間引く。
+
+const STREAM_SYNC_INTERVAL_MS = 100;
+let pendingRenderFrame: number | null = null;
+let streamRenderTarget: { el: HTMLElement; message: ChatMessage } | null = null;
+let lastSyncAt = 0;
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function throttledSync(): void {
+  const elapsed = Date.now() - lastSyncAt;
+  if (elapsed >= STREAM_SYNC_INTERVAL_MS) {
+    lastSyncAt = Date.now();
+    sync();
+    return;
+  }
+  if (syncTimer) return;
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    lastSyncAt = Date.now();
+    sync();
+  }, STREAM_SYNC_INTERVAL_MS - elapsed);
+}
+
+function scheduleStreamRender(el: HTMLElement, message: ChatMessage): void {
+  streamRenderTarget = { el, message };
+  if (pendingRenderFrame !== null) return;
+  pendingRenderFrame = requestAnimationFrame(() => {
+    pendingRenderFrame = null;
+    const target = streamRenderTarget;
+    streamRenderTarget = null;
+    if (!target || !target.el.isConnected) return;
+    const container = getElements().chatMessages;
+    const followScroll = isNearBottom(container);
+    renderChatMessageHtml(target.el, target.message.content, target.message.thinking);
+    if (followScroll) scrollToBottom();
+  });
+}
+
 export function appendMessage(
   role: ChatMessage["role"],
   content: string,
@@ -34,7 +76,6 @@ function isNearBottom(container: HTMLElement): boolean {
 
 export function updateLastAssistantChunk(chunk: string): void {
   const container = getElements().chatMessages;
-  const followScroll = isNearBottom(container);
   let messageEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
 
   if (!messageEl) {
@@ -48,15 +89,13 @@ export function updateLastAssistantChunk(chunk: string): void {
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
   if (lastMessage && lastMessage.role === "assistant") {
     lastMessage.content += chunk;
-    renderChatMessageHtml(messageEl, lastMessage.content, lastMessage.thinking);
+    scheduleStreamRender(messageEl, lastMessage);
   }
-  if (followScroll) scrollToBottom();
-  sync();
+  throttledSync();
 }
 
 export function updateLastAssistantThinking(chunk: string): void {
   const container = getElements().chatMessages;
-  const followScroll = isNearBottom(container);
   let messageEl = container.querySelector<HTMLElement>(".chat-message.assistant:last-child");
 
   if (!messageEl) {
@@ -70,10 +109,9 @@ export function updateLastAssistantThinking(chunk: string): void {
   const lastMessage = state.chatMessages[state.chatMessages.length - 1];
   if (lastMessage && lastMessage.role === "assistant") {
     lastMessage.thinking = `${lastMessage.thinking ?? ""}${chunk}`;
-    renderChatMessageHtml(messageEl, lastMessage.content, lastMessage.thinking);
+    scheduleStreamRender(messageEl, lastMessage);
   }
-  if (followScroll) scrollToBottom();
-  sync();
+  throttledSync();
 }
 
 export function updateMessageContent(index: number, content: string): boolean {
