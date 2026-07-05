@@ -484,6 +484,74 @@ function openCodeErrorResponse(original: Response, message: string): Response {
   );
 }
 
+const STREAM_PEEK_MAX_CHARS = 2048;
+
+interface PeekedStream {
+  /// 先頭から覗き見たテキスト（エラー検知用）
+  text: string;
+  /// 覗き見で消費した生チャンク（返却時に再生する）
+  chunks: Uint8Array[];
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  /// 覗き見中にストリームが終端に達したか
+  done: boolean;
+}
+
+/**
+ * ストリームの先頭だけを読み取り、エラー検知に使う。
+ * 最初の SSE イベント境界（\n\n）か一定サイズまでで打ち切る。
+ * 消費したチャンクは replayedResponse で再生されるため失われない。
+ */
+async function peekStreamHead(body: ReadableStream<Uint8Array>): Promise<PeekedStream> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let text = "";
+  let done = false;
+  while (text.length < STREAM_PEEK_MAX_CHARS && !text.includes("\n\n")) {
+    const result = await reader.read();
+    if (result.done) {
+      done = true;
+      break;
+    }
+    chunks.push(result.value);
+    text += decoder.decode(result.value, { stream: true });
+  }
+  return { text, chunks, reader, done };
+}
+
+/**
+ * 覗き見済みのチャンクを先頭に再生しつつ、残りをリアルタイムで
+ * パススルーする Response を作る。ストリーミングを維持したまま
+ * 先頭エラー検知を可能にするための仕組み。
+ */
+function replayedResponse(original: Response, peeked: PeekedStream): Response {
+  const { chunks, reader, done } = peeked;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(chunk);
+      }
+      if (done) controller.close();
+    },
+    async pull(controller) {
+      const result = await reader.read();
+      if (result.done) {
+        controller.close();
+      } else {
+        controller.enqueue(result.value);
+      }
+    },
+    cancel(reason) {
+      void reader.cancel(reason);
+    },
+  });
+  return new Response(stream, {
+    status: original.status,
+    statusText: original.statusText,
+    headers: new Headers(original.headers),
+  });
+}
+
 async function debugFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -514,8 +582,52 @@ async function debugFetch(
       await waitForRequestSlot("opencode", OPENCODE_MIN_REQUEST_INTERVAL_MS);
     }
 
-    console.log("[litra] fetch request", url, body);
+    console.log("[litra] fetch request", url, body ? body.slice(0, 500) : undefined);
     const res = await tauriFetch(input, init);
+
+    // ストリーミング（SSE）成功レスポンスは全文を読まない。
+    // 全文を await すると応答完了までチャンクが AI SDK に一切届かず、
+    // リアルタイム表示が壊れる。先頭だけ覗いてエラー検知し、
+    // 残りはパススルーで流す。
+    const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (res.ok && contentType.includes("text/event-stream") && res.body) {
+      const peeked = await peekStreamHead(res.body);
+      console.log("[litra] fetch response (stream)", res.status, peeked.text.slice(0, 200));
+
+      if (
+        isOpenCodeRequest &&
+        !abortSignal?.aborted &&
+        isOpenCodeTransientErrorText(peeked.text)
+      ) {
+        await peeked.reader.cancel();
+        if (attempt < OPENCODE_RETRY_DELAYS_MS.length) {
+          const retryDelayMs = getRetryDelayMs(res, attempt, OPENCODE_RETRY_DELAYS_MS);
+          console.warn("[litra] OpenCode Go transient upstream error in stream head; retrying", {
+            status: res.status,
+            attempt: attempt + 1,
+            retryDelayMs,
+          });
+          await sleep(retryDelayMs, abortSignal);
+          continue;
+        }
+        const openCodeErrorMessage =
+          extractOpenCodeErrorMessage(peeked.text) ?? "OpenCode upstream error";
+        console.error("[litra] OpenCode upstream error in stream head:", openCodeErrorMessage);
+        return openCodeErrorResponse(res, openCodeErrorMessage);
+      }
+
+      if (isPlamoUrl(url)) {
+        const plamoStreamError = extractPlamoStreamErrorMessage(peeked.text);
+        if (plamoStreamError) {
+          await peeked.reader.cancel();
+          console.error("[litra] PLaMo stream error:", plamoStreamError);
+          return plamoErrorResponse(res, plamoStreamError);
+        }
+      }
+
+      return replayedResponse(res, peeked);
+    }
+
     const clone = res.clone ? res.clone() : res;
     const text = await clone.text();
     console.log("[litra] fetch response", res.status, text.slice(0, 500));
