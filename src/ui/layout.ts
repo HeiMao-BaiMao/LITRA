@@ -63,6 +63,7 @@ export interface AppElements {
   settingDeepseekReasoningEffort: HTMLSelectElement;
   settingAnthropicThinkingEnabled: HTMLInputElement;
   settingAnthropicThinkingBudget: HTMLInputElement;
+  settingGoogleThinkingLevel: HTMLSelectElement;
   settingWebdavEnabled: HTMLInputElement;
   settingWebdavUrl: HTMLInputElement;
   settingWebdavUsername: HTMLInputElement;
@@ -159,6 +160,7 @@ export function getElements(): AppElements {
   const settingDeepseekReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-deepseek-reasoning-effort");
   const settingAnthropicThinkingEnabled = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-enabled");
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
+  const settingGoogleThinkingLevel = document.querySelector<HTMLSelectElement>("#setting-google-thinking-level");
   const settingWebdavEnabled = document.querySelector<HTMLInputElement>("#setting-webdav-enabled");
   const settingWebdavUrl = document.querySelector<HTMLInputElement>("#setting-webdav-url");
   const settingWebdavUsername = document.querySelector<HTMLInputElement>("#setting-webdav-username");
@@ -218,6 +220,7 @@ export function getElements(): AppElements {
     !settingDeepseekReasoningEffort ||
     !settingAnthropicThinkingEnabled ||
     !settingAnthropicThinkingBudget ||
+    !settingGoogleThinkingLevel ||
     !settingWebdavEnabled ||
     !settingWebdavUrl ||
     !settingWebdavUsername ||
@@ -340,6 +343,7 @@ export function getElements(): AppElements {
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingGoogleThinkingLevel,
     settingWebdavEnabled,
     settingWebdavUrl,
     settingWebdavUsername,

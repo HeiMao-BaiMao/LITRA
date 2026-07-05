@@ -9,6 +9,16 @@ import {
 
 export type SdkType = "openai" | "anthropic" | "google";
 
+/// モデル選択方式。
+/// - "fixed": `models` 一覧からの固定選択（取得ボタンは無効化される）
+/// - "fetch": 自由入力＋プロバイダー API からのモデル一覧取得
+export type ModelSelectionMode = "fixed" | "fetch";
+
+/// アプリ更新時の既定モデル定義とのマージ方針。
+/// - "merge": 既定の models にユーザー定義を id 単位で上書きマージ（新モデルが自動追加される）
+/// - "replace": ユーザー定義の models をそのまま使う（既定からの追加・復元をしない）
+export type ModelsPolicy = "merge" | "replace";
+
 export interface ProviderModelDefaults {
   id: string;
   label?: string;
@@ -23,6 +33,9 @@ export interface ProviderModelDefaults {
   deepseekReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
+  /// Gemini 3 系のみ対応。Gemini 3 系は temperature/topP/topK の代わりにこちらで
+  /// 思考の深さを指定する（両方は指定不可）。Gemma 系には存在しない概念のため未指定のままにする。
+  googleThinkingLevel?: "minimal" | "low" | "medium" | "high";
 }
 
 export interface ProviderEntry {
@@ -32,6 +45,10 @@ export interface ProviderEntry {
   defaultBaseUrl: string;
   defaultModel: string;
   requiresApiKey?: boolean;
+  /// 省略時は "fetch"
+  modelSelection?: ModelSelectionMode;
+  /// 省略時は "merge"
+  modelsPolicy?: ModelsPolicy;
   models?: ProviderModelDefaults[];
 }
 
@@ -79,15 +96,17 @@ function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
   for (const defaultProvider of DEFAULT_CONFIG.providers) {
     const existing = existingById.get(defaultProvider.id);
     if (existing) {
+      // ユーザーが providers.json で編集した値を優先する。
+      // 既定値はユーザー側に無いフィールドの補完と、新モデルの追加にのみ使う。
       merged.push({
         ...defaultProvider,
         ...existing,
         defaultBaseUrl: existing.defaultBaseUrl || defaultProvider.defaultBaseUrl,
-        defaultModel: defaultProvider.defaultModel,
+        defaultModel: existing.defaultModel || defaultProvider.defaultModel,
         requiresApiKey: existing.requiresApiKey ?? defaultProvider.requiresApiKey,
         models:
-          defaultProvider.id === "sakura" || defaultProvider.id === "opencode"
-            ? defaultProvider.models
+          (existing.modelsPolicy ?? "merge") === "replace"
+            ? existing.models
             : mergeDefaultModels(existing.models, defaultProvider.models),
       });
       existingById.delete(defaultProvider.id);
@@ -151,6 +170,13 @@ export function providerRequiresApiKey(provider: ProviderEntry | undefined): boo
   return provider?.requiresApiKey ?? true;
 }
 
+/// プロバイダーが固定モデル選択方式かどうか。
+/// `modelSelection: "fixed"` かつ models が 1 件以上定義されている場合のみ true
+/// （models が空だと選択肢が無くなり操作不能になるため、その場合は fetch 扱い）。
+export function isFixedModelSelection(provider: ProviderEntry | undefined): boolean {
+  return provider?.modelSelection === "fixed" && (provider.models?.length ?? 0) > 0;
+}
+
 function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults {
   if (typeof value !== "object" || value === null) return false;
   const model = value as Partial<ProviderModelDefaults>;
@@ -178,7 +204,12 @@ function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults
       model.deepseekReasoningEffort === "xhigh" ||
       model.deepseekReasoningEffort === "max") &&
     (model.anthropicThinkingEnabled === undefined || typeof model.anthropicThinkingEnabled === "boolean") &&
-    (model.anthropicThinkingBudget === undefined || typeof model.anthropicThinkingBudget === "number")
+    (model.anthropicThinkingBudget === undefined || typeof model.anthropicThinkingBudget === "number") &&
+    (model.googleThinkingLevel === undefined ||
+      model.googleThinkingLevel === "minimal" ||
+      model.googleThinkingLevel === "low" ||
+      model.googleThinkingLevel === "medium" ||
+      model.googleThinkingLevel === "high")
   );
 }
 
@@ -196,6 +227,8 @@ function isProviderConfig(value: unknown): value is ProviderConfig {
       typeof p.defaultBaseUrl === "string" &&
       typeof p.defaultModel === "string" &&
       (p.requiresApiKey === undefined || typeof p.requiresApiKey === "boolean") &&
+      (p.modelSelection === undefined || p.modelSelection === "fixed" || p.modelSelection === "fetch") &&
+      (p.modelsPolicy === undefined || p.modelsPolicy === "merge" || p.modelsPolicy === "replace") &&
       (p.models === undefined || (Array.isArray(p.models) && p.models.every(isProviderModelDefaults)))
     );
   });

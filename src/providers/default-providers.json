@@ -7,6 +7,7 @@
       "defaultBaseUrl": "https://api.openai.com/v1",
       "defaultModel": "gpt-5.5",
       "requiresApiKey": true,
+      "modelSelection": "fetch",
       "models": [
         {
           "id": "gpt-5.5",
@@ -50,6 +51,7 @@
       "defaultBaseUrl": "https://api.anthropic.com",
       "defaultModel": "claude-sonnet-4-6",
       "requiresApiKey": true,
+      "modelSelection": "fetch",
       "models": [
         {
           "id": "claude-opus-4-8",
@@ -87,6 +89,7 @@
       "defaultBaseUrl": "https://api.deepseek.com",
       "defaultModel": "deepseek-v4-flash",
       "requiresApiKey": true,
+      "modelSelection": "fixed",
       "models": [
         {
           "id": "deepseek-v4-flash",
@@ -115,40 +118,51 @@
       "defaultBaseUrl": "https://generativelanguage.googleapis.com/v1beta",
       "defaultModel": "gemini-3.5-flash",
       "requiresApiKey": true,
+      "modelSelection": "fixed",
       "models": [
         {
           "id": "gemini-3.5-flash",
           "label": "Gemini 3.5 Flash",
-          "temperature": 1.0,
-          "maxTokens": 8192,
+          "maxTokens": 65536,
           "maxContextTokens": 1048576,
-          "topP": 0.95,
-          "topK": 64
+          "googleThinkingLevel": "high"
         },
         {
           "id": "gemini-3.1-pro-preview",
           "label": "Gemini 3.1 Pro Preview",
-          "temperature": 1.0,
-          "maxTokens": 8192,
+          "maxTokens": 65536,
           "maxContextTokens": 1048576,
-          "topP": 0.95,
-          "topK": 64
+          "googleThinkingLevel": "high"
         },
         {
           "id": "gemini-3-flash-preview",
           "label": "Gemini 3 Flash Preview",
-          "temperature": 1.0,
-          "maxTokens": 8192,
+          "maxTokens": 65536,
           "maxContextTokens": 1048576,
-          "topP": 0.95,
-          "topK": 64
+          "googleThinkingLevel": "high"
         },
         {
           "id": "gemini-3.1-flash-lite",
           "label": "Gemini 3.1 Flash-Lite",
-          "temperature": 1.0,
-          "maxTokens": 8192,
+          "maxTokens": 65536,
           "maxContextTokens": 1048576,
+          "googleThinkingLevel": "minimal"
+        },
+        {
+          "id": "gemma-4-26b-a4b-it",
+          "label": "Gemma 4 26B A4B",
+          "temperature": 1.0,
+          "maxTokens": 32768,
+          "maxContextTokens": 262144,
+          "topP": 0.95,
+          "topK": 64
+        },
+        {
+          "id": "gemma-4-31b-it",
+          "label": "Gemma 4 31B",
+          "temperature": 1.0,
+          "maxTokens": 32768,
+          "maxContextTokens": 262144,
           "topP": 0.95,
           "topK": 64
         }
@@ -161,6 +175,7 @@
       "defaultBaseUrl": "http://127.0.0.1:8080/v1",
       "defaultModel": "gpt-3.5-turbo",
       "requiresApiKey": false,
+      "modelSelection": "fetch",
       "models": [
         {
           "id": "gpt-3.5-turbo",
@@ -187,6 +202,7 @@
       "defaultBaseUrl": "https://api.ai.sakura.ad.jp/v1",
       "defaultModel": "gpt-oss-120b",
       "requiresApiKey": true,
+      "modelSelection": "fixed",
       "models": [
         {
           "id": "gpt-oss-120b",
@@ -227,6 +243,7 @@
       "defaultBaseUrl": "https://api.platform.preferredai.jp/v1",
       "defaultModel": "plamo-3.0-prime",
       "requiresApiKey": true,
+      "modelSelection": "fetch",
       "models": [
         {
           "id": "plamo-3.0-prime",
@@ -245,6 +262,7 @@
       "defaultBaseUrl": "https://opencode.ai/zen/go/v1",
       "defaultModel": "deepseek-v4-flash",
       "requiresApiKey": true,
+      "modelSelection": "fixed",
       "models": [
         {
           "id": "deepseek-v4-flash",

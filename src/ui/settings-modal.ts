@@ -2,6 +2,7 @@ import { getElements } from "./layout.ts";
 import type {
   AiSettings,
   DeepSeekReasoningEffort,
+  GoogleThinkingLevel,
   OpenAIReasoningEffort,
   Provider,
   ProviderSpecificSettings,
@@ -10,16 +11,12 @@ import { getProviderEntry } from "../providers/config.ts";
 import {
   getProviderModelDefaults,
   getProviderModelIds,
+  isFixedModelSelection,
   type ProviderConfig,
   type ProviderEntry,
   type ProviderModelDefaults,
 } from "../providers/config.ts";
-import {
-  DEEPSEEK_FIXED_MODELS,
-  OPENCODE_GO_FIXED_MODELS,
-  SAKURA_FIXED_MODELS,
-  type FixedModel,
-} from "../ai/model-list.ts";
+import { type FixedModel } from "../ai/model-list.ts";
 import {
   loadWebDavSyncConfig,
   type WebDavSyncConfig,
@@ -31,17 +28,16 @@ let modalCurrentProvider: Provider = "openai";
 
 const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode"];
 
+/// providers.json の `modelSelection: "fixed"` なプロバイダーの固定選択肢を返す。
+/// 固定方式でない（または設定未読込・models 空の）場合は undefined。
 function getFixedModelOptions(provider: Provider): FixedModel[] | undefined {
-  switch (provider) {
-    case "deepseek":
-      return DEEPSEEK_FIXED_MODELS;
-    case "sakura":
-      return SAKURA_FIXED_MODELS;
-    case "opencode":
-      return OPENCODE_GO_FIXED_MODELS;
-    default:
-      return undefined;
-  }
+  if (!modalProviderConfig) return undefined;
+  const entry = getProviderEntry(modalProviderConfig, provider);
+  if (!isFixedModelSelection(entry)) return undefined;
+  return (entry?.models ?? []).map((model) => ({
+    id: model.id,
+    label: model.label ?? model.id,
+  }));
 }
 
 function isFixedModelProvider(provider: Provider): boolean {
@@ -178,11 +174,19 @@ function parseDeepSeekReasoningEffort(value: string): DeepSeekReasoningEffort | 
   return undefined;
 }
 
+function parseGoogleThinkingLevel(value: string): GoogleThinkingLevel | undefined {
+  if (value === "minimal" || value === "low" || value === "medium" || value === "high") {
+    return value;
+  }
+  return undefined;
+}
+
 function updateAdvancedVisibility(provider: Provider): void {
   const { advancedSettings } = getElements();
   const openaiGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-openai");
   const deepseekGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-deepseek");
   const anthropicGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-anthropic");
+  const googleGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-google");
 
   if (openaiGroup) {
     openaiGroup.classList.toggle("hidden", provider !== "openai");
@@ -192,6 +196,9 @@ function updateAdvancedVisibility(provider: Provider): void {
   }
   if (anthropicGroup) {
     anthropicGroup.classList.toggle("hidden", provider !== "anthropic");
+  }
+  if (googleGroup) {
+    googleGroup.classList.toggle("hidden", provider !== "google");
   }
 }
 
@@ -300,6 +307,7 @@ function applyModelBasedDisabling(provider: Provider, defaults: ProviderModelDef
     settingPresencePenalty,
     settingMaxTokens,
     settingMaxContextTokens,
+    settingGoogleThinkingLevel,
   } = getElements();
 
   // sampling 系: プロバイダ単位で enabled の場合のみモデル単位で判定する
@@ -328,6 +336,13 @@ function applyModelBasedDisabling(provider: Provider, defaults: ProviderModelDef
   if (provider !== "opencode") {
     if (defaults.maxTokens === undefined) settingMaxTokens.disabled = true;
     if (defaults.maxContextTokens === undefined) settingMaxContextTokens.disabled = true;
+  }
+
+  // Google thinking level: Gemini 3 系のモデルにのみ存在する概念。
+  // Gemma 系（defaults に googleThinkingLevel が無い）では disabled にする。
+  // provider 単位の baseline が無い項目のため、ここで enabled/disabled を都度確定する。
+  if (provider === "google") {
+    settingGoogleThinkingLevel.disabled = defaults.googleThinkingLevel === undefined;
   }
 }
 
@@ -367,6 +382,7 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string, p
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingGoogleThinkingLevel,
   } = getElements();
 
   if (defaults.temperature !== undefined) settingTemperature.value = String(defaults.temperature);
@@ -380,6 +396,7 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string, p
   settingDeepseekReasoningEffort.value = defaults.deepseekReasoningEffort ?? "";
   settingAnthropicThinkingEnabled.checked = defaults.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(defaults.anthropicThinkingBudget);
+  settingGoogleThinkingLevel.value = defaults.googleThinkingLevel ?? "";
 
   // モデル定義に存在しないパラメータを disabled にする（プロバイダ単位で enabled のもののみ）。
   applyModelBasedDisabling(provider, defaults);
@@ -412,6 +429,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingGoogleThinkingLevel,
   } = getElements();
 
   settingProvider.value = settings.provider;
@@ -427,6 +445,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingDeepseekReasoningEffort.value = settings.deepseekReasoningEffort ?? "";
   settingAnthropicThinkingEnabled.checked = settings.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
+  settingGoogleThinkingLevel.value = settings.googleThinkingLevel ?? "";
 
   applyProviderConfig(settings.provider);
   updateAdvancedVisibility(settings.provider);
@@ -483,6 +502,7 @@ export function readSettingsFromModal(): AiSettings {
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingGoogleThinkingLevel,
   } = getElements();
 
   const provider = settingProvider.value as Provider;
@@ -516,6 +536,7 @@ export function readSettingsFromModal(): AiSettings {
     deepseekReasoningEffort: parseDeepSeekReasoningEffort(settingDeepseekReasoningEffort.value),
     anthropicThinkingEnabled: settingAnthropicThinkingEnabled.checked,
     anthropicThinkingBudget: parseOptionalNumber(settingAnthropicThinkingBudget.value),
+    googleThinkingLevel: parseGoogleThinkingLevel(settingGoogleThinkingLevel.value),
   };
 }
 

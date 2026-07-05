@@ -1,6 +1,6 @@
 import { generateText, isLoopFinished, stepCountIs, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
-import { buildProviderOptions, buildRetryOption } from "./provider-options.ts";
+import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provider-options.ts";
 import {
   buildAssistantSystemPrompt,
   buildContinuationPrompt,
@@ -21,12 +21,19 @@ function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean):
   return settings.provider === "deepseek" && !toolsEnabled;
 }
 
+function isGoogleGemini3(settings: AiSettings): boolean {
+  return settings.provider === "google" && isGemini3Model(settings.model);
+}
+
 function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
   // DeepSeek の thinking モードでは temperature は無視される。
   // OpenCode Go プロバイダでは OpenCode クライアントに合わせて temperature を送らない
   // (OpenCode の transform.ts:481-498 で DeepSeek/GLM/MiniMax/MiMo 等は undefined を返す)。
   if (isDeepSeekThinkingEnabled(settings, toolsEnabled)) return {};
   if (settings.provider === "opencode") return {};
+  // Gemini 3 系は「temperature は既定値 1.0 のまま変更しない」ことが公式に強く
+  // 推奨されており、変更するとループや推論品質の劣化を招き得るため送らない。
+  if (isGoogleGemini3(settings)) return {};
   return { temperature: settings.temperature };
 }
 
@@ -35,8 +42,12 @@ function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
   // OpenCode Go プロバイダでは OpenCode クライアントに合わせるため、
   // topP / topK / frequencyPenalty / presencePenalty をすべて送らない
   // (transform.ts:500-507 と native-request.ts:135-143 で populate されない)。
+  // Gemini 3 系も同様に、topP/topK 等の sampling params は公式に非推奨となり
+  // thinkingConfig.thinkingLevel（buildProviderOptions 経由）に置き換わっている。
   const ignoreSampling =
-    isDeepSeekThinkingEnabled(settings, toolsEnabled) || settings.provider === "opencode";
+    isDeepSeekThinkingEnabled(settings, toolsEnabled) ||
+    settings.provider === "opencode" ||
+    isGoogleGemini3(settings);
   const ignorePenalty = settings.provider === "sakura" || settings.provider === "opencode";
   return {
     ...(!ignoreSampling && settings.topP !== undefined && { topP: settings.topP }),

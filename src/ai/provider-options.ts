@@ -2,6 +2,16 @@ import type { AiSettings } from "../settings.ts";
 
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
 
+/**
+ * Gemini 3 系（gemini-3 / gemini-3.1 / gemini-3.5 ...）かどうかを判定する。
+ * Gemini 3 系は temperature/topP/topK ではなく thinkingConfig.thinkingLevel で
+ * 思考の深さを制御する仕様に変わっており、Gemma 系（従来通り sampling params を使う）
+ * とは扱いを分ける必要がある。
+ */
+export function isGemini3Model(model: string): boolean {
+  return /^gemini-3(\.|-|$)/.test(model);
+}
+
 export function buildProviderOptions(
   settings: AiSettings,
   toolsEnabled = false,
@@ -59,6 +69,25 @@ export function buildProviderOptions(
           reasoningSummary: "detailed",
         },
       };
+    case "google": {
+      // thinkingLevel は Gemini 3 系のみ対応。Gemma 系や Gemini 2.x 系に送ると
+      // 無視されるか未定義動作になり得るため、モデル名で確実に絞る。
+      if (!isGemini3Model(settings.model)) return undefined;
+      // includeThoughts: true が無いと、モデルが内部で思考していても reasoning
+      // コンテンツがレスポンスに含まれず、アプリの思考表示が機能しない
+      // （OpenCode の src/provider/transform.ts options() で全 Gemini reasoning
+      // モデル共通のベース設定として無条件に付与されているのを参考にした）。
+      // thinkingLevel は未設定なら省略し、API 側の既定（公式ドキュメント上は
+      // モデルごとに high 相当）に委ねる。
+      return {
+        google: {
+          thinkingConfig: {
+            includeThoughts: true,
+            ...(settings.googleThinkingLevel ? { thinkingLevel: settings.googleThinkingLevel } : {}),
+          },
+        },
+      };
+    }
     default:
       return undefined;
   }

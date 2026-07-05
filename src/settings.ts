@@ -3,6 +3,7 @@ import {
   loadProviderConfig,
   getProviderEntry,
   getProviderModelDefaults,
+  isFixedModelSelection,
   type ProviderModelDefaults,
   resetProviderConfig,
 } from "./providers/config.ts";
@@ -12,6 +13,7 @@ import { clearWindowState } from "./window/bounds.ts";
 export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura" | "plamo" | "opencode";
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type GoogleThinkingLevel = "minimal" | "low" | "medium" | "high";
 
 export interface ProviderSpecificSettings {
   apiKey: string;
@@ -40,6 +42,7 @@ export interface AiSettings {
   deepseekReasoningEffort?: DeepSeekReasoningEffort;
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
+  googleThinkingLevel?: GoogleThinkingLevel;
 }
 
 const STORE_NAME = "litra-settings.json";
@@ -73,6 +76,7 @@ const SETTINGS_STORE_KEYS = [
   "deepseekReasoningEffort",
   "anthropicThinkingEnabled",
   "anthropicThinkingBudget",
+  "googleThinkingLevel",
 ] as const;
 
 let legacyStoreMigrationChecked = false;
@@ -127,6 +131,10 @@ function isOpenAIReasoningEffort(value: unknown): value is OpenAIReasoningEffort
 
 function isDeepSeekReasoningEffort(value: unknown): value is DeepSeekReasoningEffort {
   return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
+}
+
+function isGoogleThinkingLevel(value: unknown): value is GoogleThinkingLevel {
+  return value === "minimal" || value === "low" || value === "medium" || value === "high";
 }
 
 function isProvider(value: unknown): value is Provider {
@@ -197,8 +205,15 @@ function migrateLegacyModel(provider: Provider, model: string): string {
   return model;
 }
 
-function normalizeProviderModel(provider: Provider, model: string, defaultModel: string, configuredModels: string[]): string {
-  if ((provider === "sakura" || provider === "opencode") && configuredModels.length > 0 && !configuredModels.includes(model)) {
+/// 固定モデル選択方式のプロバイダーで、保存済みモデルが一覧に無い場合は
+/// 既定モデルへ正規化する（providers.json の modelSelection: "fixed" に連動）。
+function normalizeProviderModel(
+  isFixedSelection: boolean,
+  model: string,
+  defaultModel: string,
+  configuredModels: string[],
+): string {
+  if (isFixedSelection && configuredModels.length > 0 && !configuredModels.includes(model)) {
     return defaultModel;
   }
   return model;
@@ -265,7 +280,7 @@ export async function loadSettings(): Promise<AiSettings> {
     if (!baseUrl) baseUrl = entry?.defaultBaseUrl ?? "";
 
     model = migrateLegacyModel(p, model);
-    model = normalizeProviderModel(p, model, defaultModel, configuredModels);
+    model = normalizeProviderModel(isFixedModelSelection(entry), model, defaultModel, configuredModels);
 
     providerConfigs[p] = { apiKey, baseUrl, model };
   }
@@ -326,6 +341,12 @@ export async function loadSettings(): Promise<AiSettings> {
       legacyThinkingBudget ??
       modelDefaults?.anthropicThinkingBudget ??
       undefined;
+  } else if (provider === "google") {
+    base.googleThinkingLevel =
+      (isGoogleThinkingLevel(await store.get("googleThinkingLevel"))
+        ? (await store.get("googleThinkingLevel") as GoogleThinkingLevel)
+        : undefined) ??
+      (isGoogleThinkingLevel(modelDefaults?.googleThinkingLevel) ? modelDefaults.googleThinkingLevel : undefined);
   }
 
   applyProviderCapacityCap(provider, base, modelDefaults);
@@ -365,6 +386,7 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await setIfDefined(store, "deepseekReasoningEffort", settings.deepseekReasoningEffort);
   await setIfDefined(store, "anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
   await setIfDefined(store, "anthropicThinkingBudget", settings.anthropicThinkingBudget);
+  await setIfDefined(store, "googleThinkingLevel", settings.googleThinkingLevel);
   await store.save();
 }
 
