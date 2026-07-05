@@ -552,6 +552,99 @@ function replayedResponse(original: Response, peeked: PeekedStream): Response {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * OpenCode Go の OpenAI Chat Completions 互換モデル（DeepSeek 等）は、思考内容を
+ * reasoning-delta ではなく delta.reasoning_content という独自フィールドで返す。
+ * @ai-sdk/openai の chat completions クライアントはこのフィールドを認識せず
+ * 読み捨ててしまうため、SSE の JSON をその場で書き換え、reasoning_content を
+ * delta.content 側の <think>...</think> タグへ変換する。これにより
+ * service.ts 側の既存の think タグルーター（他プロバイダーと共通の思考表示経路）
+ * にそのまま乗る。choices を持たない Anthropic Messages 互換のイベント
+ * （MiniMax/Qwen 系）は判定に失敗して素通しされるため安全。
+ */
+function rewriteOpenCodeReasoningLine(line: string, state: { reasoningOpen: boolean }): string {
+  if (!line.startsWith("data:")) return line;
+  const payload = line.slice(5).trim();
+  if (!payload || payload === "[DONE]") return line;
+  if (!state.reasoningOpen && !payload.includes("reasoning_content")) return line;
+
+  let json: unknown;
+  try {
+    json = JSON.parse(payload);
+  } catch {
+    return line;
+  }
+  if (!isRecord(json)) return line;
+  const choices = json.choices;
+  if (!Array.isArray(choices) || choices.length === 0 || !isRecord(choices[0])) return line;
+  const delta = choices[0].delta;
+  if (!isRecord(delta)) return line;
+
+  const reasoning = typeof delta.reasoning_content === "string" ? delta.reasoning_content : "";
+  const content = typeof delta.content === "string" ? delta.content : "";
+
+  let combined = "";
+  if (reasoning) {
+    if (!state.reasoningOpen) {
+      combined += "<think>";
+      state.reasoningOpen = true;
+    }
+    combined += reasoning;
+  }
+  if (content) {
+    if (state.reasoningOpen) {
+      combined += "</think>";
+      state.reasoningOpen = false;
+    }
+    combined += content;
+  }
+  if (!combined && !("reasoning_content" in delta)) return line;
+
+  delete delta.reasoning_content;
+  delta.content = combined;
+  return `data: ${JSON.stringify(json)}`;
+}
+
+/**
+ * OpenCode Go 応答の SSE をチャンク境界に関係なく行単位で書き換える。
+ * 1行の data: イベントがネットワーク上のチャンク境界で分割される場合に
+ * 備え、完全な行が揃うまでバッファに保持してから処理する。
+ */
+function createOpenCodeReasoningTagStream(): TransformStream<Uint8Array, Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const state = { reasoningOpen: false };
+  let buffer = "";
+
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lastNewline = buffer.lastIndexOf("\n");
+      if (lastNewline === -1) return;
+      const completeText = buffer.slice(0, lastNewline);
+      buffer = buffer.slice(lastNewline + 1);
+      const rewritten = completeText
+        .split("\n")
+        .map((line) => rewriteOpenCodeReasoningLine(line, state))
+        .join("\n");
+      controller.enqueue(encoder.encode(`${rewritten}\n`));
+    },
+    flush(controller) {
+      buffer += decoder.decode();
+      if (!buffer) return;
+      const rewritten = buffer
+        .split("\n")
+        .map((line) => rewriteOpenCodeReasoningLine(line, state))
+        .join("\n");
+      controller.enqueue(encoder.encode(rewritten));
+    },
+  });
+}
+
 async function debugFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -625,7 +718,18 @@ async function debugFetch(
         }
       }
 
-      return replayedResponse(res, peeked);
+      const finalResponse = replayedResponse(res, peeked);
+      if (isOpenCodeRequest && finalResponse.body) {
+        return new Response(
+          finalResponse.body.pipeThrough(createOpenCodeReasoningTagStream()),
+          {
+            status: finalResponse.status,
+            statusText: finalResponse.statusText,
+            headers: finalResponse.headers,
+          },
+        );
+      }
+      return finalResponse;
     }
 
     const clone = res.clone ? res.clone() : res;
