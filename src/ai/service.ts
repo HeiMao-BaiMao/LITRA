@@ -492,6 +492,8 @@ export interface StreamContinuationOptions {
   onReasoning?: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
+  // 直前本文の登場人物の過去場面抜粋(文字列照合+全文検索インデックスのみで生成。LLM呼び出しなし)
+  relatedScenes?: string;
   tools?: ToolSet;
   onToolEvent?: (event: StreamToolEvent) => void;
 }
@@ -717,13 +719,14 @@ async function runContinuationPlanStep(
   settings: AiSettings,
   context: string,
   settingsContext: string | undefined,
+  relatedScenes: string | undefined,
   abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
   try {
     const result = await generateText({
       model: createModel(settings),
       ...buildRetryOption(settings),
-      prompt: buildContinuationPlanPrompt(context, settingsContext),
+      prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes),
       ...buildTemperatureOption(settings, false),
       // thinking 系モデルでは推論トークンもこの上限を消費するため、
       // 構想の深さを絞らないよう本体生成と同じ上限を使う。
@@ -750,6 +753,7 @@ export async function streamContinuation({
   onChunk,
   abortSignal,
   settingsContext,
+  relatedScenes,
   tools,
   onToolEvent,
   onReasoning,
@@ -760,7 +764,7 @@ export async function streamContinuation({
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
 
     const plan = s.twoStageContinuation
-      ? await runContinuationPlanStep(s, context, settingsContext, abortSignal)
+      ? await runContinuationPlanStep(s, context, settingsContext, relatedScenes, abortSignal)
       : undefined;
 
     // 設定資料は system ではなく本文プロンプト側に注入する(弱いモデルの recency 対策)
@@ -768,7 +772,7 @@ export async function streamContinuation({
       model: createModel(s),
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
-      prompt: buildContinuationPrompt(context, settingsContext, plan),
+      prompt: buildContinuationPrompt(context, settingsContext, plan, relatedScenes),
       ...buildTemperatureOption(s, toolsEnabled),
       maxOutputTokens: s.maxTokens,
       abortSignal,

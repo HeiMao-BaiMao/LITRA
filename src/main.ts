@@ -207,6 +207,7 @@ import {
 } from "./project/project-memo.ts";
 import { renderMemosEditor, type MemosEditorActions } from "./ui/memos-editor.ts";
 import type { Character, Episode, EpisodeMemoMap, EpisodeSummaryMap, WorldEntry } from "./project/schema.ts";
+import { buildRelatedScenesBlock } from "./project/related-scenes.ts";
 import { hasToolCall, type ModelMessage, type ToolSet } from "ai";
 
 let currentSettings: AiSettings;
@@ -2248,6 +2249,28 @@ async function handleSelectWorldEntry(id: string): Promise<void> {
   syncSettingsToWindow();
 }
 
+// 続き生成の直前本文に登場する人物を文字列照合で検出し、既存の全文検索インデックスから
+// その人物の過去の登場場面を短く抜粋する(LLM呼び出しは増やさない)。
+// 検索・照合の失敗は続き生成全体を止めてはならないため、ここで完全に吸収する。
+async function buildContinuationRelatedScenes(context: string): Promise<string | undefined> {
+  if (!currentProject) return undefined;
+  try {
+    const relatedScenes = await buildRelatedScenesBlock({
+      projectId: currentProject.id,
+      currentEpisodeId: state.currentEpisodeId ?? undefined,
+      characters,
+      tailContext: context,
+    });
+    if (relatedScenes) {
+      console.log("[litra] related scenes injected:", relatedScenes.slice(0, 200));
+    }
+    return relatedScenes;
+  } catch (error) {
+    console.warn("[litra] related scenes lookup failed; continuing without", error);
+    return undefined;
+  }
+}
+
 async function handleContinue(): Promise<void> {
   if (!validateEpisode() || !validateSettings()) return;
 
@@ -2256,6 +2279,7 @@ async function handleContinue(): Promise<void> {
   const { start } = getSelection();
   const text = getElements().editor.value;
   const context = buildContinuationContext(text, start);
+  const relatedScenes = await buildContinuationRelatedScenes(context);
 
   const controller = startGeneration();
   try {
@@ -2263,6 +2287,7 @@ async function handleContinue(): Promise<void> {
       settings: currentSettings,
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+      relatedScenes,
       tools: createAiTools(),
       onChunk: (chunk) => {
         insertAtCursor(chunk);
