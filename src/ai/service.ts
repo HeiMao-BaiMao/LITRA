@@ -3,6 +3,7 @@ import { createModel } from "./provider.ts";
 import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provider-options.ts";
 import {
   buildAssistantSystemPrompt,
+  buildContinuationPlanPrompt,
   buildContinuationPrompt,
   buildFeedbackPrompt,
   buildRewritePrompt,
@@ -705,6 +706,44 @@ export async function streamChat({
   }
 }
 
+/**
+ * 続き生成の前に、非表示の構想ステップ(non-streaming)を1回実行する。
+ * 弱いモデルほど安易・平坦な続きを選びがちなため、執筆前に展開案を
+ * 検討・選択させ、その方針メモを執筆プロンプトへ注入する。
+ * 構想ステップ自体が失敗しても続き生成全体を失敗させてはならないため、
+ * 例外・空文字はここで吸収し、呼び出し側には undefined を返す(1段生成へフォールバック)。
+ */
+async function runContinuationPlanStep(
+  settings: AiSettings,
+  context: string,
+  settingsContext: string | undefined,
+  abortSignal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildContinuationPlanPrompt(context, settingsContext),
+      ...buildTemperatureOption(settings, false),
+      // thinking 系モデルでは推論トークンもこの上限を消費するため、
+      // 構想の深さを絞らないよう本体生成と同じ上限を使う。
+      maxOutputTokens: settings.maxTokens,
+      abortSignal,
+      ...buildAdvancedOptions(settings, false),
+    });
+
+    const planText = result.text.trim();
+    if (!planText) return undefined;
+    console.log("[litra] continuation plan:", planText);
+    return planText;
+  } catch (error) {
+    // ユーザーによる中断はフォールバックせず、そのまま中断として伝播させる。
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] continuation plan step failed; falling back to single-stage", error);
+    return undefined;
+  }
+}
+
 export async function streamContinuation({
   settings,
   context,
@@ -720,12 +759,16 @@ export async function streamContinuation({
     const toolsEnabled = hasTools(tools);
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
 
+    const plan = s.twoStageContinuation
+      ? await runContinuationPlanStep(s, context, settingsContext, abortSignal)
+      : undefined;
+
     // 設定資料は system ではなく本文プロンプト側に注入する(弱いモデルの recency 対策)
     const result = streamText<ToolSet>({
       model: createModel(s),
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
-      prompt: buildContinuationPrompt(context, settingsContext),
+      prompt: buildContinuationPrompt(context, settingsContext, plan),
       ...buildTemperatureOption(s, toolsEnabled),
       maxOutputTokens: s.maxTokens,
       abortSignal,

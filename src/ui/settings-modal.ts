@@ -430,6 +430,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
+    settingTwoStageContinuation,
   } = getElements();
 
   settingProvider.value = settings.provider;
@@ -446,6 +447,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingAnthropicThinkingEnabled.checked = settings.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
   settingGoogleThinkingLevel.value = settings.googleThinkingLevel ?? "";
+  settingTwoStageContinuation.checked = settings.twoStageContinuation ?? false;
 
   applyProviderConfig(settings.provider);
   updateAdvancedVisibility(settings.provider);
@@ -503,6 +505,7 @@ export function readSettingsFromModal(): AiSettings {
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
+    settingTwoStageContinuation,
   } = getElements();
 
   const provider = settingProvider.value as Provider;
@@ -537,6 +540,7 @@ export function readSettingsFromModal(): AiSettings {
     anthropicThinkingEnabled: settingAnthropicThinkingEnabled.checked,
     anthropicThinkingBudget: parseOptionalNumber(settingAnthropicThinkingBudget.value),
     googleThinkingLevel: parseGoogleThinkingLevel(settingGoogleThinkingLevel.value),
+    twoStageContinuation: settingTwoStageContinuation.checked,
   };
 }
 

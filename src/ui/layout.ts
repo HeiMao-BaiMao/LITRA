@@ -64,6 +64,7 @@ export interface AppElements {
   settingAnthropicThinkingEnabled: HTMLInputElement;
   settingAnthropicThinkingBudget: HTMLInputElement;
   settingGoogleThinkingLevel: HTMLSelectElement;
+  settingTwoStageContinuation: HTMLInputElement;
   settingWebdavEnabled: HTMLInputElement;
   settingWebdavUrl: HTMLInputElement;
   settingWebdavUsername: HTMLInputElement;
@@ -161,6 +162,7 @@ export function getElements(): AppElements {
   const settingAnthropicThinkingEnabled = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-enabled");
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
   const settingGoogleThinkingLevel = document.querySelector<HTMLSelectElement>("#setting-google-thinking-level");
+  const settingTwoStageContinuation = document.querySelector<HTMLInputElement>("#setting-two-stage-continuation");
   const settingWebdavEnabled = document.querySelector<HTMLInputElement>("#setting-webdav-enabled");
   const settingWebdavUrl = document.querySelector<HTMLInputElement>("#setting-webdav-url");
   const settingWebdavUsername = document.querySelector<HTMLInputElement>("#setting-webdav-username");
@@ -221,6 +223,7 @@ export function getElements(): AppElements {
     !settingAnthropicThinkingEnabled ||
     !settingAnthropicThinkingBudget ||
     !settingGoogleThinkingLevel ||
+    !settingTwoStageContinuation ||
     !settingWebdavEnabled ||
     !settingWebdavUrl ||
     !settingWebdavUsername ||
@@ -344,6 +347,7 @@ export function getElements(): AppElements {
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
+    settingTwoStageContinuation,
     settingWebdavEnabled,
     settingWebdavUrl,
     settingWebdavUsername,

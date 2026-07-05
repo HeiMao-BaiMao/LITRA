@@ -43,6 +43,7 @@ export interface AiSettings {
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
   googleThinkingLevel?: GoogleThinkingLevel;
+  twoStageContinuation?: boolean;
 }
 
 const STORE_NAME = "litra-settings.json";
@@ -77,6 +78,7 @@ const SETTINGS_STORE_KEYS = [
   "anthropicThinkingEnabled",
   "anthropicThinkingBudget",
   "googleThinkingLevel",
+  "twoStageContinuation",
 ] as const;
 
 let legacyStoreMigrationChecked = false;
@@ -313,6 +315,7 @@ export async function loadSettings(): Promise<AiSettings> {
     topK: optionalNumber(await store.get("topK")) ?? modelDefaults?.topK,
     frequencyPenalty: optionalNumber(await store.get("frequencyPenalty")) ?? modelDefaults?.frequencyPenalty,
     presencePenalty: optionalNumber(await store.get("presencePenalty")) ?? modelDefaults?.presencePenalty,
+    twoStageContinuation: optionalBoolean(await store.get("twoStageContinuation")),
   };
 
   // 旧共有フィールドからプロバイダー別フィールドへ移行
@@ -387,6 +390,7 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await setIfDefined(store, "anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
   await setIfDefined(store, "anthropicThinkingBudget", settings.anthropicThinkingBudget);
   await setIfDefined(store, "googleThinkingLevel", settings.googleThinkingLevel);
+  await setIfDefined(store, "twoStageContinuation", settings.twoStageContinuation);
   await store.save();
 }
 
