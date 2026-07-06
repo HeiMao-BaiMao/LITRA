@@ -1,56 +1,58 @@
 <!doctype html>
 <html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
-    <link rel="icon" href="/src/assets/LITRA.svg" type="image/svg+xml" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ジャンルライブラリ - LITRA</title>
-    <script type="module" src="/src/genre-library-window.ts" defer></script>
-  </head>
 
-  <body class="detachable-window">
-    <div id="genre-library-app" class="app genre-library-app">
-      <header class="toolbar">
-        <div class="toolbar-left">
-          <div class="toolbar-title">LITRA</div>
-          <span id="toolbar-genre-name" class="toolbar-project-name">ジャンルライブラリ</span>
-        </div>
-        <div class="toolbar-actions genre-library-toolbar-actions">
-          <button id="sidebar-toggle" type="button" title="ジャンル一覧を開閉">ジャンル一覧</button>
-          <button id="tab-overview" type="button" class="genre-tab-button active">概要</button>
-          <button id="tab-sources" type="button" class="genre-tab-button">資料</button>
-          <button id="tab-analysis" type="button" class="genre-tab-button">分析</button>
-          <button id="tab-knowledge" type="button" class="genre-tab-button">知識</button>
-          <button id="btn-import-source" type="button">＋ 資料</button>
-          <button id="btn-analyze-source" type="button">分析を実行</button>
-          <button id="btn-open-genre-chat" type="button">リトラチャット</button>
-        </div>
-      </header>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <link rel="icon" href="/src/assets/LITRA.svg" type="image/svg+xml" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ジャンルライブラリ - LITRA</title>
+  <script type="module" src="/src/genre-library-window.ts" defer></script>
+</head>
 
-      <main id="genre-library-main" class="main genre-library-main">
-        <nav id="sidebar" class="project-nav genre-sidebar open">
-          <div class="nav-section genre-nav-section">
-            <div class="nav-section-header">
-              <h3>ジャンル</h3>
-              <span id="genre-count" class="genre-count">0</span>
-            </div>
-            <div id="genre-list" class="episode-list genre-list"></div>
-            <button id="btn-new-genre" type="button">＋ 新規ジャンル</button>
-            <div id="genre-list-spinner" class="spinner genre-inline-spinner hidden" aria-label="読み込み中"></div>
+<body class="detachable-window">
+  <div id="genre-library-app" class="app genre-library-app">
+    <header class="toolbar">
+      <div class="toolbar-left">
+        <div class="toolbar-title">LITRA</div>
+        <span id="toolbar-genre-name" class="toolbar-project-name">ジャンルライブラリ</span>
+      </div>
+      <div class="toolbar-actions genre-library-toolbar-actions">
+        <button id="sidebar-toggle" type="button" title="ジャンル一覧を開閉">ジャンル一覧</button>
+        <button id="tab-overview" type="button" class="genre-tab-button active">概要</button>
+        <button id="tab-sources" type="button" class="genre-tab-button">資料</button>
+        <button id="tab-analysis" type="button" class="genre-tab-button">分析</button>
+        <button id="tab-knowledge" type="button" class="genre-tab-button">知識</button>
+        <button id="btn-import-source" type="button">＋ 資料</button>
+        <button id="btn-analyze-source" type="button">分析を実行</button>
+        <button id="btn-open-genre-chat" type="button">リトラチャット</button>
+      </div>
+    </header>
+
+    <main id="genre-library-main" class="main genre-library-main">
+      <nav id="sidebar" class="project-nav genre-sidebar open">
+        <div class="nav-section genre-nav-section">
+          <div class="nav-section-header">
+            <h3>ジャンル</h3>
+            <span id="genre-count" class="genre-count">0</span>
           </div>
-        </nav>
+          <div id="genre-list" class="episode-list genre-list"></div>
+          <button id="btn-new-genre" type="button">＋ 新規ジャンル</button>
+          <div id="genre-list-spinner" class="spinner genre-inline-spinner hidden" aria-label="読み込み中"></div>
+        </div>
+      </nav>
 
-        <section id="editor-section" class="editor-section genre-editor-section">
-          <div class="genre-editor-surface">
-            <section id="main-content" class="genre-main-content">
-              <p class="empty-state">ジャンルを選択するか、新規作成してください。</p>
-            </section>
-            <div id="analysis-status" class="analysis-status"></div>
-            <div id="analysis-spinner" class="spinner genre-analysis-spinner hidden" aria-label="分析中"></div>
-          </div>
-        </section>
-      </main>
-    </div>
-  </body>
+      <section id="editor-section" class="editor-section genre-editor-section">
+        <div class="genre-editor-surface">
+          <section id="main-content" class="genre-main-content">
+            <p class="empty-state">ジャンルを選択するか、新規作成してください。</p>
+          </section>
+          <div id="analysis-status" class="analysis-status"></div>
+          <div id="analysis-spinner" class="spinner genre-analysis-spinner hidden" aria-label="分析中"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+
 </html>
