@@ -3,6 +3,7 @@ mod genre_windows;
 mod import;
 mod project_memo;
 mod search;
+mod secrets;
 mod settings;
 mod storage;
 mod tools;
@@ -33,6 +34,9 @@ pub fn run() {
             settings::list_world_entries,
             settings::create_world_entry,
             settings::update_world_entry,
+            secrets::secret_get,
+            secrets::secret_set,
+            secrets::secret_delete,
             tools::edit_episode_text,
             tools::edit_episode_text_batch,
             tools::find_episode_lines,

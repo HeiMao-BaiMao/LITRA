@@ -17,6 +17,7 @@ use crate::storage::{data_or_documents_dir, documents_dir, ensure_parent_dir};
 
 const CONFIG_FILE: &str = "webdav-sync.json";
 const SYNC_ROOT: &str = "litra";
+const WEBDAV_PASSWORD_KEY: &str = "webdav:password";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +26,10 @@ pub struct WebDavSyncConfig {
     pub enabled: bool,
     pub base_url: String,
     pub username: Option<String>,
+    /// ディスクには書かない。keyring が正。`#[serde(default)]` により
+    /// 新形式ファイル（password キー無し）を欠損エラーなく読める。
+    /// `skip_serializing_if` により、書き込み時は常にこのキー自体を省略する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     /// 保存先フォルダ（base_url 直下）。空文字や ".." "." は SYNC_ROOT にフォールバック。
     /// `#[serde(default)]` で既存設定ファイルとの後方互換性を確保。
@@ -58,12 +63,30 @@ fn config_path() -> Result<PathBuf, String> {
 
 fn read_config() -> Result<WebDavSyncConfig, String> {
     let path = config_path()?;
-    if !path.exists() {
-        return Ok(WebDavSyncConfig::default());
+    let mut config = if !path.exists() {
+        WebDavSyncConfig::default()
+    } else {
+        let text = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+        serde_json::from_str(&text)
+            .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?
+    };
+
+    // 移行: 旧バージョンが書いた平文パスワードを検出したら keyring に移し、
+    // ファイルは password 抜きで直ちに書き直す（一度きり）。
+    if let Some(legacy_password) = config.password.take().filter(|p| !p.is_empty()) {
+        crate::secrets::set_secret(WEBDAV_PASSWORD_KEY, &legacy_password)?;
+        ensure_parent_dir(&path)?;
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&config).expect("config serialization should not fail"),
+        )
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
     }
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&text).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+
+    // keyring の現在値を常に上書きして返す。auth_headers() 等の呼び出し側は変更不要。
+    config.password = crate::secrets::get_secret(WEBDAV_PASSWORD_KEY)?;
+    Ok(config)
 }
 
 fn sync_enabled(config: &WebDavSyncConfig) -> bool {
@@ -73,6 +96,10 @@ fn sync_enabled(config: &WebDavSyncConfig) -> bool {
 fn write_config(config: &WebDavSyncConfig) -> Result<(), String> {
     let path = config_path()?;
     ensure_parent_dir(&path)?;
+
+    let normalized_password = config.password.as_deref().filter(|v| !v.is_empty());
+    crate::secrets::set_or_delete_secret(WEBDAV_PASSWORD_KEY, normalized_password)?;
+
     let normalized = WebDavSyncConfig {
         enabled: config.enabled,
         base_url: config.base_url.trim().trim_end_matches('/').to_string(),
@@ -82,11 +109,7 @@ fn write_config(config: &WebDavSyncConfig) -> Result<(), String> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned),
-        password: config
-            .password
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
+        password: None, // ディスクには絶対に書かない
         remote_folder: normalize_remote_folder(&config.remote_folder),
     };
     fs::write(

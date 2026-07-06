@@ -9,6 +9,7 @@ import {
 } from "./providers/config.ts";
 import { clearPanelRatios } from "./layout-store.ts";
 import { clearWindowState } from "./window/bounds.ts";
+import { apiKeySecretKey, secretDelete, secretGet, setOrDeleteSecret } from "./secrets.ts";
 
 export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura" | "plamo" | "opencode";
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -99,6 +100,10 @@ export async function resetAllSettings(): Promise<void> {
   await clearPanelRatios();
   await clearWindowState();
   await resetProviderConfig();
+  for (const p of ALL_PROVIDERS) {
+    await secretDelete(apiKeySecretKey(p)).catch(() => {});
+  }
+  await secretDelete("webdav:password").catch(() => {});
 }
 
 function optionalNumber(value: unknown): number | undefined {
@@ -268,18 +273,32 @@ export async function loadSettings(): Promise<AiSettings> {
       : {};
 
   const providerConfigs = {} as Record<Provider, ProviderSpecificSettings>;
+  let needsScrub = false;
 
   for (const p of ALL_PROVIDERS) {
     const entry = getProviderEntry(config, p);
     const previous = previousConfigs[p] ?? {};
 
     let model = trimmedString(previous.model);
-    let apiKey = trimmedString(previous.apiKey);
     let baseUrl = trimmedString(previous.baseUrl);
+
+    const legacyPlainApiKey = trimmedString(previous.apiKey) || (p === provider ? legacyApiKey : "");
+    const keyringApiKey = trimmedString(await secretGet(apiKeySecretKey(p)));
+
+    let apiKey: string;
+    if (keyringApiKey) {
+      apiKey = keyringApiKey;
+    } else if (legacyPlainApiKey) {
+      // 移行: JSON ストアに残っていた平文 apiKey を keyring へ移す
+      await setOrDeleteSecret(apiKeySecretKey(p), legacyPlainApiKey);
+      apiKey = legacyPlainApiKey;
+      needsScrub = true;
+    } else {
+      apiKey = "";
+    }
 
     if (p === provider) {
       if (!model) model = legacyModel;
-      if (!apiKey) apiKey = legacyApiKey;
       if (!baseUrl) baseUrl = legacyBaseUrl;
     }
 
@@ -292,6 +311,16 @@ export async function loadSettings(): Promise<AiSettings> {
     model = normalizeProviderModel(isFixedModelSelection(entry), model, defaultModel, configuredModels);
 
     providerConfigs[p] = { apiKey, baseUrl, model };
+  }
+
+  if (needsScrub || legacyApiKey) {
+    const scrubbed = {} as Record<Provider, ProviderSpecificSettings>;
+    for (const p of ALL_PROVIDERS) {
+      scrubbed[p] = { ...providerConfigs[p], apiKey: "" };
+    }
+    await store.set("providerConfigs", scrubbed);
+    await store.set("apiKey", ""); // 旧共有フィールドの平文も消す
+    await store.save();
   }
 
   const activeConfig = providerConfigs[provider];
@@ -380,10 +409,18 @@ async function setIfDefined<T>(
 export async function saveSettings(settings: AiSettings): Promise<void> {
   const store = await getStore();
   await store.set("provider", settings.provider);
-  await store.set("apiKey", settings.apiKey);
+  await store.set("apiKey", ""); // 平文はもう保存しない（後方互換フィールドは常に空）
   await store.set("baseUrl", settings.baseUrl);
   await store.set("model", settings.model);
-  await store.set("providerConfigs", settings.providerConfigs);
+
+  const scrubbedProviderConfigs = {} as Record<Provider, ProviderSpecificSettings>;
+  for (const p of ALL_PROVIDERS) {
+    const specific = settings.providerConfigs[p];
+    await setOrDeleteSecret(apiKeySecretKey(p), specific?.apiKey);
+    scrubbedProviderConfigs[p] = { ...specific, apiKey: "" };
+  }
+  await store.set("providerConfigs", scrubbedProviderConfigs);
+
   await store.set("chatProvider", settings.chatProvider ?? null);
   await store.set("chatModel", settings.chatModel ?? null);
   await store.set("backgroundProvider", settings.backgroundProvider ?? null);
