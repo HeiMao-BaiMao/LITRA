@@ -305,6 +305,11 @@
             <button id="btn-cancel-settings" type="button">キャンセル</button>
           </div>
 
+          <div class="product-info-section">
+            <h3>製品情報</h3>
+            <button id="btn-show-licenses" type="button">ライセンスを表示</button>
+          </div>
+
           <div class="settings-initialize-section">
             <p>保存されている AI 設定・レイアウト・ウィンドウ状態をすべて削除し、初期状態に戻します。</p>
             <button id="btn-initialize-settings" type="button" class="danger-button">
@@ -312,6 +317,17 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div id="license-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-dialog license-dialog">
+        <h2>ライセンス</h2>
+        <div id="license-content" class="license-content"></div>
+        <div class="modal-actions">
+          <button id="btn-close-licenses" type="button">閉じる</button>
+        </div>
       </div>
     </div>
 

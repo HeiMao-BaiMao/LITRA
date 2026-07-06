@@ -74,6 +74,10 @@ export interface AppElements {
   btnSaveSettings: HTMLButtonElement;
   btnCancelSettings: HTMLButtonElement;
   btnInitializeSettings: HTMLButtonElement;
+  btnShowLicenses: HTMLButtonElement;
+  licenseModal: HTMLElement;
+  licenseContent: HTMLElement;
+  btnCloseLicenses: HTMLButtonElement;
   projectModal: HTMLElement;
   projectList: HTMLElement;
   projectTitleInput: HTMLInputElement;
@@ -173,6 +177,10 @@ export function getElements(): AppElements {
   const btnSaveSettings = document.querySelector<HTMLButtonElement>("#btn-save-settings");
   const btnCancelSettings = document.querySelector<HTMLButtonElement>("#btn-cancel-settings");
   const btnInitializeSettings = document.querySelector<HTMLButtonElement>("#btn-initialize-settings");
+  const btnShowLicenses = document.querySelector<HTMLButtonElement>("#btn-show-licenses");
+  const licenseModal = document.querySelector<HTMLElement>("#license-modal");
+  const licenseContent = document.querySelector<HTMLElement>("#license-content");
+  const btnCloseLicenses = document.querySelector<HTMLButtonElement>("#btn-close-licenses");
   const projectModal = document.querySelector<HTMLElement>("#project-modal");
   const projectList = document.querySelector<HTMLElement>("#project-list");
   const projectTitleInput = document.querySelector<HTMLInputElement>("#project-title-input");
@@ -235,6 +243,10 @@ export function getElements(): AppElements {
     !btnSaveSettings ||
     !btnCancelSettings ||
     !btnInitializeSettings ||
+    !btnShowLicenses ||
+    !licenseModal ||
+    !licenseContent ||
+    !btnCloseLicenses ||
     !toolbarProjectName ||
     !btnProjects ||
     !btnImport ||
@@ -360,6 +372,10 @@ export function getElements(): AppElements {
     btnSaveSettings,
     btnCancelSettings,
     btnInitializeSettings,
+    btnShowLicenses,
+    licenseModal,
+    licenseContent,
+    btnCloseLicenses,
     projectModal,
     projectList,
     projectTitleInput,

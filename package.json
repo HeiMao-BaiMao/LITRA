@@ -2,10 +2,12 @@
   "name": "litra",
   "private": true,
   "version": "1.0.0",
+  "license": "BSD-2-Clause",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "generate:licenses": "node scripts/generate-licenses.mjs",
+    "build": "bun run generate:licenses && tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },

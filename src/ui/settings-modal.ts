@@ -26,6 +26,21 @@ let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = nu
 let modalProviderConfig: ProviderConfig | null = null;
 let modalCurrentProvider: Provider = "openai";
 
+interface ThirdPartyLicenseEntry {
+  ecosystem: string;
+  name: string;
+  version: string;
+  license: string;
+  source?: string;
+  homepage?: string;
+}
+
+interface ThirdPartyLicensePayload {
+  appName: string;
+  appVersion: string;
+  entries: ThirdPartyLicenseEntry[];
+}
+
 const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode"];
 
 /// providers.json の `modelSelection: "fixed"` なプロバイダーの固定選択肢を返す。
@@ -588,6 +603,64 @@ export function hideSettingsModal(): void {
   getElements().settingsModal.classList.add("hidden");
 }
 
+function createLicenseSummary(payload: ThirdPartyLicensePayload): HTMLElement {
+  const summary = document.createElement("p");
+  summary.className = "license-summary";
+  summary.textContent = `${payload.appName} ${payload.appVersion} / ${payload.entries.length} 件`;
+  return summary;
+}
+
+function createLicenseList(entries: ThirdPartyLicenseEntry[]): HTMLElement {
+  const list = document.createElement("div");
+  list.className = "license-list";
+
+  for (const entry of entries) {
+    const item = document.createElement("article");
+    item.className = "license-item";
+
+    const title = document.createElement("h3");
+    title.textContent = `${entry.name} ${entry.version}`;
+
+    const meta = document.createElement("p");
+    meta.textContent = `${entry.ecosystem} / ${entry.license}`;
+
+    item.append(title, meta);
+    if (entry.source || entry.homepage) {
+      const link = document.createElement("a");
+      link.href = entry.source ?? entry.homepage ?? "#";
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = "source";
+      item.appendChild(link);
+    }
+    list.appendChild(item);
+  }
+
+  return list;
+}
+
+async function showLicenseModal(): Promise<void> {
+  const { licenseModal, licenseContent } = getElements();
+  licenseModal.classList.remove("hidden");
+  licenseContent.textContent = "ライセンス情報を読み込んでいます...";
+
+  try {
+    const response = await fetch("/third-party-licenses.json", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = (await response.json()) as ThirdPartyLicensePayload;
+    licenseContent.replaceChildren(createLicenseSummary(payload), createLicenseList(payload.entries));
+  } catch (error) {
+    console.error("[litra] failed to load third-party licenses:", error);
+    licenseContent.textContent = "ライセンス情報を読み込めませんでした。";
+  }
+}
+
+function hideLicenseModal(): void {
+  getElements().licenseModal.classList.add("hidden");
+}
+
 export interface SettingsActions {
   onSave: (settings: AiSettings) => void;
   onCancel: () => void;
@@ -648,7 +721,15 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
 }
 
 export function bindSettingsActions(actions: SettingsActions): void {
-  const { settingsForm, btnCancelSettings, btnInitializeSettings, settingWebdavEnabled } = getElements();
+  const {
+    settingsForm,
+    btnCancelSettings,
+    btnInitializeSettings,
+    btnShowLicenses,
+    licenseModal,
+    btnCloseLicenses,
+    settingWebdavEnabled,
+  } = getElements();
 
   settingsForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -656,6 +737,9 @@ export function bindSettingsActions(actions: SettingsActions): void {
   });
 
   settingWebdavEnabled.addEventListener("change", updateWebDavControlsState);
+  btnShowLicenses.addEventListener("click", () => void showLicenseModal());
+  btnCloseLicenses.addEventListener("click", hideLicenseModal);
+  licenseModal.querySelector(".modal-backdrop")?.addEventListener("click", hideLicenseModal);
   btnCancelSettings.addEventListener("click", actions.onCancel);
   btnInitializeSettings.addEventListener("click", () => actions.onInitialize());
 }

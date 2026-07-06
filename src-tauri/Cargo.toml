@@ -3,6 +3,7 @@ name = "litra"
 version = "1.0.0"
 description = "AI-assisted Japanese fiction writing workspace"
 authors = ["rumia"]
+license = "BSD-2-Clause"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
