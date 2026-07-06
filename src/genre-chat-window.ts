@@ -216,7 +216,7 @@ async function setupChatControls(): Promise<void> {
     }
   });
 
-  bindChatSubmitShortcut(input, form);
+  bindChatSubmitShortcut(input, form, settings.chatSubmitShortcut);
 
   btnCancel.addEventListener("click", () => {
     stopStreaming();

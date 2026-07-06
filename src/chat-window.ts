@@ -1,6 +1,6 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import type { ChatMessage } from "./state.ts";
-import type { Provider } from "./settings.ts";
+import type { ChatSubmitShortcut, Provider } from "./settings.ts";
 import { loadProviderConfig } from "./providers/config.ts";
 import { bindAutoResize } from "./ui/auto-resize.ts";
 import {
@@ -24,11 +24,13 @@ interface ChatSyncPayload {
 interface ChatSettingsSyncPayload {
   provider: Provider;
   model: string;
+  chatSubmitShortcut?: ChatSubmitShortcut;
 }
 
 let providerConfig: ProviderConfig | null = null;
 let isSyncing = false;
 let resetInputHeight: (() => void) | undefined;
+let chatSubmitShortcut: ChatSubmitShortcut = "ctrlEnter";
 
 async function init(): Promise<void> {
   void listenDpiZoom();
@@ -60,6 +62,7 @@ async function init(): Promise<void> {
     isSyncing = true;
     try {
       const { provider, model } = event.payload;
+      chatSubmitShortcut = event.payload.chatSubmitShortcut ?? "ctrlEnter";
       if (providerConfig && providerSelect.value !== provider) {
         populateChatModelOptions(modelSelect, providerConfig, provider);
       }
@@ -93,7 +96,7 @@ async function init(): Promise<void> {
     emit("chat-send", { content: text });
   });
 
-  bindChatSubmitShortcut(input, form);
+  bindChatSubmitShortcut(input, form, () => chatSubmitShortcut);
 
   btnCancel.addEventListener("click", () => {
     emit("chat-stop", {});

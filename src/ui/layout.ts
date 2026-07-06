@@ -53,6 +53,7 @@ export interface AppElements {
   settingTemperature: HTMLInputElement;
   settingMaxTokens: HTMLInputElement;
   settingMaxContextTokens: HTMLInputElement;
+  settingChatSubmitShortcut: HTMLSelectElement;
   advancedSettingsToggle: HTMLButtonElement;
   advancedSettings: HTMLElement;
   settingTopP: HTMLInputElement;
@@ -151,6 +152,7 @@ export function getElements(): AppElements {
   const settingTemperature = document.querySelector<HTMLInputElement>("#setting-temperature");
   const settingMaxTokens = document.querySelector<HTMLInputElement>("#setting-max-tokens");
   const settingMaxContextTokens = document.querySelector<HTMLInputElement>("#setting-max-context-tokens");
+  const settingChatSubmitShortcut = document.querySelector<HTMLSelectElement>("#setting-chat-submit-shortcut");
   const advancedSettingsToggle = document.querySelector<HTMLButtonElement>("#advanced-settings-toggle");
   const advancedSettings = document.querySelector<HTMLElement>("#advanced-settings");
   const settingTopP = document.querySelector<HTMLInputElement>("#setting-top-p");
@@ -212,6 +214,7 @@ export function getElements(): AppElements {
     !settingTemperature ||
     !settingMaxTokens ||
     !settingMaxContextTokens ||
+    !settingChatSubmitShortcut ||
     !advancedSettingsToggle ||
     !advancedSettings ||
     !settingTopP ||
@@ -336,6 +339,7 @@ export function getElements(): AppElements {
     settingTemperature,
     settingMaxTokens,
     settingMaxContextTokens,
+    settingChatSubmitShortcut,
     advancedSettingsToggle,
     advancedSettings,
     settingTopP,

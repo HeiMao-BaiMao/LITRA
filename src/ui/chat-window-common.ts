@@ -1,5 +1,5 @@
 import { renderChatMessageHtml } from "../markdown.ts";
-import type { Provider } from "../settings.ts";
+import type { ChatSubmitShortcut, Provider } from "../settings.ts";
 import { getProviderEntry, type ProviderConfig } from "../providers/config.ts";
 
 export interface ChatWindowControls {
@@ -87,9 +87,18 @@ export function populateChatModelOptions(
 export function bindChatSubmitShortcut(
   input: HTMLTextAreaElement,
   form: HTMLFormElement,
+  shortcut: ChatSubmitShortcut | (() => ChatSubmitShortcut) = "ctrlEnter",
 ): void {
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    if (event.key !== "Enter" || event.isComposing) return;
+
+    const currentShortcut = typeof shortcut === "function" ? shortcut() : shortcut;
+    const shouldSubmit =
+      currentShortcut === "enter"
+        ? !event.shiftKey
+        : !event.shiftKey && (event.ctrlKey || event.metaKey);
+
+    if (shouldSubmit) {
       event.preventDefault();
       form.requestSubmit();
     }

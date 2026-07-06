@@ -93,6 +93,7 @@ import {
   updateLastAssistantThinking,
 } from "./ui/chat.ts";
 import {
+  bindChatSubmitShortcut,
   populateChatModelOptions,
   populateChatProviderOptions,
 } from "./ui/chat-window-common.ts";
@@ -2526,7 +2527,7 @@ function bindChatSettingsSelectors(): void {
 function syncChatSettingsToWindow(): void {
   const provider = currentSettings.chatProvider ?? currentSettings.provider;
   const model = currentSettings.chatModel ?? getProviderSpecificSettings(currentSettings, provider).model;
-  void emit("chat-settings-sync", { provider, model });
+  void emit("chat-settings-sync", { provider, model, chatSubmitShortcut: currentSettings.chatSubmitShortcut });
 }
 
 function openSettings(): void {
@@ -2551,6 +2552,7 @@ async function saveAndCloseSettings(settings: AiSettings): Promise<void> {
   await saveWebDavSyncConfig(readWebDavSyncConfigFromModal());
   renderChatProviderOptions();
   updateChatSelectorsFromSettings();
+  syncChatSettingsToWindow();
   hideSettingsModal();
 }
 
@@ -2569,6 +2571,7 @@ async function handleInitializeSettings(): Promise<void> {
   providerConfig = await loadProviderConfig();
   renderChatProviderOptions();
   updateChatSelectorsFromSettings();
+  syncChatSettingsToWindow();
   hideSettingsModal();
 }
 
@@ -2849,12 +2852,7 @@ function bindUiEvents(): void {
     void handleChatSubmit();
   });
 
-  getElements().chatInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      getElements().chatForm.requestSubmit();
-    }
-  });
+  bindChatSubmitShortcut(getElements().chatInput, getElements().chatForm, () => currentSettings.chatSubmitShortcut);
 
   getElements().btnCancel.addEventListener("click", stopGeneration);
 
@@ -2973,6 +2971,7 @@ async function init(): Promise<void> {
       temperature: 0.7,
       maxTokens: 8192,
       maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
+      chatSubmitShortcut: "ctrlEnter",
     };
   }
 

@@ -14,6 +14,7 @@ export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacp
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export type GoogleThinkingLevel = "minimal" | "low" | "medium" | "high";
+export type ChatSubmitShortcut = "ctrlEnter" | "enter";
 
 export interface ProviderSpecificSettings {
   apiKey: string;
@@ -44,6 +45,7 @@ export interface AiSettings {
   anthropicThinkingBudget?: number;
   googleThinkingLevel?: GoogleThinkingLevel;
   twoStageContinuation?: boolean;
+  chatSubmitShortcut: ChatSubmitShortcut;
 }
 
 const STORE_NAME = "litra-settings.json";
@@ -79,6 +81,7 @@ const SETTINGS_STORE_KEYS = [
   "anthropicThinkingBudget",
   "googleThinkingLevel",
   "twoStageContinuation",
+  "chatSubmitShortcut",
 ] as const;
 
 let legacyStoreMigrationChecked = false;
@@ -150,6 +153,10 @@ function isProvider(value: unknown): value is Provider {
     value === "plamo" ||
     value === "opencode"
   );
+}
+
+function isChatSubmitShortcut(value: unknown): value is ChatSubmitShortcut {
+  return value === "ctrlEnter" || value === "enter";
 }
 
 function isProviderConfigRecord(value: unknown): value is Partial<Record<Provider, Partial<ProviderSpecificSettings>>> {
@@ -316,6 +323,9 @@ export async function loadSettings(): Promise<AiSettings> {
     frequencyPenalty: optionalNumber(await store.get("frequencyPenalty")) ?? modelDefaults?.frequencyPenalty,
     presencePenalty: optionalNumber(await store.get("presencePenalty")) ?? modelDefaults?.presencePenalty,
     twoStageContinuation: optionalBoolean(await store.get("twoStageContinuation")),
+    chatSubmitShortcut: isChatSubmitShortcut(await store.get("chatSubmitShortcut"))
+      ? (await store.get("chatSubmitShortcut") as ChatSubmitShortcut)
+      : "ctrlEnter",
   };
 
   // 旧共有フィールドからプロバイダー別フィールドへ移行
@@ -391,6 +401,7 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await setIfDefined(store, "anthropicThinkingBudget", settings.anthropicThinkingBudget);
   await setIfDefined(store, "googleThinkingLevel", settings.googleThinkingLevel);
   await setIfDefined(store, "twoStageContinuation", settings.twoStageContinuation);
+  await store.set("chatSubmitShortcut", settings.chatSubmitShortcut);
   await store.save();
 }
 

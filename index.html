@@ -212,6 +212,13 @@
               <span>最大コンテキスト数 (context tokens)</span>
               <input id="setting-max-context-tokens" type="number" min="2048" />
             </label>
+            <label>
+              <span>チャット送信キー</span>
+              <select id="setting-chat-submit-shortcut">
+                <option value="ctrlEnter">Ctrl+Enter で送信</option>
+                <option value="enter">Enter で送信（Shift+Enter で改行）</option>
+              </select>
+            </label>
 
             <button
               id="advanced-settings-toggle"

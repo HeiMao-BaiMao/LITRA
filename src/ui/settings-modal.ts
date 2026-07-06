@@ -441,6 +441,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
     settingTemperature,
     settingMaxTokens,
     settingMaxContextTokens,
+    settingChatSubmitShortcut,
     settingTopP,
     settingTopK,
     settingFrequencyPenalty,
@@ -458,6 +459,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingTemperature.value = String(settings.temperature);
   settingMaxTokens.value = String(settings.maxTokens);
   settingMaxContextTokens.value = String(settings.maxContextTokens);
+  settingChatSubmitShortcut.value = settings.chatSubmitShortcut;
   settingTopP.value = optionalNumberInput(settings.topP);
   settingTopK.value = optionalNumberInput(settings.topK);
   settingFrequencyPenalty.value = optionalNumberInput(settings.frequencyPenalty);
@@ -516,6 +518,7 @@ export function readSettingsFromModal(): AiSettings {
     settingTemperature,
     settingMaxTokens,
     settingMaxContextTokens,
+    settingChatSubmitShortcut,
     settingTopP,
     settingTopK,
     settingFrequencyPenalty,
@@ -551,6 +554,7 @@ export function readSettingsFromModal(): AiSettings {
     temperature: Number(settingTemperature.value),
     maxTokens: Number(settingMaxTokens.value),
     maxContextTokens: Number(settingMaxContextTokens.value),
+    chatSubmitShortcut: settingChatSubmitShortcut.value === "enter" ? "enter" : "ctrlEnter",
     topP: parseOptionalNumber(settingTopP.value),
     topK: parseOptionalNumber(settingTopK.value),
     frequencyPenalty: parseOptionalNumber(settingFrequencyPenalty.value),
