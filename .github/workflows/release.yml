@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build Windows release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Rust
+        shell: pwsh
+        run: |
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Tauri app
+        run: bun run tauri build
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view $env:TAG_NAME *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG_NAME --title $env:TAG_NAME --notes "Windows build for $env:TAG_NAME"
+          }
+
+      - name: Upload Windows bundles
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $bundleRoot = Join-Path $PWD "src-tauri\target\release\bundle"
+          $artifacts = Get-ChildItem -Path $bundleRoot -Recurse -File |
+            Where-Object { $_.Extension -in ".exe", ".msi", ".msix", ".appx", ".appxbundle", ".zip", ".sig" }
+
+          if (-not $artifacts) {
+            Write-Error "No release artifacts found under $bundleRoot"
+            exit 1
+          }
+
+          foreach ($artifact in $artifacts) {
+            gh release upload $env:TAG_NAME $artifact.FullName --clobber
+          }

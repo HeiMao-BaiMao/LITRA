@@ -242,7 +242,7 @@ pub fn search_genre(req: GenreSearchRequest) -> Result<Vec<GenreSearchResult>, S
 
     let limit = req.limit.unwrap_or(DEFAULT_LIMIT).min(50);
     let top_docs = searcher
-        .search(&parsed_query, &TopDocs::with_limit(limit))
+        .search(&parsed_query, &TopDocs::with_limit(limit).order_by_score())
         .map_err(|e| format!("Failed to search index: {}", e))?;
 
     let snippet_generator = SnippetGenerator::create(&searcher, &*parsed_query, content_field)

@@ -1,4 +1,5 @@
 use base64::Engine;
+use quick_xml::escape::unescape;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
@@ -698,12 +699,9 @@ fn parse_propfind_response(xml: &str) -> Result<Vec<RemoteEntry>, String> {
             }
             Event::Text(e) => {
                 if in_response && in_href {
-                    match e.unescape() {
-                        Ok(text) => current_href.push_str(&text),
-                        Err(err) => {
-                            return Err(format!("XML unescape failed: {err}"));
-                        }
-                    }
+                    let decoded = e.decode().map_err(|err| format!("XML decode failed: {err}"))?;
+                    let text = unescape(&decoded).map_err(|err| format!("XML unescape failed: {err}"))?;
+                    current_href.push_str(&text);
                 }
             }
             Event::End(e) => {
