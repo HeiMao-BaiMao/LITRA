@@ -7,6 +7,8 @@ mod secrets;
 mod settings;
 mod storage;
 mod tools;
+mod web_fetch;
+mod web_search;
 mod webdav_sync;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -46,6 +48,8 @@ pub fn run() {
             tools::retrieve_episode_content,
             tools::save_episode_one_liner,
             tools::save_episode_summary,
+            web_search::web_search,
+            web_fetch::web_fetch,
             webdav_sync::load_webdav_sync_config,
             webdav_sync::save_webdav_sync_config,
             webdav_sync::write_document_text_file,

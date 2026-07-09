@@ -183,7 +183,9 @@
           "temperature": 1.0,
           "maxTokens": 4096,
           "maxContextTokens": 32768,
-          "topP": 1.0
+          "topP": 1.0,
+          "frequencyPenalty": 0.3,
+          "presencePenalty": 0.3
         },
         {
           "id": "local-model",
@@ -191,7 +193,9 @@
           "temperature": 1.0,
           "maxTokens": 4096,
           "maxContextTokens": 32768,
-          "topP": 1.0
+          "topP": 1.0,
+          "frequencyPenalty": 0.3,
+          "presencePenalty": 0.3
         }
       ]
     },

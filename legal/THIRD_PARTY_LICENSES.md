@@ -108,7 +108,10 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | hashbrown | 0.17.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/hashbrown) |
 | cargo | heck | 0.5.0 | MIT OR Apache-2.0 | [link](https://github.com/withoutboats/heck) |
 | cargo | hex | 0.4.3 | MIT OR Apache-2.0 | [link](https://github.com/KokaKiwi/rust-hex) |
+| cargo | htmd | 0.5.4 | Apache-2.0 | [link](https://github.com/letmutex/htmd) |
+| cargo | html2text | 0.17.1 | MIT | [link](https://github.com/jugglerchris/rust-html2text/) |
 | cargo | html5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
+| cargo | html5ever | 0.39.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | htmlescape | 0.3.1 | Apache-2.0 / MIT / MPL-2.0 | [link](https://github.com/veddan/rust-htmlescape) |
 | cargo | http-body-util | 0.1.3 | MIT | [link](https://github.com/hyperium/http-body) |
 | cargo | http-body | 1.0.1 | MIT | [link](https://github.com/hyperium/http-body) |
@@ -139,6 +142,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | json-patch | 3.0.1 | MIT/Apache-2.0 | [link](https://github.com/idubrov/json-patch) |
 | cargo | jsonptr | 0.6.3 | MIT OR Apache-2.0 | [link](https://github.com/chanced/jsonptr) |
 | cargo | keyboard-types | 0.7.0 | MIT OR Apache-2.0 | [link](https://github.com/pyfisch/keyboard-types) |
+| cargo | keyring | 3.6.3 | MIT OR Apache-2.0 | [link](https://github.com/hwchen/keyring-rs.git) |
 | cargo | levenshtein_automata | 0.2.1 | MIT | [link](https://github.com/tantivy-search/levenshtein-automata) |
 | cargo | libc | 0.2.186 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/libc) |
 | cargo | litemap | 0.8.2 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
@@ -148,7 +152,9 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | lru-slab | 0.1.2 | MIT OR Apache-2.0 OR Zlib | [link](https://github.com/Ralith/lru-slab) |
 | cargo | lru | 0.16.4 | MIT | [link](https://github.com/jeromefroe/lru-rs.git) |
 | cargo | lz4_flex | 0.13.1 | MIT | [link](https://github.com/pseitz/lz4_flex) |
+| cargo | markup5ever_rcdom | 0.38.0+unofficial | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | markup5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
+| cargo | markup5ever | 0.39.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | measure_time | 0.9.0 | MIT | [link](https://github.com/PSeitz/rust_measure_time) |
 | cargo | memchr | 2.8.2 | Unlicense OR MIT | [link](https://github.com/BurntSushi/memchr) |
 | cargo | memmap2 | 0.9.11 | MIT OR Apache-2.0 | [link](https://github.com/RazrFalcon/memmap2-rs) |
@@ -310,6 +316,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | typenum | 1.20.1 | MIT OR Apache-2.0 | [link](https://github.com/paholg/typenum) |
 | cargo | typetag-impl | 0.2.22 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/typetag) |
 | cargo | typetag | 0.2.22 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/typetag) |
+| cargo | ua_generator | 0.5.69 | MIT | [link](https://github.com/spider-rs/ua_generator) |
 | cargo | unic-char-property | 0.9.0 | MIT/Apache-2.0 | [link](https://github.com/open-i18n/rust-unic/) |
 | cargo | unic-char-range | 0.9.0 | MIT/Apache-2.0 | [link](https://github.com/open-i18n/rust-unic/) |
 | cargo | unic-common | 0.9.0 | MIT/Apache-2.0 | [link](https://github.com/open-i18n/rust-unic/) |
@@ -317,6 +324,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | unic-ucd-version | 0.9.0 | MIT/Apache-2.0 | [link](https://github.com/open-i18n/rust-unic/) |
 | cargo | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | [link](https://github.com/dtolnay/unicode-ident) |
 | cargo | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | [link](https://github.com/unicode-rs/unicode-segmentation) |
+| cargo | unicode-width | 0.2.2 | MIT OR Apache-2.0 | [link](https://github.com/unicode-rs/unicode-width) |
 | cargo | untrusted | 0.9.0 | ISC | [link](https://github.com/briansmith/untrusted) |
 | cargo | url | 2.5.8 | MIT OR Apache-2.0 | [link](https://github.com/servo/rust-url) |
 | cargo | urlpattern | 0.3.0 | MIT | [link](https://github.com/denoland/rust-urlpattern) |
@@ -338,6 +346,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | winapi | 0.3.9 | MIT/Apache-2.0 | [link](https://github.com/retep998/winapi-rs) |
 | cargo | window-vibrancy | 0.6.0 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri-plugin-vibrancy) |
 | cargo | windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
+| cargo | windows_x86_64_msvc | 0.53.1 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-collections | 0.2.0 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-core | 0.61.2 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-future | 0.2.1 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
@@ -352,8 +361,10 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | windows-strings | 0.4.2 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-strings | 0.5.1 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-sys | 0.59.0 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
+| cargo | windows-sys | 0.60.2 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-sys | 0.61.2 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-targets | 0.52.6 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
+| cargo | windows-targets | 0.53.5 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-threading | 0.1.0 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-version | 0.1.7 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows | 0.61.3 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
@@ -362,10 +373,12 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | winreg | 0.55.0 | MIT | [link](https://github.com/gentoo90/winreg-rs) |
 | cargo | writeable | 0.6.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | wry | 0.55.1 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/wry) |
+| cargo | xml5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | yoke-derive | 0.8.2 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | yoke | 0.8.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerofrom-derive | 0.1.7 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerofrom | 0.1.8 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | zeroize_derive | 1.5.0 | Apache-2.0 OR MIT | [link](https://github.com/RustCrypto/utils) |
 | cargo | zeroize | 1.9.0 | Apache-2.0 OR MIT | [link](https://github.com/RustCrypto/utils) |
 | cargo | zerotrie | 0.2.4 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerovec-derive | 0.11.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |

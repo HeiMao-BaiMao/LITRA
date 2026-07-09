@@ -356,6 +356,16 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
 - Do NOT run rebuildSearchIndex unless the consistency result explicitly says required evidence was missing.`);
   }
 
+  if (hasAnyTool(available, ["webSearch", "webFetch"])) {
+    sections.push(`WEB RESEARCH (webSearch / webFetch):
+- Use webSearch to verify real-world facts — place names, history, technology, culture, professions, laws, medicine, current events — and any information that may be newer than your training data. IF the user asks you to research, verify, or fact-check something against the real world → you MUST call webSearch instead of answering from memory.
+- Story canon is NEVER a web matter. Facts about this story's characters, world, relationships, or past episodes live in the project tools (searchEpisodes, retrieveEpisode, checkConsistency) and the reference data. NEVER search the web for fictional facts of this story.
+- Use webFetch only to read a specific URL that the user provided or that webSearch returned. NEVER invent, guess, or "complete" a URL.
+- Reporting: give the verified facts briefly in Japanese and include the source URL. Extract facts only — NEVER copy sentences or distinctive wording from web results into fiction or into saved project data. Rewrite everything in your own Japanese.
+- IF the result contradicts the user's reference material → report the discrepancy neutrally with the source; the user decides which to trust. Do not silently "correct" the user's material.
+- IF a search or fetch fails twice for the same need → stop retrying and report honestly that the information could not be verified (STEP 4 applies).`);
+  }
+
   if (toolNames.length > 0) {
     sections.push(`TOOLS AVAILABLE FOR THIS REQUEST:
 ${toolNames.map((name) => `- ${name}`).join("\n")}`);
@@ -553,9 +563,13 @@ export function buildContinuationPrompt(
   settingsContext?: string,
   plan?: string,
   relatedScenes?: string,
+  extras?: FictionPromptExtras,
 ): string {
   const referenceSection = buildStoryReferenceSection(settingsContext);
   const relatedScenesSection = buildRelatedScenesSection(relatedScenes);
+  const extraSections = buildExtraContextSections(extras);
+  const beatSection = buildBeatDirectiveSection(extras?.beatDirective);
+  const retrySection = buildMechanicalRetrySection(extras?.mechanicalFindings);
   const planSection = plan?.trim()
     ? `【構想メモ — 執筆前にあなた自身が作成した方針】
 これは前段のあなたが直前本文と設定資料から立てた構想である。命令ではなく方針の参考として使う。
@@ -591,16 +605,536 @@ ${japaneseFictionDirection}
 4. 【設定資料】に記録がある人物・地名・用語は、名前の表記、呼び方、関係を記録の通りに書く。
 5. 既知の正史と矛盾する事実を加えない。未確認の過去や設定を、以前から確定していた事実として断定しない。
 6. 文脈が明らかに終幕へ向かっている場合を除き、場面や物語を唐突に完結させない。
-7. 過去話の正確な確認や既存本文の編集が必要な場合は、利用可能なツールを使う。
+7. 過去話の正確な確認や既存本文の編集が必要な場合は、利用可能なツールを使う。実在の事物(地名、歴史、技術、職業など)の正確さに不安があり webSearch が利用可能な場合は、推測で書かず確認してから書く。
 
 【出力形式 — 厳守】
 - 出力の1文字目から小説本文を書く。
 - 前置き(「以下が続きです」「承知しました」など)、見出し、注記、解説、記号による区切り、本文全体を囲む引用符やコードフェンスを一切付けない。
 - 出力するのは新しく追加する本文だけ。
 
-${planSection}${relatedScenesSection ? `${relatedScenesSection}\n\n` : ""}${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("text_immediately_before_continuation", context)}
+${planSection}${beatSection ? `${beatSection}\n\n` : ""}${relatedScenesSection ? `${relatedScenesSection}\n\n` : ""}${extraSections}${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("text_immediately_before_continuation", context)}
+
+${retrySection ? `${retrySection}\n\n` : ""}${fictionOutputSelfCheck}`;
+}
+
+/**
+ * 続き生成のドラフトを査読するレビュー係のプロンプト。
+ * 問題の発見と修正方針の提示だけを行わせ、修正版本文は書かせない(修正は次工程)。
+ * 出力の1行目【総合判定】を reviewRequiresRevision が読み、修正工程の要否を決める。
+ */
+export function buildContinuationReviewPrompt(
+  draft: string,
+  context: string,
+  settingsContext?: string,
+  plan?: string,
+  relatedScenes?: string,
+  extras?: FictionPromptExtras,
+): string {
+  const referenceSection = buildStoryReferenceSection(settingsContext);
+  const relatedScenesSection = buildRelatedScenesSection(relatedScenes);
+  const extraSections = buildExtraContextSections(extras);
+  const planSection = plan?.trim()
+    ? `【構想メモ — ドラフトが従うはずだった方針】
+ドラフトの執筆前に立てられた構想である。ドラフトが構想から大きく外れて場面の目的を見失っていないかの確認に使う。ただし、構想からの逸脱自体は本文として自然に繋がっていれば問題としない(優先順位は 直前本文との自然な接続 > 構想メモ)。
+
+${limitPromptText(plan.trim(), 2000, "tail")}
+
+`
+    : "";
+  return `【依頼】
+あなたは日本語小説の査読者である。<reference_data name="text_immediately_before_continuation"> の続きとして生成されたドラフト <reference_data name="draft_to_review"> を徹底的に査読する。あなたの仕事は問題の発見と修正方針の提示だけである。修正版の本文を書くのは次工程の別の書き手である。
+
+【査読の手順 — この順番で必ず実行する】
+手順1: 直前本文から次を確定する。語りの型(下の【語りの型】の判定基準で決める)、視点人物とその呼び方、時制、文体(語彙密度、文の長短、漢字と仮名の比率、句読点と段落の呼吸)、場面の状況(場所、時刻、同席者、所持品、負傷などの身体状態)。
+手順2: ドラフトの全文を、次の4観点で1文ずつ点検する。
+  観点1 矛盾: 直前本文・【設定資料】・ドラフト内部での事実の食い違い。人物の位置、所持品、負傷、時刻、天候、呼称、関係、既に起きた出来事との不整合。資料に無い過去・経歴・関係を確定事実として書いていないか。
+  観点2 語りと視点: 手順1で判定した型の規則への違反。視点人物が知覚も思考もできないことが地の文に書かれていないか。自分の顔や気持ちを外から推測する文、他人の内心の断定、場面途中の視点移動、一人称の呼び方や時制の変化。
+  観点3 表現: 翻訳調の構文、本文の語彙から浮いた言い回し、無意味な反復、設定を説明するためだけの台詞、紋切り型の描写、感情の直接説明(「悲しかった」型。ただし地の文が説明体の作品なら問題としない)。
+  観点4 物語内容・文体: 直前の文からの接続が自然か。直前本文の要約・言い換え・反復になっていないか。場面が前進しているか。文体(手順1で確定したもの)がドラフトでも維持されているか。物語を唐突に完結させていないか。
+手順3: 見つけた問題を仕分けする。
+  修正必須 = 観点1・観点2の違反、正史・設定資料との矛盾、直前本文と繋がらない箇所。
+  改善提案 = 観点3・観点4のうち、誤りではないが質を下げている箇所。
+手順4: 下の【出力形式】に従って書く。
+
+【査読の規律】
+- 査読対象はドラフトのみ。直前本文(既存原稿)の欠点は指摘しない。
+- 各指摘は、該当箇所をドラフトからの短い引用で特定し、何が問題かと修正方針を1行で書く。修正版の文章そのものは書かない。
+- 徹底的に探し、無ければ無いと判定する。存在しない問題をひねり出さない。指摘ゼロは正当な査読結果である。
+- 修正方針は既存の本文・資料の範囲内で立てる。新しい設定・事実・展開の追加を提案しない。
+
+【出力形式 — 厳守。次の見出しのみを使う】
+1行目: 【総合判定】要修正 または 【総合判定】問題なし
+【修正必須】(番号付き。1件ごとに: 「短い引用」— 問題の説明。修正方針。/ 無ければ「なし」)
+【改善提案】(同形式。無ければ「なし」)
+【修正時の注意】(壊してはならない良い箇所を1〜2点。引用で特定する)
+問題が1件も無い場合は、【総合判定】問題なし の1行だけを出力する。
+
+【査読基準 — ドラフトが満たすべき規則】
+以下はドラフトが従うべき語りの規則と日本語小説の生成方針である。ドラフトがこれらに違反していないかを点検の基準にする。
+
+${japaneseFictionDirection}
+
+${planSection}${relatedScenesSection ? `${relatedScenesSection}\n\n` : ""}${extraSections}${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("text_immediately_before_continuation", context)}
+
+${formatPromptDataBlock("draft_to_review", draft)}`;
+}
+
+/**
+ * 査読結果を反映した修正稿を書く修正係のプロンプト。
+ * 出力はドラフト全体を置き換える全文(指摘されなかった文も含めて出力させる)。
+ */
+export function buildContinuationRevisionPrompt(
+  draft: string,
+  review: string,
+  context: string,
+  settingsContext?: string,
+  relatedScenes?: string,
+  extras?: FictionPromptExtras,
+): string {
+  const referenceSection = buildStoryReferenceSection(settingsContext);
+  const relatedScenesSection = buildRelatedScenesSection(relatedScenes);
+  const extraSections = buildExtraContextSections(extras);
+  return `【依頼】
+<reference_data name="text_immediately_before_continuation"> の続きとして書かれたドラフト <reference_data name="draft_to_review"> を、査読結果 <reference_data name="review"> に従って修正し、修正稿を出力する。
+
+【手順 — この順番で必ず実行する】
+手順1(出力しない): 直前本文から語りの型、視点人物とその呼び方、時制、文体を確定する。修正稿もこの型と文体で書く。
+手順2: 査読の【修正必須】と、査読に【機械検査による指摘】が含まれる場合はそれも全て反映する。指摘された問題が確実に解消されるよう、該当箇所を書き直す。
+手順3: 査読の【改善提案】を、本文の流れとリズムを損なわない範囲で反映する。
+手順4: 指摘されていない文は原則そのまま残す。【修正時の注意】に挙げられた箇所は変えない。
+手順5: 書き直した箇所が新たな矛盾・視点違反・文体の浮きを生んでいないか再点検してから出力する。
+
+【修正の規律 — 全項目を必ず守る】
+1. これは推敲であり、新作ではない。全面的な書き直しをしない。指摘に関係のない文の語彙や語順をむやみに変えない。
+2. 優先順位: 直前本文との自然な接続・正史 > 査読の指摘 > ドラフトの原文。指摘の通りに直すと本文が不自然になる場合は、指摘の意図(何が問題とされたか)を汲み、別の形でその問題を解消する。
+3. 査読が求めていても、正史・【設定資料】に無い確定事実(人物の過去、経歴、関係、正体)を新しく加えない。
+4. 修正稿は、直前本文の末尾に置いたとき途切れなく読める続きでなければならない。
+
+${japaneseFictionDirection}
+
+【出力形式 — 厳守】
+- 出力の1文字目から小説本文を書く。
+- 前置き、見出し、注記、解説、修正箇所の説明、本文を囲む引用符やコードフェンスを一切付けない。
+- ドラフト全体を置き換える修正稿の全文を出力する。指摘されず変更しなかった文も省略せずそのまま含める。
+
+${relatedScenesSection ? `${relatedScenesSection}\n\n` : ""}${extraSections}${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("text_immediately_before_continuation", context)}
+
+${formatPromptDataBlock("draft_to_review", draft)}
+
+${formatPromptDataBlock("review", review)}
 
 ${fictionOutputSelfCheck}`;
+}
+
+/**
+ * レビュー出力の【総合判定】行から修正工程の要否を判定する。
+ * 「問題なし」を明示した場合のみ修正をスキップし、見出し欠落など
+ * 形式が崩れた場合は安全側(要修正)に倒す。
+ */
+export function reviewRequiresRevision(review: string): boolean {
+  const verdictLine = review
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("【総合判定】"));
+  if (!verdictLine) return true;
+  return !verdictLine.includes("問題なし");
+}
+
+/* ============================================================
+ * 弱いモデル支援 — 追加コンテキスト注入と補助工程のプロンプト群
+ *
+ * ここにあるのはプロンプト文面と出力形式パーサーだけである。
+ * 数値の計測、カードの生成呼び出し、キャッシュ、機械検査の実装、
+ * 置換の適用といった非プロンプトの配線は service.ts / main.ts 側
+ * (委託対象)が行い、結果を FictionPromptExtras や各ビルダーの
+ * 引数として渡す。残作業の一覧は fable5.feature.txt を参照。
+ * ============================================================ */
+
+/** 原稿から機械計測した文体の実測値。計測処理は配線側の責務。 */
+export interface StyleFingerprint {
+  /** 1文の平均文字数(句点区切り) */
+  averageSentenceLength: number;
+  /** 本文に占める漢字の割合 0〜1 */
+  kanjiRatio: number;
+  /** 会話行(「で始まる行)の割合 0〜1 */
+  dialogueRatio: number;
+  /** 1段落あたりの平均文数 */
+  averageSentencesPerParagraph: number;
+  /** 地の文の文末表現の分布(頻度順、上位のみ渡す) */
+  sentenceEndings: Array<{ form: string; ratio: number }>;
+}
+
+/** 編集ログ等から収集した「AIの文→作者が直した文」のペア。 */
+export interface AuthorEditLesson {
+  before: string;
+  after: string;
+  reason?: string;
+}
+
+/** 構想メモの主要ビート1つに執筆範囲を限定する指示。index は1始まり。 */
+export interface BeatDirective {
+  beat: string;
+  index: number;
+  total: number;
+}
+
+/**
+ * 続き生成・査読・修正のプロンプトに追加注入する文脈。
+ * すべて省略可能で、未指定なら各ビルダーの出力は従来と同一になる。
+ */
+export interface FictionPromptExtras {
+  styleFingerprint?: StyleFingerprint;
+  /** buildSceneStateCardPrompt の出力(場面ステートカード) */
+  sceneState?: string;
+  /** buildCharacterVoiceCardsPrompt の出力(話し方カード) */
+  characterVoiceCards?: string;
+  editLessons?: AuthorEditLesson[];
+  /** 続き生成のみ: 執筆範囲を構想メモの1ビートに限定する */
+  beatDirective?: BeatDirective;
+  /** 続き生成のみ: 破棄した前回ドラフトの機械検査結果(リトライ時) */
+  mechanicalFindings?: string[];
+}
+
+export function buildStyleFingerprintSection(
+  fingerprint: StyleFingerprint,
+): string {
+  const percent = (value: number): string =>
+    `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+  const endings = fingerprint.sentenceEndings
+    .slice(0, 5)
+    .map((entry) => `「${entry.form}」${percent(entry.ratio)}`)
+    .join(" / ");
+  return `【文体指標 — この作品の本文から機械計測した実測値】
+この作品の文章は、次の数値的特徴を持つ。
+- 1文の平均の長さ: 約${Math.round(fingerprint.averageSentenceLength)}文字
+- 本文に占める漢字の割合: 約${percent(fingerprint.kanjiRatio)}
+- 会話(「」の行)の割合: 約${percent(fingerprint.dialogueRatio)}
+- 1段落あたりの平均文数: 約${Math.round(fingerprint.averageSentencesPerParagraph)}文${endings ? `\n- 地の文の文末の分布: ${endings}` : ""}
+使い方 — 全項目を必ず守る:
+1. 新しく書く本文は、全体としてこの指標に近づける。1文ごとに厳密に合わせる必要はないが、平均がここから大きく離れてはならない。
+2. 査読・修正では、この指標からの明らかな逸脱(極端に長い文や短い文の連続、漢語の急増、会話率の急変)を文体の問題として扱う。
+3. この指標の存在や数値そのものを、本文にも出力にも書かない。`;
+}
+
+function buildSceneStateSection(sceneState?: string): string {
+  const trimmed = sceneState?.trim();
+  if (!trimmed) return "";
+  return `【場面の現在状態 — 直前本文から抽出した事実の要約】
+下の <reference_data name="scene_state"> は、直前本文の末尾時点での場面の状態を事実だけで整理したカードである。
+使い方 — 全項目を必ず守る:
+1. 人物の位置、同席者、所持品、負傷・身体状態、時刻・場所を、このカードと矛盾させない。査読・修正では矛盾を修正必須の問題として扱う。
+2. これは要約である。カードと直前本文が食い違う場合は、直前本文を正とする。
+3. カードに無い事柄は不明として扱い、確定事実として書かない。
+4. カードの文章を本文にコピーしない。
+
+${formatPromptDataBlock("scene_state", trimmed)}`;
+}
+
+function buildCharacterVoiceSection(voiceCards?: string): string {
+  const trimmed = voiceCards?.trim();
+  if (!trimmed) return "";
+  return `【人物の話し方カード — この場面に登場する人物の声】
+下の <reference_data name="character_voice_cards"> は、各人物の一人称、呼び方、口調、語尾の癖を本文と資料から整理したカードである。
+使い方 — 全項目を必ず守る:
+1. 台詞と思考の文は、人物ごとにこのカードの一人称・呼び方・口調・語尾に合わせる。全員の話し方を同じにしない。
+2. 直前本文にその人物の台詞が既にある場合は、本文での実際の話し方を最優先する。
+3. 台詞例は声の質感を示す見本である。文章そのものをコピーしない。
+4. 査読・修正では、カードと明らかに食い違う話し方の台詞を問題として扱う。
+
+${formatPromptDataBlock("character_voice_cards", trimmed)}`;
+}
+
+function buildAuthorEditLessonsSection(lessons?: AuthorEditLesson[]): string {
+  const items = (lessons ?? [])
+    .filter((lesson) => lesson.before.trim() && lesson.after.trim())
+    .slice(0, 5);
+  if (items.length === 0) return "";
+  const body = items
+    .map((lesson, index) =>
+      [
+        `例${index + 1}`,
+        `修正前: ${limitPromptText(lesson.before.trim(), 400, "middle")}`,
+        `修正後: ${limitPromptText(lesson.after.trim(), 400, "middle")}`,
+        lesson.reason?.trim()
+          ? `修正意図: ${limitPromptText(lesson.reason.trim(), 200, "head")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    )
+    .join("\n\n");
+  return `【作者による修正の実例 — 過去の生成文と、作者が直した文】
+下の <reference_data name="author_edit_examples"> は、この作品で過去に生成された文章に作者自身が加えた修正の記録であり、作者の好みと基準を示す直接の証拠である。
+使い方 — 全項目を必ず守る:
+1. 修正前と修正後の違いから、作者が避けたい書き方と望む書き方の傾向を読み取り、新しく書く本文に反映する。
+2. 修正後の文をコピーしない。学ぶのは傾向だけである。
+3. 査読・修正では、修正前と同じ型の書き方が再発していないかを確認する。
+4. 実例は文体の好みを示すだけである。物語の事実の根拠にしない。
+
+${formatPromptDataBlock("author_edit_examples", body)}`;
+}
+
+function buildBeatDirectiveSection(directive?: BeatDirective): string {
+  if (!directive?.beat.trim()) return "";
+  const { index, total } = directive;
+  const isLast = index >= total;
+  return `【ビート指示 — この続きで書く範囲】
+構想メモの主要ビートのうち、今回はビート${index}/${total}「${directive.beat.trim()}」だけを本文にする。
+1. このビートの出来事だけを書く。後続のビートの出来事を先取りしない。
+2. ${isLast ? "これが最後のビートである。構想メモの「場面の目的」が達成されるところまで書いて締める。" : "このビートが完了し、次のビートへ自然に繋がる位置で筆を止める。場面を無理に完結させない。"}
+3. 優先順位は変わらず「直前本文との自然な接続・正史 > 構想メモ・ビート指示」である。`;
+}
+
+/** 破棄済みドラフトの機械検査結果を、再執筆プロンプトに埋め込む。 */
+function buildMechanicalRetrySection(findings?: string[]): string {
+  const items = (findings ?? [])
+    .map((finding) => finding.trim())
+    .filter(Boolean);
+  if (items.length === 0) return "";
+  return `【前回のドラフトへの機械検査結果 — 同じ失敗を繰り返さない】
+直前の試行で生成された本文は破棄された。決定論的な文字列検査が次の問題を検出したためである。今回はこれらを1つも起こさずに書く。
+${items.map((finding, index) => `${index + 1}. ${finding}`).join("\n")}`;
+}
+
+/**
+ * 機械検査の検出結果を、査読出力に連結できる形に整形する。
+ * 配線側で LLM の査読文字列の末尾にこのブロックを連結してから
+ * buildContinuationRevisionPrompt / buildTargetedRevisionPrompt に渡す。
+ * 連結した場合、reviewRequiresRevision の結果に関わらず修正工程を実行すること。
+ */
+export function formatMechanicalFindingsForReview(findings: string[]): string {
+  const items = findings.map((finding) => finding.trim()).filter(Boolean);
+  if (items.length === 0) return "";
+  return `【機械検査による指摘 — 決定論的な文字列検査で検出された問題。すべて修正必須として扱う】
+${items.map((finding, index) => `${index + 1}. ${finding}`).join("\n")}`;
+}
+
+function buildExtraContextSections(extras?: FictionPromptExtras): string {
+  if (!extras) return "";
+  const sections = [
+    buildSceneStateSection(extras.sceneState),
+    buildCharacterVoiceSection(extras.characterVoiceCards),
+    buildAuthorEditLessonsSection(extras.editLessons),
+    extras.styleFingerprint
+      ? buildStyleFingerprintSection(extras.styleFingerprint)
+      : "",
+  ].filter(Boolean);
+  return sections.length > 0 ? `${sections.join("\n\n")}\n\n` : "";
+}
+
+/**
+ * 場面ステートカードの生成プロンプト(バックグラウンドモデル用)。
+ * 出力はそのまま FictionPromptExtras.sceneState に渡す。
+ */
+export function buildSceneStateCardPrompt(
+  context: string,
+  settingsContext?: string,
+): string {
+  const referenceSection = buildStoryReferenceSection(settingsContext);
+  return `【依頼】
+提示された日本語小説の直前本文を読み、末尾の時点での場面の状態を事実だけで整理したカードを作る。小説本文は書かない。
+
+【規則 — 全項目を必ず守る】
+1. 本文(および【設定資料】)に明示された事実だけを書く。推測で補わない。書かれていない項目は「不明」と書く。
+2. 各行は短い体言止めまたは簡潔な文で書く。修辞や描写をしない。
+3. すべて日本語で書く。人物名・用語の表記は本文の通りにする。
+4. 末尾の時点の状態を書く。場面の途中で変化した事柄(移動、受け渡し、負傷)は最新の状態だけを書く。
+
+【出力形式 — 厳守。次の見出しのみを使う】
+【場所と時刻】(1〜2行)
+【その場にいる人物】(人物ごとに1行: 名前 — 位置・姿勢/所持品/負傷・身体状態/直前の行動)
+【場面にいない重要人物】(直前本文で言及されたが不在の人物と、本文に書かれたその所在。無ければ「なし」)
+【直前の出来事】(2〜4行。時系列順)
+【未解決の緊張】(1〜3行。未回答の問い、言いかけた言葉、保留中の行動、感情的な引っかかり)
+
+${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("text_immediately_before_continuation", context)}`;
+}
+
+/**
+ * 人物の話し方カードの生成プロンプト(バックグラウンドモデル用)。
+ * excerpts には対象人物の台詞を含む原稿抜粋を渡す。
+ * 出力はそのまま FictionPromptExtras.characterVoiceCards に渡す。
+ */
+export function buildCharacterVoiceCardsPrompt(
+  characterNames: string[],
+  excerpts: string,
+  settingsContext?: string,
+): string {
+  const referenceSection = buildStoryReferenceSection(settingsContext);
+  const names = characterNames
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return `【依頼】
+対象人物それぞれの「話し方カード」を作る。提示された本文抜粋の実際の台詞と、【設定資料】の記録だけを根拠にする。小説本文は書かない。
+
+【対象人物】
+${names.map((name) => `- ${name}`).join("\n")}
+
+【規則 — 全項目を必ず守る】
+1. 根拠は抜粋中の実際の台詞と資料の記録のみ。本文に無い話し方の特徴を発明しない。判断材料が無い項目は「不明」と書く。
+2. 台詞例は抜粋からの逐語の引用にする。作り変えない。
+3. すべて日本語で書く。
+4. 対象人物以外のカードを作らない。
+
+【出力形式 — 厳守。人物ごとに次の形式を繰り返す】
+■人物名
+一人称: (僕/俺/私 など)
+呼び方: (相手→呼称。例: 主人公→「せんぱい」)
+口調: (丁寧/乱暴/敬語の使い分け、感情が動いたときの変化)
+語尾の癖: (特徴的な文末。無ければ「特になし」)
+台詞例: 「(抜粋からの逐語の引用)」(最大2つ)
+
+${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("manuscript_excerpts", excerpts)}`;
+}
+
+/**
+ * 複数ドラフトから採用案を選ぶ選定係のプロンプト(非ストリーミング)。
+ * 出力は parseDraftSelection で読み、失敗時は配線側が案1を採用する。
+ */
+export function buildDraftSelectionPrompt(
+  drafts: string[],
+  context: string,
+  settingsContext?: string,
+  plan?: string,
+): string {
+  const referenceSection = buildStoryReferenceSection(settingsContext);
+  const planSection = plan?.trim()
+    ? `【構想メモ】
+各案が従うはずだった構想である。構想との一致度より、下の選定基準1〜4を優先する。
+
+${limitPromptText(plan.trim(), 2000, "tail")}
+
+`
+    : "";
+  const draftBlocks = drafts
+    .map((draft, index) =>
+      formatPromptDataBlock(`draft_candidate_${index + 1}`, draft),
+    )
+    .join("\n\n");
+  return `【依頼】
+<reference_data name="text_immediately_before_continuation"> の続きとして生成された${drafts.length}案のドラフトを比較し、続きとして採用すべき1案を選ぶ。本文の書き直し、混合、抜粋はしない。選ぶだけである。
+
+【選定基準 — 番号が小さいほど優先】
+1. 直前本文との接続の自然さと、正史・【設定資料】との整合。
+2. 語りの型と視点の規則(下の【語りの型】)への忠実さ。
+3. 文体(語彙、文の長短、句読点の呼吸)の直前本文との一致。
+4. 場面の前進と描写の具体性。安易・紋切り型でないこと。
+どの案にも欠点がある前提で、相対的に優れた1案を選ぶ。完璧な案を待たない。同点なら基準1で勝る案を選ぶ。
+
+【出力形式 — 厳守】
+1行目: 【採用】案N (Nは1〜${drafts.length}の数字1つ)
+【理由】(1〜3行。採用案の決め手と、不採用案の主な欠点)
+この2見出し以外の見出し、前置き、本文の引用羅列を出力しない。
+
+【選定基準の詳細 — 語りの規則】
+以下は各案が従うべき語りの規則である。違反の少ない案を優先する。
+
+${povHardRules}
+
+${planSection}${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("text_immediately_before_continuation", context)}
+
+${draftBlocks}`;
+}
+
+/**
+ * 選定係の出力から採用案の添字(0始まり)を得る。
+ * 形式が崩れている・範囲外の場合は undefined(配線側は案1にフォールバック)。
+ */
+export function parseDraftSelection(
+  output: string,
+  draftCount: number,
+): number | undefined {
+  const match = output.match(/【採用】[^\d]*(\d+)/);
+  if (!match) return undefined;
+  const selected = Number.parseInt(match[1], 10);
+  if (!Number.isInteger(selected) || selected < 1 || selected > draftCount) {
+    return undefined;
+  }
+  return selected - 1;
+}
+
+/**
+ * 全文書き直しの代わりに、指摘箇所だけの置換指示を出させる修正係のプロンプト。
+ * 出力は parseTargetedRevision で読み、配線側が機械的に適用する。
+ * 適用に失敗した場合は buildContinuationRevisionPrompt(全文修正)へフォールバックする。
+ */
+export function buildTargetedRevisionPrompt(
+  draft: string,
+  review: string,
+  context: string,
+  settingsContext?: string,
+  extras?: FictionPromptExtras,
+): string {
+  const referenceSection = buildStoryReferenceSection(settingsContext);
+  const extraSections = buildExtraContextSections(extras);
+  return `【依頼】
+<reference_data name="text_immediately_before_continuation"> の続きとして書かれたドラフト <reference_data name="draft_to_review"> を、査読結果 <reference_data name="review"> に従って修正する。ただし修正稿の全文は出力しない。修正が必要な箇所だけを「対象と修正」の置換指示として出力する。置換はプログラムが機械的に適用するため、形式を厳守する。
+
+【手順 — この順番で必ず実行する】
+手順1(出力しない): 直前本文から語りの型、視点人物とその呼び方、時制、文体を確定する。修正後の文章もこの型と文体で書く。
+手順2: 査読の【修正必須】と、査読に【機械検査による指摘】が含まれる場合はそれも全て、該当箇所をドラフトから特定して置換を作る。
+手順3: 査読の【改善提案】は、短い置換で確実に良くなる場合に限り置換を作る。迷ったら作らない。
+手順4: 各置換が下の【置換の規律】を全て満たしているか確認してから出力する。
+
+【置換の規律 — 全項目を必ず守る】
+1. 「対象」は、ドラフトの連続した範囲の一字一句そのままのコピーにする。句読点、改行、記号も変えずに写す。写し間違えた置換は適用されずに捨てられる。
+2. 対象と同じ文字列がドラフトに2回以上現れる場合は、範囲を前後に広げて一意になるようにする。
+3. 置換同士で範囲を重ねない。ドラフトでの出現順に並べる。置換は最大8件。読者への影響が大きい問題から選ぶ。
+4. 「修正」は、前後の変更しない文とそのまま繋がる文章にする。語りの型、文体、一人称、時制を維持する。
+5. 正史・【設定資料】に無い確定事実(人物の過去、経歴、関係、正体)を新しく加えない。
+6. 問題が広範囲に及び置換で表しきれない場合は、無理に分割せず、その問題に最も効く1箇所だけを置換する。
+
+${japaneseFictionDirection}
+
+【出力形式 — 厳守】
+修正すべき箇所が1件も無い場合: 【置換なし】 とだけ1行書く。
+それ以外の場合: 次の形式だけを件数分繰り返す。他の見出し、前置き、解説を一切書かない。
+【置換1】
+対象:
+(ドラフトからの逐語コピー)
+修正:
+(差し替え後の文章)
+
+${extraSections}${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("text_immediately_before_continuation", context)}
+
+${formatPromptDataBlock("draft_to_review", draft)}
+
+${formatPromptDataBlock("review", review)}`;
+}
+
+export interface TargetedReplacement {
+  target: string;
+  replacement: string;
+}
+
+/**
+ * スパン限定修正の出力を置換リストへ変換する。
+ * 【置換なし】は空配列。形式が崩れている場合は undefined を返し、
+ * 配線側は全文修正(または置換の部分適用の中止)へフォールバックする。
+ * 各 target がドラフト内で一意に見つかるかの検証は配線側の責務。
+ */
+export function parseTargetedRevision(
+  output: string,
+): TargetedReplacement[] | undefined {
+  const normalized = output.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return undefined;
+  if (normalized.startsWith("【置換なし】")) return [];
+  const blocks = normalized.split(/【置換\d+】/).slice(1);
+  if (blocks.length === 0) return undefined;
+  const replacements: TargetedReplacement[] = [];
+  for (const block of blocks) {
+    // コロン直後の空白は同一行形式の区切りとして消費するが、
+    // 改行後の行頭空白(字下げの全角スペースなど)は本文として保持する。
+    const match = block.match(
+      /^\s*対象:[ \t　]*\n?([\s\S]*?)\n修正:[ \t　]*\n?([\s\S]*)$/,
+    );
+    if (!match) return undefined;
+    const target = match[1].replace(/^\n+|\n+$/g, "");
+    const replacement = match[2].replace(/^\n+|\n+$/g, "");
+    if (!target) return undefined;
+    replacements.push({ target, replacement });
+  }
+  return replacements;
 }
 
 export function buildRewritePrompt(

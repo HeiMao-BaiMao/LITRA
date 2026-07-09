@@ -66,11 +66,19 @@ export interface AppElements {
   settingAnthropicThinkingBudget: HTMLInputElement;
   settingGoogleThinkingLevel: HTMLSelectElement;
   settingTwoStageContinuation: HTMLInputElement;
+  settingContinuationReview: HTMLInputElement;
+  settingContinuationUseBackgroundModel: HTMLInputElement;
+  settingContinuationSceneState: HTMLInputElement;
+  settingContinuationCharacterVoice: HTMLInputElement;
+  settingContinuationBestOfTwo: HTMLInputElement;
+  settingContinuationTargetedRevision: HTMLInputElement;
+  settingContinuationBeatSplit: HTMLInputElement;
   settingWebdavEnabled: HTMLInputElement;
   settingWebdavUrl: HTMLInputElement;
   settingWebdavUsername: HTMLInputElement;
   settingWebdavPassword: HTMLInputElement;
   settingWebdavFolder: HTMLInputElement;
+  settingExaApiKey: HTMLInputElement;
   btnSaveSettings: HTMLButtonElement;
   btnCancelSettings: HTMLButtonElement;
   btnInitializeSettings: HTMLButtonElement;
@@ -169,11 +177,19 @@ export function getElements(): AppElements {
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
   const settingGoogleThinkingLevel = document.querySelector<HTMLSelectElement>("#setting-google-thinking-level");
   const settingTwoStageContinuation = document.querySelector<HTMLInputElement>("#setting-two-stage-continuation");
+  const settingContinuationReview = document.querySelector<HTMLInputElement>("#setting-continuation-review");
+  const settingContinuationUseBackgroundModel = document.querySelector<HTMLInputElement>("#setting-continuation-use-background-model");
+  const settingContinuationSceneState = document.querySelector<HTMLInputElement>("#setting-continuation-scene-state");
+  const settingContinuationCharacterVoice = document.querySelector<HTMLInputElement>("#setting-continuation-character-voice");
+  const settingContinuationBestOfTwo = document.querySelector<HTMLInputElement>("#setting-continuation-best-of-two");
+  const settingContinuationTargetedRevision = document.querySelector<HTMLInputElement>("#setting-continuation-targeted-revision");
+  const settingContinuationBeatSplit = document.querySelector<HTMLInputElement>("#setting-continuation-beat-split");
   const settingWebdavEnabled = document.querySelector<HTMLInputElement>("#setting-webdav-enabled");
   const settingWebdavUrl = document.querySelector<HTMLInputElement>("#setting-webdav-url");
   const settingWebdavUsername = document.querySelector<HTMLInputElement>("#setting-webdav-username");
   const settingWebdavPassword = document.querySelector<HTMLInputElement>("#setting-webdav-password");
   const settingWebdavFolder = document.querySelector<HTMLInputElement>("#setting-webdav-folder");
+  const settingExaApiKey = document.querySelector<HTMLInputElement>("#setting-exa-api-key");
   const btnSaveSettings = document.querySelector<HTMLButtonElement>("#btn-save-settings");
   const btnCancelSettings = document.querySelector<HTMLButtonElement>("#btn-cancel-settings");
   const btnInitializeSettings = document.querySelector<HTMLButtonElement>("#btn-initialize-settings");
@@ -235,11 +251,19 @@ export function getElements(): AppElements {
     !settingAnthropicThinkingBudget ||
     !settingGoogleThinkingLevel ||
     !settingTwoStageContinuation ||
+    !settingContinuationReview ||
+    !settingContinuationUseBackgroundModel ||
+    !settingContinuationSceneState ||
+    !settingContinuationCharacterVoice ||
+    !settingContinuationBestOfTwo ||
+    !settingContinuationTargetedRevision ||
+    !settingContinuationBeatSplit ||
     !settingWebdavEnabled ||
     !settingWebdavUrl ||
     !settingWebdavUsername ||
     !settingWebdavPassword ||
     !settingWebdavFolder ||
+    !settingExaApiKey ||
     !btnSaveSettings ||
     !btnCancelSettings ||
     !btnInitializeSettings ||
@@ -364,11 +388,19 @@ export function getElements(): AppElements {
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
+    settingContinuationReview,
+    settingContinuationUseBackgroundModel,
+    settingContinuationSceneState,
+    settingContinuationCharacterVoice,
+    settingContinuationBestOfTwo,
+    settingContinuationTargetedRevision,
+    settingContinuationBeatSplit,
     settingWebdavEnabled,
     settingWebdavUrl,
     settingWebdavUsername,
     settingWebdavPassword,
     settingWebdavFolder,
+    settingExaApiKey,
     btnSaveSettings,
     btnCancelSettings,
     btnInitializeSettings,

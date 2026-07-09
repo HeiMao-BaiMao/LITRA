@@ -19,6 +19,8 @@ import {
   resolveBackgroundSettings,
   getProviderSpecificSettings,
 } from "./settings.ts";
+import { saveExaApiKey } from "./websearch-settings.ts";
+import { composeStyleSampleText, measureStyleFingerprint } from "./ai/style-fingerprint.ts";
 import { applyImport, classifyFilesWithAI, type AiImportCandidate, type ImportContentMode } from "./project/import.ts";
 import { state, type ChatTransportMetadata, type ProjectView } from "./state.ts";
 import {
@@ -71,6 +73,8 @@ import {
   createUpdateProjectMemoTool,
   createUpdateRelationshipTool,
   createUpdateWorldEntryTool,
+  createWebSearchTool,
+  createWebFetchTool,
 } from "./ai/tools.ts";
 import { getElements } from "./ui/layout.ts";
 import {
@@ -107,6 +111,7 @@ import {
   bindSettingsActions,
   hideSettingsModal,
   populateModelList,
+  readExaApiKeyFromModal,
   readWebDavSyncConfigFromModal,
   renderProviderOptions,
   renderSettings,
@@ -209,7 +214,7 @@ import {
 } from "./project/project-memo.ts";
 import { renderMemosEditor, type MemosEditorActions } from "./ui/memos-editor.ts";
 import type { Character, Episode, EpisodeMemoMap, EpisodeSummaryMap, WorldEntry } from "./project/schema.ts";
-import { buildRelatedScenesBlock } from "./project/related-scenes.ts";
+import { buildRelatedScenesBlock, findMentionedCharacterNames } from "./project/related-scenes.ts";
 import { hasToolCall, type ModelMessage, type ToolSet } from "ai";
 
 let currentSettings: AiSettings;
@@ -605,6 +610,8 @@ function createAiTools(): ToolSet | undefined {
     getProjectMemo: createGetProjectMemoTool(projectMemoDeps),
     updateProjectMemo: createUpdateProjectMemoTool(projectMemoDeps),
     createProjectMemo: createCreateProjectMemoTool(projectMemoDeps),
+    webSearch: createWebSearchTool(),
+    webFetch: createWebFetchTool(),
     listGenres: createListGenresTool(),
     getGenreOverview: createGetGenreOverviewTool(),
     listGenreKnowledge: createListGenreKnowledgeTool(),
@@ -2273,6 +2280,34 @@ async function buildContinuationRelatedScenes(context: string): Promise<string |
   }
 }
 
+const CONTINUATION_STAGE_LABELS = {
+  plan: "構想中…",
+  draft: "執筆中…",
+  review: "レビュー中…",
+  revise: "修正中…",
+} as const;
+
+// 現エピソードの直前のエピソード本文を返す(文体指紋の計測材料が短すぎる場合の補完用)。
+// 取得失敗は文体指紋の質が落ちるだけで続き生成全体を止めてはならないため、ここで吸収する。
+async function findPreviousEpisodeContent(): Promise<string | undefined> {
+  if (!currentProject) return undefined;
+  const current = episodes.find((ep) => ep.id === state.currentEpisodeId);
+  if (!current) return undefined;
+  const previous = episodes
+    .filter((ep) => ep.order < current.order)
+    .sort((a, b) => b.order - a.order)[0];
+  if (!previous) return undefined;
+  try {
+    const result = await invoke<{ content: string }>("retrieve_episode_content", {
+      req: { projectId: currentProject.id, episodeId: previous.id, contentType: "fullText" },
+    });
+    return result.content;
+  } catch (error) {
+    console.warn("[litra] failed to load previous episode content for style fingerprint", error);
+    return undefined;
+  }
+}
+
 async function handleContinue(): Promise<void> {
   if (!validateEpisode() || !validateSettings()) return;
 
@@ -2282,6 +2317,16 @@ async function handleContinue(): Promise<void> {
   const text = getElements().editor.value;
   const context = buildContinuationContext(text, start);
   const relatedScenes = await buildContinuationRelatedScenes(context);
+  const styleFingerprint = measureStyleFingerprint(
+    composeStyleSampleText(text, await findPreviousEpisodeContent()),
+  );
+  const characterVoiceInput = {
+    names: findMentionedCharacterNames(characters, context),
+    excerpts: relatedScenes ?? "",
+  };
+
+  const btnContinue = getElements().btnContinue;
+  const originalLabel = btnContinue.textContent;
 
   const controller = startGeneration();
   try {
@@ -2291,10 +2336,17 @@ async function handleContinue(): Promise<void> {
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       relatedScenes,
       tools: createAiTools(),
+      episodeId: state.currentEpisodeId ?? undefined,
+      characterVoiceInput,
       onChunk: (chunk) => {
         insertAtCursor(chunk);
       },
       onToolEvent: handleToolEvent,
+      onStage: (stage) => {
+        btnContinue.textContent = CONTINUATION_STAGE_LABELS[stage];
+      },
+      getBackgroundSettings: () => resolveBackgroundRunSettings(currentSettings),
+      styleFingerprint,
       abortSignal: controller.signal,
     });
     finalizeToolRun(run);
@@ -2304,6 +2356,7 @@ async function handleContinue(): Promise<void> {
     }
   } finally {
     setGenerating(false);
+    btnContinue.textContent = originalLabel;
     await saveCurrentEpisode();
   }
 }
@@ -2550,6 +2603,7 @@ async function saveAndCloseSettings(settings: AiSettings): Promise<void> {
   currentSettings = merged;
   await saveSettings(merged);
   await saveWebDavSyncConfig(readWebDavSyncConfigFromModal());
+  await saveExaApiKey(readExaApiKeyFromModal());
   renderChatProviderOptions();
   updateChatSelectorsFromSettings();
   syncChatSettingsToWindow();

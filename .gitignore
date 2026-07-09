@@ -35,3 +35,6 @@ src-tauri/Cargo.lock
 session_*.zip
 
 /sample
+
+/fable5.feature.txt
+/fable5.proposal.txt

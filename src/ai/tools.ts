@@ -2299,3 +2299,64 @@ export function createGetGenreAnalysisTool() {
     ),
   });
 }
+
+const webSearchInputSchema = z.object({
+  query: z.string().describe("Web search query."),
+  numResults: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Number of search results to return. Default: 8."),
+  livecrawl: z
+    .enum(["fallback", "preferred"])
+    .optional()
+    .describe(
+      "'fallback': use live crawling as backup if cached content unavailable, 'preferred': prioritize live crawling. Default: 'fallback'.",
+    ),
+  type: z
+    .enum(["auto", "fast", "deep"])
+    .optional()
+    .describe("'auto': balanced search, 'fast': quick results, 'deep': comprehensive search. Default: 'auto'."),
+  contextMaxCharacters: z
+    .number()
+    .int()
+    .optional()
+    .describe("Maximum characters for the returned context, optimized for LLMs. Default: 10000."),
+});
+
+export function createWebSearchTool() {
+  return tool({
+    description:
+      "Searches the web for up-to-date information, e.g. to verify facts in reference material against real-world sources or find information beyond the training data cutoff.",
+    inputSchema: webSearchInputSchema,
+    execute: wrapToolExecute("webSearch", async (input) => invoke<string>("web_search", { req: input })),
+  });
+}
+
+const webFetchInputSchema = z.object({
+  url: z.string().describe("The URL to fetch content from. Must start with http:// or https://."),
+  format: z
+    .enum(["markdown", "text", "html"])
+    .optional()
+    .describe("The format to return the content in. Default: markdown."),
+  timeout: z.number().int().optional().describe("Optional timeout in seconds (max 120)."),
+});
+
+interface WebFetchToolResult {
+  output: string;
+  title: string;
+  mime: string;
+}
+
+export function createWebFetchTool() {
+  return tool({
+    description:
+      "Fetches content from a specific URL and returns it as text, markdown, or html. Use this to read a page the model already knows the address of.",
+    inputSchema: webFetchInputSchema,
+    execute: wrapToolExecute("webFetch", async (input) =>
+      invoke<WebFetchToolResult>("web_fetch", { req: input }),
+    ),
+  });
+}

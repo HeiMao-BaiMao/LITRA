@@ -21,6 +21,7 @@ import {
   loadWebDavSyncConfig,
   type WebDavSyncConfig,
 } from "../sync/webdav.ts";
+import { loadExaApiKey } from "../websearch-settings.ts";
 
 let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = null;
 let modalProviderConfig: ProviderConfig | null = null;
@@ -382,6 +383,11 @@ async function renderWebDavSettings(): Promise<void> {
   updateWebDavControlsState();
 }
 
+async function renderExaSettings(): Promise<void> {
+  const { settingExaApiKey } = getElements();
+  settingExaApiKey.value = await loadExaApiKey();
+}
+
 function updateWebDavControlsState(): void {
   const {
     settingWebdavEnabled,
@@ -467,6 +473,13 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
+    settingContinuationReview,
+    settingContinuationUseBackgroundModel,
+    settingContinuationSceneState,
+    settingContinuationCharacterVoice,
+    settingContinuationBestOfTwo,
+    settingContinuationTargetedRevision,
+    settingContinuationBeatSplit,
   } = getElements();
 
   settingProvider.value = settings.provider;
@@ -485,6 +498,13 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
   settingGoogleThinkingLevel.value = settings.googleThinkingLevel ?? "";
   settingTwoStageContinuation.checked = settings.twoStageContinuation ?? false;
+  settingContinuationReview.checked = settings.continuationReviewEnabled ?? false;
+  settingContinuationUseBackgroundModel.checked = settings.continuationUseBackgroundModel ?? false;
+  settingContinuationSceneState.checked = settings.continuationSceneStateEnabled ?? false;
+  settingContinuationCharacterVoice.checked = settings.continuationCharacterVoiceEnabled ?? false;
+  settingContinuationBestOfTwo.checked = settings.continuationBestOfTwo ?? false;
+  settingContinuationTargetedRevision.checked = settings.continuationTargetedRevision ?? false;
+  settingContinuationBeatSplit.checked = settings.continuationBeatSplitEnabled ?? false;
 
   applyProviderConfig(settings.provider);
   updateAdvancedVisibility(settings.provider);
@@ -506,6 +526,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   renderBackgroundModelOptions(config, settings.backgroundProvider ?? "", settings.backgroundModel);
 
   void renderWebDavSettings();
+  void renderExaSettings();
 }
 
 export function readWebDavSyncConfigFromModal(): WebDavSyncConfig {
@@ -523,6 +544,10 @@ export function readWebDavSyncConfigFromModal(): WebDavSyncConfig {
     password: settingWebdavPassword.value,
     remoteFolder: settingWebdavFolder.value.trim(),
   };
+}
+
+export function readExaApiKeyFromModal(): string {
+  return getElements().settingExaApiKey.value.trim();
 }
 
 export function readSettingsFromModal(): AiSettings {
@@ -544,6 +569,13 @@ export function readSettingsFromModal(): AiSettings {
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
+    settingContinuationReview,
+    settingContinuationUseBackgroundModel,
+    settingContinuationSceneState,
+    settingContinuationCharacterVoice,
+    settingContinuationBestOfTwo,
+    settingContinuationTargetedRevision,
+    settingContinuationBeatSplit,
   } = getElements();
 
   const provider = settingProvider.value as Provider;
@@ -580,6 +612,13 @@ export function readSettingsFromModal(): AiSettings {
     anthropicThinkingBudget: parseOptionalNumber(settingAnthropicThinkingBudget.value),
     googleThinkingLevel: parseGoogleThinkingLevel(settingGoogleThinkingLevel.value),
     twoStageContinuation: settingTwoStageContinuation.checked,
+    continuationReviewEnabled: settingContinuationReview.checked,
+    continuationUseBackgroundModel: settingContinuationUseBackgroundModel.checked,
+    continuationSceneStateEnabled: settingContinuationSceneState.checked,
+    continuationCharacterVoiceEnabled: settingContinuationCharacterVoice.checked,
+    continuationBestOfTwo: settingContinuationBestOfTwo.checked,
+    continuationTargetedRevision: settingContinuationTargetedRevision.checked,
+    continuationBeatSplitEnabled: settingContinuationBeatSplit.checked,
   };
 }
 

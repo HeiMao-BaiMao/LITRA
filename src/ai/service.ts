@@ -3,14 +3,31 @@ import { createModel } from "./provider.ts";
 import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provider-options.ts";
 import {
   buildAssistantSystemPrompt,
+  buildCharacterVoiceCardsPrompt,
   buildContinuationPlanPrompt,
   buildContinuationPrompt,
+  buildContinuationRevisionPrompt,
+  buildContinuationReviewPrompt,
+  buildDraftSelectionPrompt,
   buildFeedbackPrompt,
   buildRewritePrompt,
+  buildSceneStateCardPrompt,
+  buildTargetedRevisionPrompt,
   buildToolCallNeedPrompt,
+  formatMechanicalFindingsForReview,
+  limitPromptText,
+  parseDraftSelection,
+  parseTargetedRevision,
+  reviewRequiresRevision,
   toolCallNeedSchema,
+  type FictionPromptExtras,
 } from "./prompts.ts";
+import { checkDraft, sanitizeDraftText } from "./draft-checks.ts";
+import { parsePlanBeats } from "./plan-beats.ts";
 import type { AiSettings } from "../settings.ts";
+
+// ビート分割生成で前ビートの生成分を文脈に継ぎ足す際、無制限に伸びないための上限
+const BEAT_CONTEXT_CHAR_BUDGET = 12000;
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
 const TOOL_LOOP_MAX_STEPS = 16;
@@ -496,6 +513,16 @@ export interface StreamContinuationOptions {
   relatedScenes?: string;
   tools?: ToolSet;
   onToolEvent?: (event: StreamToolEvent) => void;
+  onStage?: (stage: "plan" | "draft" | "review" | "revise") => void;
+  // continuationUseBackgroundModel が有効な場合に構想・レビュー段で使う設定を解決する。
+  // 呼び出し側 (main.ts) がプロバイダ設定・モデル既定値の解決を担い、ここでは結果をそのまま使う。
+  getBackgroundSettings?: () => AiSettings;
+  // 文体指紋(機械計測)。呼び出し側で現エピソード全文等から計測して渡す。
+  styleFingerprint?: FictionPromptExtras["styleFingerprint"];
+  // 場面ステートカード・話し方カードのキャッシュキーに使うエピソードID
+  episodeId?: string;
+  // 話し方カード(提案7)の対象人物名と、その根拠となる原稿抜粋(文字列照合+検索のみで生成。LLM呼び出しなし)
+  characterVoiceInput?: { names: string[]; excerpts: string };
 }
 
 export interface StreamRewriteOptions {
@@ -747,6 +774,254 @@ async function runContinuationPlanStep(
   }
 }
 
+/**
+ * 続き生成のドラフトを査読するレビューステップ(non-streaming)。
+ * 失敗してもドラフト採用にフォールバックするため、例外・空文字はここで
+ * 吸収して undefined を返す(中断だけは伝播)。
+ */
+async function runContinuationReviewStep(
+  settings: AiSettings,
+  draft: string,
+  context: string,
+  settingsContext: string | undefined,
+  plan: string | undefined,
+  relatedScenes: string | undefined,
+  abortSignal?: AbortSignal,
+  extras?: FictionPromptExtras,
+): Promise<string | undefined> {
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildContinuationReviewPrompt(draft, context, settingsContext, plan, relatedScenes, extras),
+      ...buildTemperatureOption(settings, false),
+      // thinking 系モデルでは推論トークンもこの上限を消費するため、
+      // 査読の深さを絞らないよう本体生成と同じ上限を使う。
+      maxOutputTokens: settings.maxTokens,
+      abortSignal,
+      ...buildAdvancedOptions(settings, false),
+    });
+
+    const reviewText = result.text.trim();
+    if (!reviewText) return undefined;
+    console.log("[litra] continuation review:", reviewText);
+    return reviewText;
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] continuation review step failed; using draft as-is", error);
+    return undefined;
+  }
+}
+
+// 軽量なハッシュ(暗号強度は不要。キャッシュキーの衝突を減らせれば十分)
+function hashText(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return `${text.length}:${hash}`;
+}
+
+interface CachedCard {
+  hash: string;
+  card: string;
+}
+
+// エピソードID(無ければ固定キー)+直前本文末尾のハッシュをキーにキャッシュする。
+// 本文が変わらない限り再生成せず、バックグラウンドモデル呼び出しを節約する。
+const sceneStateCardCache = new Map<string, CachedCard>();
+const characterVoiceCardCache = new Map<string, CachedCard>();
+
+/**
+ * 場面ステートカード(提案6)。バックグラウンドモデルで直前本文から場面の状態を整理する。
+ * 失敗してもカード無しで続行するため、例外・空文字はここで吸収して undefined を返す(中断だけは伝播)。
+ */
+async function runSceneStateCardStep(
+  settings: AiSettings,
+  context: string,
+  settingsContext: string | undefined,
+  cacheKey: string,
+  abortSignal?: AbortSignal,
+): Promise<string | undefined> {
+  const hash = hashText(context.slice(-2000));
+  const cached = sceneStateCardCache.get(cacheKey);
+  if (cached && cached.hash === hash) return cached.card;
+
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildSceneStateCardPrompt(context, settingsContext),
+      ...buildTemperatureOption(settings, false),
+      maxOutputTokens: settings.maxTokens,
+      abortSignal,
+      ...buildAdvancedOptions(settings, false),
+    });
+    const card = result.text.trim();
+    if (!card) return undefined;
+    sceneStateCardCache.set(cacheKey, { hash, card });
+    console.log("[litra] scene state card:", card);
+    return card;
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] scene state card step failed; continuing without it", error);
+    return undefined;
+  }
+}
+
+/**
+ * 話し方カード(提案7)。バックグラウンドモデルで対象人物の一人称・口調等を抽出する。
+ * 失敗してもカード無しで続行するため、例外・空文字はここで吸収して undefined を返す(中断だけは伝播)。
+ */
+async function runCharacterVoiceCardsStep(
+  settings: AiSettings,
+  names: string[],
+  excerpts: string,
+  settingsContext: string | undefined,
+  cacheKey: string,
+  abortSignal?: AbortSignal,
+): Promise<string | undefined> {
+  const hash = hashText(`${names.join(",")}\n${excerpts}`);
+  const cached = characterVoiceCardCache.get(cacheKey);
+  if (cached && cached.hash === hash) return cached.card;
+
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildCharacterVoiceCardsPrompt(names, excerpts, settingsContext),
+      ...buildTemperatureOption(settings, false),
+      maxOutputTokens: settings.maxTokens,
+      abortSignal,
+      ...buildAdvancedOptions(settings, false),
+    });
+    const card = result.text.trim();
+    if (!card) return undefined;
+    characterVoiceCardCache.set(cacheKey, { hash, card });
+    console.log("[litra] character voice cards:", card);
+    return card;
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] character voice cards step failed; continuing without it", error);
+    return undefined;
+  }
+}
+
+/**
+ * 候補ドラフト2案の選定ステップ(non-streaming)。
+ * 失敗・パース不能時は undefined を返し、呼び出し側で案1を採用させる(中断だけは伝播)。
+ */
+async function runDraftSelectionStep(
+  settings: AiSettings,
+  drafts: string[],
+  context: string,
+  settingsContext: string | undefined,
+  plan: string | undefined,
+  abortSignal?: AbortSignal,
+): Promise<number | undefined> {
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan),
+      ...buildTemperatureOption(settings, false),
+      maxOutputTokens: settings.maxTokens,
+      abortSignal,
+      ...buildAdvancedOptions(settings, false),
+    });
+
+    const text = result.text.trim();
+    if (!text) return undefined;
+    console.log("[litra] draft selection:", text);
+    return parseDraftSelection(text, drafts.length);
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] draft selection step failed; using first draft", error);
+    return undefined;
+  }
+}
+
+/**
+ * 置換指示をドラフトへ適用する。各置換は draft.indexOf で一意性を確認し、
+ * 見つからない・複数箇所に出現・既に適用した範囲と重複する場合は個別に捨てる。
+ */
+function applyTargetedReplacements(
+  draft: string,
+  replacements: Array<{ target: string; replacement: string }>,
+): { text: string; appliedCount: number } {
+  const applied: Array<{ start: number; end: number; replacement: string }> = [];
+
+  for (const { target, replacement } of replacements) {
+    if (!target) continue;
+    const firstIndex = draft.indexOf(target);
+    if (firstIndex === -1) continue; // 見つからない
+    const secondIndex = draft.indexOf(target, firstIndex + 1);
+    if (secondIndex !== -1) continue; // 2箇所以上に出現 → 一意でないので捨てる
+    const start = firstIndex;
+    const end = firstIndex + target.length;
+    if (applied.some((a) => start < a.end && end > a.start)) continue; // 範囲の重複 → 捨てる
+    applied.push({ start, end, replacement });
+  }
+
+  if (applied.length === 0) return { text: draft, appliedCount: 0 };
+
+  applied.sort((a, b) => a.start - b.start);
+  let result = "";
+  let cursor = 0;
+  for (const a of applied) {
+    result += draft.slice(cursor, a.start);
+    result += a.replacement;
+    cursor = a.end;
+  }
+  result += draft.slice(cursor);
+  return { text: result, appliedCount: applied.length };
+}
+
+/**
+ * スパン限定修正(提案5)。査読の指摘外の文を物理的に保護したまま修正する代替モード。
+ * パース不能・全置換が不採用(全滅)の場合は undefined を返し、呼び出し側で
+ * 全文修正(buildContinuationRevisionPrompt)へフォールバックさせる(中断だけは伝播)。
+ */
+async function runTargetedRevisionStep(
+  settings: AiSettings,
+  draft: string,
+  review: string,
+  context: string,
+  settingsContext: string | undefined,
+  extras: FictionPromptExtras | undefined,
+  abortSignal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildTargetedRevisionPrompt(draft, review, context, settingsContext, extras),
+      ...buildTemperatureOption(settings, false),
+      maxOutputTokens: settings.maxTokens,
+      abortSignal,
+      ...buildAdvancedOptions(settings, false),
+    });
+
+    const text = result.text.trim();
+    if (!text) return undefined;
+    const replacements = parseTargetedRevision(text);
+    if (replacements === undefined) return undefined; // 崩れた出力 → フォールバック
+    if (replacements.length === 0) {
+      console.log("[litra] targeted revision: no replacements needed");
+      return draft; // 【置換なし】
+    }
+
+    const { text: revised, appliedCount } = applyTargetedReplacements(draft, replacements);
+    if (appliedCount === 0) return undefined; // 全滅 → フォールバック
+    console.log(`[litra] targeted revision applied ${appliedCount}/${replacements.length} replacements`);
+    return revised;
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] targeted revision step failed; falling back to full revision", error);
+    return undefined;
+  }
+}
+
 export async function streamContinuation({
   settings,
   context,
@@ -757,31 +1032,245 @@ export async function streamContinuation({
   tools,
   onToolEvent,
   onReasoning,
+  onStage,
+  getBackgroundSettings,
+  styleFingerprint,
+  episodeId,
+  characterVoiceInput,
 }: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
     const toolsEnabled = hasTools(tools);
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
+    let extras: FictionPromptExtras | undefined = styleFingerprint ? { styleFingerprint } : undefined;
 
+    // 構想・レビューは出力が短く「判断」寄りの工程のため、フラグON時は
+    // バックグラウンドモデル(強いモデル)に振る。未解決時は本体設定にフォールバック。
+    const judgmentSettings =
+      s.continuationUseBackgroundModel && getBackgroundSettings
+        ? normalizeSettings(getBackgroundSettings())
+        : s;
+
+    const cacheKeyBase = episodeId ?? "__no_episode__";
+
+    if (s.continuationSceneStateEnabled) {
+      const sceneState = await runSceneStateCardStep(judgmentSettings, context, settingsContext, cacheKeyBase, abortSignal);
+      if (sceneState) extras = { ...extras, sceneState };
+    }
+
+    if (s.continuationCharacterVoiceEnabled && characterVoiceInput && characterVoiceInput.names.length > 0) {
+      const characterVoiceCards = await runCharacterVoiceCardsStep(
+        judgmentSettings,
+        characterVoiceInput.names,
+        characterVoiceInput.excerpts,
+        settingsContext,
+        cacheKeyBase,
+        abortSignal,
+      );
+      if (characterVoiceCards) extras = { ...extras, characterVoiceCards };
+    }
+
+    if (s.twoStageContinuation) onStage?.("plan");
     const plan = s.twoStageContinuation
-      ? await runContinuationPlanStep(s, context, settingsContext, relatedScenes, abortSignal)
+      ? await runContinuationPlanStep(judgmentSettings, context, settingsContext, relatedScenes, abortSignal)
       : undefined;
 
+    onStage?.("draft");
+    const reviewEnabled = s.continuationReviewEnabled === true;
+    const bestOfTwo = s.continuationBestOfTwo === true;
+
     // 設定資料は system ではなく本文プロンプト側に注入する(弱いモデルの recency 対策)
-    const result = streamText<ToolSet>({
-      model: createModel(s),
-      ...buildRetryOption(s),
-      system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
-      prompt: buildContinuationPrompt(context, settingsContext, plan, relatedScenes),
-      ...buildTemperatureOption(s, toolsEnabled),
-      maxOutputTokens: s.maxTokens,
-      abortSignal,
-      tools,
-      stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
-      ...buildAdvancedOptions(s, toolsEnabled),
+    const runDraftGeneration = async (
+      draftContext: string,
+      draftExtras: FictionPromptExtras | undefined,
+      onDraftChunk: (chunk: string) => void,
+    ): Promise<{ text: string; run: StreamRunResult }> => {
+      const draftResult = streamText<ToolSet>({
+        model: createModel(s),
+        ...buildRetryOption(s),
+        system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
+        prompt: buildContinuationPrompt(draftContext, settingsContext, plan, relatedScenes, draftExtras),
+        ...buildTemperatureOption(s, toolsEnabled),
+        maxOutputTokens: s.maxTokens,
+        abortSignal,
+        tools,
+        stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
+        ...buildAdvancedOptions(s, toolsEnabled),
+      });
+      let text = "";
+      const run = await consumeStream(
+        draftResult,
+        (chunk) => {
+          text += chunk;
+          onDraftChunk(chunk);
+        },
+        onToolEvent,
+        onReasoning,
+      );
+      return { text, run };
+    };
+
+    const noop = (_chunk: string): void => {};
+    const mergeToolStats = (a: StreamRunResult, b: StreamRunResult): StreamRunResult => ({
+      ...a,
+      toolCallCount: a.toolCallCount + b.toolCallCount,
+      toolResultCount: a.toolResultCount + b.toolResultCount,
+      toolErrorCount: a.toolErrorCount + b.toolErrorCount,
     });
 
-    return await consumeStream(result, onChunk, onToolEvent, onReasoning);
+    let draftText: string;
+    let draftRun: StreamRunResult;
+
+    if (bestOfTwo) {
+      // 候補2案は選定が決まるまでエディタへ流さず、両方バッファする。
+      const candidateA = await runDraftGeneration(context, extras, noop);
+      const candidateB = await runDraftGeneration(context, extras, noop);
+      const candidates = [candidateA, candidateB];
+      const selectedIndex = await runDraftSelectionStep(
+        judgmentSettings,
+        candidates.map((c) => c.text),
+        context,
+        settingsContext,
+        plan,
+        abortSignal,
+      );
+      const chosen = candidates[selectedIndex ?? 0] ?? candidateA;
+      draftText = chosen.text;
+      draftRun = {
+        ...chosen.run,
+        toolCallCount: candidateA.run.toolCallCount + candidateB.run.toolCallCount,
+        toolResultCount: candidateA.run.toolResultCount + candidateB.run.toolResultCount,
+        toolErrorCount: candidateA.run.toolErrorCount + candidateB.run.toolErrorCount,
+      };
+      if (!reviewEnabled) {
+        onChunk(draftText);
+        return draftRun;
+      }
+    } else {
+      // レビューON・ビート分割時はドラフトをエディタへ直接流さず、いったんバッファへ溜める
+      // (レビューで修正が必要と判定された場合は破棄し、修正稿だけを流すため)。
+      const emit = reviewEnabled ? noop : onChunk;
+      const beats = s.continuationBeatSplitEnabled && plan ? parsePlanBeats(plan) : [];
+
+      if (beats.length >= 2) {
+        // ビート分割生成: 各ビートを順に生成し、前ビートの生成分を文脈に継ぎ足す。
+        // 途中のビートで失敗した場合、それまでの分は emit 済みなので維持し、エラーは伝播する。
+        let cumulativeContext = context;
+        let combinedText = "";
+        let combinedRun: StreamRunResult | undefined;
+        for (let i = 0; i < beats.length; i++) {
+          const beatExtras: FictionPromptExtras = {
+            ...extras,
+            beatDirective: { beat: beats[i], index: i + 1, total: beats.length },
+          };
+          const beatResult = await runDraftGeneration(cumulativeContext, beatExtras, emit);
+          combinedText += beatResult.text;
+          cumulativeContext = limitPromptText(`${cumulativeContext}${beatResult.text}`, BEAT_CONTEXT_CHAR_BUDGET, "tail");
+          combinedRun = combinedRun ? mergeToolStats(combinedRun, beatResult.run) : beatResult.run;
+        }
+        draftText = combinedText;
+        draftRun = combinedRun!;
+      } else {
+        const single = await runDraftGeneration(context, extras, emit);
+        draftText = single.text;
+        draftRun = single.run;
+      }
+      if (!reviewEnabled) return draftRun;
+    }
+
+    if (!draftText.trim()) return draftRun; // ドラフトが空なら何もしない(フォールバックする本文が無い)
+
+    // 決定論的な機械検査(提案4)。LLM を使わず判断はコード側で完結させる。
+    draftText = sanitizeDraftText(draftText);
+    let checks = checkDraft(draftText, context);
+    if (checks.hard.length > 0) {
+      console.warn("[litra] draft check found hard violations; retrying draft once", checks.hard);
+      const retry = await runDraftGeneration(context, { ...extras, mechanicalFindings: checks.hard }, noop);
+      if (retry.text.trim()) {
+        draftText = sanitizeDraftText(retry.text);
+        draftRun = {
+          ...retry.run,
+          toolCallCount: retry.run.toolCallCount + draftRun.toolCallCount,
+          toolResultCount: retry.run.toolResultCount + draftRun.toolResultCount,
+          toolErrorCount: retry.run.toolErrorCount + draftRun.toolErrorCount,
+        };
+        // 無限リトライを避けるため2回目はチェックし直すだけで、違反が残っても軽違反として査読へ回す
+        checks = checkDraft(draftText, context);
+      }
+    }
+    const mechanicalFindings = [...checks.hard, ...checks.soft];
+
+    onStage?.("review");
+    let review = await runContinuationReviewStep(
+      judgmentSettings,
+      draftText,
+      context,
+      settingsContext,
+      plan,
+      relatedScenes,
+      abortSignal,
+      extras,
+    );
+    if (mechanicalFindings.length > 0) {
+      const mechanicalBlock = formatMechanicalFindingsForReview(mechanicalFindings);
+      review = review ? `${review}\n\n${mechanicalBlock}` : mechanicalBlock;
+    }
+    const needsRevision = mechanicalFindings.length > 0 || (review !== undefined && reviewRequiresRevision(review));
+    if (!review || !needsRevision) {
+      onChunk(draftText); // レビュー失敗 or 問題なし → ドラフトをそのまま一括出力
+      return draftRun;
+    }
+
+    onStage?.("revise");
+
+    if (s.continuationTargetedRevision) {
+      const targeted = await runTargetedRevisionStep(s, draftText, review, context, settingsContext, extras, abortSignal);
+      if (targeted !== undefined) {
+        onChunk(targeted);
+        return draftRun;
+      }
+      // undefined → 崩れた出力 or 全滅。以下の全文修正へフォールバックする。
+    }
+
+    let emittedRevisionChunks = 0;
+    try {
+      const revisionResult = streamText<ToolSet>({
+        model: createModel(s),
+        ...buildRetryOption(s),
+        system: buildAssistantSystemPrompt({ toolsEnabled: false }),
+        prompt: buildContinuationRevisionPrompt(draftText, review, context, settingsContext, relatedScenes, extras),
+        ...buildTemperatureOption(s, false),
+        maxOutputTokens: s.maxTokens,
+        abortSignal,
+        ...buildAdvancedOptions(s, false),
+      });
+      const revisionRun = await consumeStream(
+        revisionResult,
+        (chunk) => {
+          emittedRevisionChunks += 1;
+          onChunk(chunk);
+        },
+        undefined,
+        onReasoning,
+      );
+      // main.ts の finalizeToolRun がツール実行数を表示に使うため、
+      // ドラフト段のツール集計を最終 run に引き継ぐ
+      return {
+        ...revisionRun,
+        toolCallCount: revisionRun.toolCallCount + draftRun.toolCallCount,
+        toolResultCount: revisionRun.toolResultCount + draftRun.toolResultCount,
+        toolErrorCount: revisionRun.toolErrorCount + draftRun.toolErrorCount,
+      };
+    } catch (error) {
+      if (abortSignal?.aborted) throw error;
+      if (emittedRevisionChunks === 0) {
+        // 1文字も流れる前の失敗はドラフト採用にフォールバック
+        console.warn("[litra] continuation revision step failed; using draft as-is", error);
+        onChunk(draftText);
+        return draftRun;
+      }
+      throw error; // 途中まで流れた失敗は現行どおり伝播
+    }
   } catch (error) {
     console.error("streamContinuation error:", error);
     throw error;

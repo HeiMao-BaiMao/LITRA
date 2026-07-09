@@ -33,6 +33,21 @@ function candidateStringsForCharacter(character: Character): string[] {
     .filter((value) => value.length >= 2);
 }
 
+/**
+ * 直前本文の末尾に登場している人物名を、直近の言及順で返す(文字列照合のみ。LLM不使用)。
+ * 話し方カード(提案7)の対象人物選定などで再利用する。
+ */
+export function findMentionedCharacterNames(
+  characters: Character[],
+  tailContext: string,
+  max = MAX_CHARACTERS,
+): string[] {
+  const window = tailContext.slice(-TAIL_SCAN_CHARS);
+  return findMentionedCharacters(characters, window)
+    .slice(0, max)
+    .map(({ character }) => character.name);
+}
+
 // 走査窓内での最終言及位置(最大の lastIndexOf)を人物ごとに求める
 function findMentionedCharacters(
   characters: Character[],

@@ -46,6 +46,13 @@ export interface AiSettings {
   anthropicThinkingBudget?: number;
   googleThinkingLevel?: GoogleThinkingLevel;
   twoStageContinuation?: boolean;
+  continuationReviewEnabled?: boolean;
+  continuationUseBackgroundModel?: boolean;
+  continuationSceneStateEnabled?: boolean;
+  continuationCharacterVoiceEnabled?: boolean;
+  continuationBestOfTwo?: boolean;
+  continuationTargetedRevision?: boolean;
+  continuationBeatSplitEnabled?: boolean;
   chatSubmitShortcut: ChatSubmitShortcut;
 }
 
@@ -82,6 +89,13 @@ const SETTINGS_STORE_KEYS = [
   "anthropicThinkingBudget",
   "googleThinkingLevel",
   "twoStageContinuation",
+  "continuationReviewEnabled",
+  "continuationUseBackgroundModel",
+  "continuationSceneStateEnabled",
+  "continuationCharacterVoiceEnabled",
+  "continuationBestOfTwo",
+  "continuationTargetedRevision",
+  "continuationBeatSplitEnabled",
   "chatSubmitShortcut",
 ] as const;
 
@@ -352,6 +366,13 @@ export async function loadSettings(): Promise<AiSettings> {
     frequencyPenalty: optionalNumber(await store.get("frequencyPenalty")) ?? modelDefaults?.frequencyPenalty,
     presencePenalty: optionalNumber(await store.get("presencePenalty")) ?? modelDefaults?.presencePenalty,
     twoStageContinuation: optionalBoolean(await store.get("twoStageContinuation")),
+    continuationReviewEnabled: optionalBoolean(await store.get("continuationReviewEnabled")),
+    continuationUseBackgroundModel: optionalBoolean(await store.get("continuationUseBackgroundModel")),
+    continuationSceneStateEnabled: optionalBoolean(await store.get("continuationSceneStateEnabled")),
+    continuationCharacterVoiceEnabled: optionalBoolean(await store.get("continuationCharacterVoiceEnabled")),
+    continuationBestOfTwo: optionalBoolean(await store.get("continuationBestOfTwo")),
+    continuationTargetedRevision: optionalBoolean(await store.get("continuationTargetedRevision")),
+    continuationBeatSplitEnabled: optionalBoolean(await store.get("continuationBeatSplitEnabled")),
     chatSubmitShortcut: isChatSubmitShortcut(await store.get("chatSubmitShortcut"))
       ? (await store.get("chatSubmitShortcut") as ChatSubmitShortcut)
       : "ctrlEnter",
@@ -438,6 +459,13 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await setIfDefined(store, "anthropicThinkingBudget", settings.anthropicThinkingBudget);
   await setIfDefined(store, "googleThinkingLevel", settings.googleThinkingLevel);
   await setIfDefined(store, "twoStageContinuation", settings.twoStageContinuation);
+  await setIfDefined(store, "continuationReviewEnabled", settings.continuationReviewEnabled);
+  await setIfDefined(store, "continuationUseBackgroundModel", settings.continuationUseBackgroundModel);
+  await setIfDefined(store, "continuationSceneStateEnabled", settings.continuationSceneStateEnabled);
+  await setIfDefined(store, "continuationCharacterVoiceEnabled", settings.continuationCharacterVoiceEnabled);
+  await setIfDefined(store, "continuationBestOfTwo", settings.continuationBestOfTwo);
+  await setIfDefined(store, "continuationTargetedRevision", settings.continuationTargetedRevision);
+  await setIfDefined(store, "continuationBeatSplitEnabled", settings.continuationBeatSplitEnabled);
   await store.set("chatSubmitShortcut", settings.chatSubmitShortcut);
   await store.save();
 }

@@ -274,6 +274,41 @@
               <input id="setting-two-stage-continuation" type="checkbox" />
               <span>続き生成の前に構想ステップを実行（2段生成。API呼び出しが1回増えます）</span>
             </label>
+
+            <label class="checkbox-label">
+              <input id="setting-continuation-review" type="checkbox" />
+              <span>続き生成の後にレビューと修正を実行（矛盾・表現・文体を点検して書き直します。API呼び出しが最大2回増えます）</span>
+            </label>
+
+            <label class="checkbox-label">
+              <input id="setting-continuation-use-background-model" type="checkbox" />
+              <span>構想・レビューをバックグラウンドモデルで実行（上のバックグラウンドモデル設定を使用。未設定時は通常のモデルにフォールバックします）</span>
+            </label>
+
+            <label class="checkbox-label">
+              <input id="setting-continuation-scene-state" type="checkbox" />
+              <span>場面ステートカードを生成して注入（直前本文の場所・人物・未解決の緊張を整理。API呼び出しが1回増えます）</span>
+            </label>
+
+            <label class="checkbox-label">
+              <input id="setting-continuation-character-voice" type="checkbox" />
+              <span>人物の話し方カードを生成して注入（登場人物の一人称・口調・語尾を整理。API呼び出しが1回増えます）</span>
+            </label>
+
+            <label class="checkbox-label">
+              <input id="setting-continuation-best-of-two" type="checkbox" />
+              <span>続きを2案生成して選定（両案を比較して1つ採用します。API呼び出しが2回増えます）</span>
+            </label>
+
+            <label class="checkbox-label">
+              <input id="setting-continuation-targeted-revision" type="checkbox" />
+              <span>修正をスパン限定で実行（実験的機能。指摘箇所だけを置換し、他の文をそのまま保護します。失敗時は全文修正にフォールバックします）</span>
+            </label>
+
+            <label class="checkbox-label">
+              <input id="setting-continuation-beat-split" type="checkbox" />
+              <span>構想メモのビートごとに分割して執筆（構想ステップが有効な場合のみ動作します。ビート数だけAPI呼び出しが増えます）</span>
+            </label>
           </div>
 
           <div class="sync-settings">
@@ -297,6 +332,14 @@
             <label>
               <span>パスワード</span>
               <input id="setting-webdav-password" type="password" autocomplete="current-password" />
+            </label>
+          </div>
+
+          <div class="sync-settings">
+            <h3>Web検索 (Exa)</h3>
+            <label>
+              <span>Exa API キー（任意・未入力なら無料枠で動作）</span>
+              <input id="setting-exa-api-key" type="password" autocomplete="off" />
             </label>
           </div>
 
