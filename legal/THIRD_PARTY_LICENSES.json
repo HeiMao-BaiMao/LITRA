@@ -193,7 +193,7 @@
     {
       "ecosystem": "cargo",
       "name": "bytes",
-      "version": "1.12.0",
+      "version": "1.12.1",
       "license": "MIT",
       "source": "https://github.com/tokio-rs/bytes",
       "homepage": null
@@ -329,7 +329,7 @@
     {
       "ecosystem": "cargo",
       "name": "crossbeam-channel",
-      "version": "0.5.15",
+      "version": "0.5.16",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/crossbeam-rs/crossbeam",
       "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-channel"
@@ -337,7 +337,7 @@
     {
       "ecosystem": "cargo",
       "name": "crossbeam-deque",
-      "version": "0.8.6",
+      "version": "0.8.7",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/crossbeam-rs/crossbeam",
       "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-deque"
@@ -345,7 +345,7 @@
     {
       "ecosystem": "cargo",
       "name": "crossbeam-epoch",
-      "version": "0.9.18",
+      "version": "0.9.20",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/crossbeam-rs/crossbeam",
       "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-epoch"
@@ -353,7 +353,7 @@
     {
       "ecosystem": "cargo",
       "name": "crossbeam-utils",
-      "version": "0.8.21",
+      "version": "0.8.22",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/crossbeam-rs/crossbeam",
       "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-utils"
@@ -1225,7 +1225,7 @@
     {
       "ecosystem": "cargo",
       "name": "memchr",
-      "version": "2.8.2",
+      "version": "2.8.3",
       "license": "Unlicense OR MIT",
       "source": "https://github.com/BurntSushi/memchr",
       "homepage": "https://github.com/BurntSushi/memchr"
@@ -1625,7 +1625,7 @@
     {
       "ecosystem": "cargo",
       "name": "regex-automata",
-      "version": "0.4.14",
+      "version": "0.4.15",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/rust-lang/regex",
       "homepage": "https://github.com/rust-lang/regex/tree/master/regex-automata"
@@ -1641,7 +1641,7 @@
     {
       "ecosystem": "cargo",
       "name": "regex",
-      "version": "1.12.4",
+      "version": "1.13.0",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/rust-lang/regex",
       "homepage": "https://github.com/rust-lang/regex"
@@ -1713,7 +1713,7 @@
     {
       "ecosystem": "cargo",
       "name": "rustversion",
-      "version": "1.0.22",
+      "version": "1.0.23",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/dtolnay/rustversion",
       "homepage": null
@@ -2233,7 +2233,7 @@
     {
       "ecosystem": "cargo",
       "name": "tendril",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/servo/html5ever",
       "homepage": null
@@ -2596,14 +2596,6 @@
       "version": "0.3.0",
       "license": "MIT",
       "source": "https://github.com/denoland/rust-urlpattern",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "utf-8",
-      "version": "0.7.6",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/SimonSapin/rust-utf8",
       "homepage": null
     },
     {

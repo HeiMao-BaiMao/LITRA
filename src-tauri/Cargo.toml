@@ -27,7 +27,9 @@ tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
-tantivy = "0"
+# 0.26 で追加された TopDocs::order_by_score 等の API を使うため下限を固定する
+# (Cargo.lock は非追跡方針のため、指定が緩いと環境ごとに古い版へ解決され得る)
+tantivy = "0.26"
 chrono = { version = "0", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0", default-features = false, features = ["rustls-tls"] }
