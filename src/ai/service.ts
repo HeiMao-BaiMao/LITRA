@@ -21,6 +21,7 @@ import {
   reviewRequiresRevision,
   toolCallNeedSchema,
   type FictionPromptExtras,
+  type PromptScaffoldLevel,
 } from "./prompts.ts";
 import { checkDraft, sanitizeDraftText } from "./draft-checks.ts";
 import { parsePlanBeats } from "./plan-beats.ts";
@@ -35,8 +36,9 @@ const DUPLICATE_TOOL_CALL_INPUT_LIMIT = 4;
 
 function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean): boolean {
   // DeepSeek の thinking モードはツール呼び出しと両立しない。
-  // ツールを使う場合は thinking を無効にし、サンプリングパラメータを有効にする。
-  return settings.provider === "deepseek" && !toolsEnabled;
+  // ツールを使う場合、または役割プロファイル等で明示的に無効化されている場合は
+  // thinking を無効にし、代わりに温度・top_p・ペナルティ類のサンプリングパラメータを有効にする。
+  return settings.provider === "deepseek" && !toolsEnabled && settings.deepseekThinkingEnabled !== false;
 }
 
 function isGoogleGemini3(settings: AiSettings): boolean {
@@ -514,9 +516,9 @@ export interface StreamContinuationOptions {
   tools?: ToolSet;
   onToolEvent?: (event: StreamToolEvent) => void;
   onStage?: (stage: "plan" | "draft" | "review" | "revise") => void;
-  // continuationUseBackgroundModel が有効な場合に構想・レビュー段で使う設定を解決する。
-  // 呼び出し側 (main.ts) がプロバイダ設定・モデル既定値の解決を担い、ここでは結果をそのまま使う。
-  getBackgroundSettings?: () => AiSettings;
+  // 判断系工程(構想・査読・選定・カード)で使う設定を解決する。
+  // 呼び出し側(main.ts)が役割プロファイル・オーバーライドの解決を担う。
+  getJudgmentSettings?: () => AiSettings;
   // 文体指紋(機械計測)。呼び出し側で現エピソード全文等から計測して渡す。
   styleFingerprint?: FictionPromptExtras["styleFingerprint"];
   // 場面ステートカード・話し方カードのキャッシュキーに使うエピソードID
@@ -918,12 +920,13 @@ async function runDraftSelectionStep(
   settingsContext: string | undefined,
   plan: string | undefined,
   abortSignal?: AbortSignal,
+  scaffold?: PromptScaffoldLevel,
 ): Promise<number | undefined> {
   try {
     const result = await generateText({
       model: createModel(settings),
       ...buildRetryOption(settings),
-      prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan),
+      prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold),
       ...buildTemperatureOption(settings, false),
       maxOutputTokens: settings.maxTokens,
       abortSignal,
@@ -1033,7 +1036,7 @@ export async function streamContinuation({
   onToolEvent,
   onReasoning,
   onStage,
-  getBackgroundSettings,
+  getJudgmentSettings,
   styleFingerprint,
   episodeId,
   characterVoiceInput,
@@ -1042,14 +1045,15 @@ export async function streamContinuation({
     const s = normalizeSettings(settings);
     const toolsEnabled = hasTools(tools);
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
-    let extras: FictionPromptExtras | undefined = styleFingerprint ? { styleFingerprint } : undefined;
+    // 執筆系の足場レベルを extras 経由でドラフト・修正系プロンプトへ伝える。
+    let extras: FictionPromptExtras | undefined = s.promptScaffold
+      ? { promptScaffold: s.promptScaffold }
+      : undefined;
+    if (styleFingerprint) extras = { ...extras, styleFingerprint };
 
-    // 構想・レビューは出力が短く「判断」寄りの工程のため、フラグON時は
-    // バックグラウンドモデル(強いモデル)に振る。未解決時は本体設定にフォールバック。
-    const judgmentSettings =
-      s.continuationUseBackgroundModel && getBackgroundSettings
-        ? normalizeSettings(getBackgroundSettings())
-        : s;
+    // 構想・レビューは出力が短く「判断」寄りの工程のため、判断系モデルに振る。
+    // source の判定(本文/バックグラウンド/カスタム)は main.ts 側が担う。
+    const judgmentSettings = getJudgmentSettings ? normalizeSettings(getJudgmentSettings()) : s;
 
     const cacheKeyBase = episodeId ?? "__no_episode__";
 
@@ -1133,6 +1137,7 @@ export async function streamContinuation({
         settingsContext,
         plan,
         abortSignal,
+        judgmentSettings.promptScaffold,
       );
       const chosen = candidates[selectedIndex ?? 0] ?? candidateA;
       draftText = chosen.text;
@@ -1209,7 +1214,7 @@ export async function streamContinuation({
       plan,
       relatedScenes,
       abortSignal,
-      extras,
+      { ...extras, promptScaffold: judgmentSettings.promptScaffold },
     );
     if (mechanicalFindings.length > 0) {
       const mechanicalBlock = formatMechanicalFindingsForReview(mechanicalFindings);
@@ -1292,7 +1297,7 @@ export async function streamRewrite({
       model: createModel(s),
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled: false }),
-      prompt: buildRewritePrompt(selection, context, settingsContext),
+      prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold),
       ...buildTemperatureOption(s, false),
       maxOutputTokens: s.maxTokens,
       abortSignal,

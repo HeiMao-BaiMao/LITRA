@@ -1862,6 +1862,20 @@ button.danger:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
+/* 役割別パラメータ（執筆系/判断系）のグループ。詳細設定内の小見出し付き区画 */
+.role-params-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border-color);
+}
+
+.role-params-group small {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
 .checkbox-label {
   flex-direction: row !important;
   align-items: center;

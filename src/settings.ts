@@ -5,6 +5,8 @@ import {
   getProviderModelDefaults,
   isFixedModelSelection,
   type ProviderModelDefaults,
+  type ModelRoleProfile,
+  type PromptScaffold,
   resetProviderConfig,
 } from "./providers/config.ts";
 import { clearPanelRatios } from "./layout-store.ts";
@@ -16,6 +18,11 @@ export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "hig
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export type GoogleThinkingLevel = "minimal" | "low" | "medium" | "high";
 export type ChatSubmitShortcut = "ctrlEnter" | "enter";
+// 判断系工程(構想・査読・選定・カード生成・講評)に使うモデルの出所。
+// "main": 本文モデルと同じ / "background": バックグラウンドモデル / "custom": 判断系専用の指定
+export type JudgmentModelSource = "main" | "background" | "custom";
+// ユーザーが役割(執筆系/判断系)ごとに保存するパラメータ上書き。形は providers.json の役割プロファイルと同一。
+export type RoleParamOverrides = ModelRoleProfile;
 
 export interface ProviderSpecificSettings {
   apiKey: string;
@@ -33,6 +40,11 @@ export interface AiSettings {
   chatModel?: string;
   backgroundProvider?: Provider;
   backgroundModel?: string;
+  judgmentModelSource?: JudgmentModelSource;
+  judgmentProvider?: Provider;
+  judgmentModel?: string;
+  writingOverrides?: RoleParamOverrides;
+  judgmentOverrides?: RoleParamOverrides;
   temperature: number;
   maxTokens: number;
   maxContextTokens: number;
@@ -42,9 +54,15 @@ export interface AiSettings {
   presencePenalty?: number;
   openaiReasoningEffort?: OpenAIReasoningEffort;
   deepseekReasoningEffort?: DeepSeekReasoningEffort;
+  // DeepSeek の thinking モードのグローバル既定。undefined は従来どおり thinking 有効を意味する。
+  deepseekThinkingEnabled?: boolean;
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
   googleThinkingLevel?: GoogleThinkingLevel;
+  // 解決済みのプロンプト足場レベルを実行時に運ぶためだけのフィールド。
+  // ストアには保存しない(SETTINGS_STORE_KEYS にも load/save にも含めない)。
+  // main.ts が役割プロファイル・オーバーライドから解決した値をここへ積んで service.ts へ渡す。
+  promptScaffold?: PromptScaffold;
   twoStageContinuation?: boolean;
   continuationReviewEnabled?: boolean;
   continuationUseBackgroundModel?: boolean;
@@ -73,6 +91,11 @@ const SETTINGS_STORE_KEYS = [
   "chatModel",
   "backgroundProvider",
   "backgroundModel",
+  "judgmentModelSource",
+  "judgmentProvider",
+  "judgmentModel",
+  "writingOverrides",
+  "judgmentOverrides",
   "temperature",
   "maxTokens",
   "maxContextTokens",
@@ -85,6 +108,7 @@ const SETTINGS_STORE_KEYS = [
   "thinkingBudget",
   "openaiReasoningEffort",
   "deepseekReasoningEffort",
+  "deepseekThinkingEnabled",
   "anthropicThinkingEnabled",
   "anthropicThinkingBudget",
   "googleThinkingLevel",
@@ -176,6 +200,39 @@ function isProvider(value: unknown): value is Provider {
 
 function isChatSubmitShortcut(value: unknown): value is ChatSubmitShortcut {
   return value === "ctrlEnter" || value === "enter";
+}
+
+function isJudgmentModelSource(value: unknown): value is JudgmentModelSource {
+  return value === "main" || value === "background" || value === "custom";
+}
+
+function isPromptScaffold(value: unknown): value is PromptScaffold {
+  return value === "full" || value === "light";
+}
+
+/**
+ * ユーザーが保存した役割別オーバーライドを、既知キーだけ型検証つきで抽出する。
+ * 未知のキーや型不一致のキーは無視する。有効なキーが1つも無ければ undefined を返す。
+ */
+function sanitizeRoleOverrides(value: unknown): RoleParamOverrides | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const result: RoleParamOverrides = {};
+
+  if (typeof record.temperature === "number") result.temperature = record.temperature;
+  if (typeof record.topP === "number") result.topP = record.topP;
+  if (typeof record.topK === "number") result.topK = record.topK;
+  if (typeof record.frequencyPenalty === "number") result.frequencyPenalty = record.frequencyPenalty;
+  if (typeof record.presencePenalty === "number") result.presencePenalty = record.presencePenalty;
+  if (isOpenAIReasoningEffort(record.openaiReasoningEffort)) result.openaiReasoningEffort = record.openaiReasoningEffort;
+  if (isDeepSeekReasoningEffort(record.deepseekReasoningEffort)) result.deepseekReasoningEffort = record.deepseekReasoningEffort;
+  if (typeof record.deepseekThinkingEnabled === "boolean") result.deepseekThinkingEnabled = record.deepseekThinkingEnabled;
+  if (typeof record.anthropicThinkingEnabled === "boolean") result.anthropicThinkingEnabled = record.anthropicThinkingEnabled;
+  if (typeof record.anthropicThinkingBudget === "number") result.anthropicThinkingBudget = record.anthropicThinkingBudget;
+  if (isGoogleThinkingLevel(record.googleThinkingLevel)) result.googleThinkingLevel = record.googleThinkingLevel;
+  if (isPromptScaffold(record.promptScaffold)) result.promptScaffold = record.promptScaffold;
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function isProviderConfigRecord(value: unknown): value is Partial<Record<Provider, Partial<ProviderSpecificSettings>>> {
@@ -348,6 +405,14 @@ export async function loadSettings(): Promise<AiSettings> {
   const backgroundProvider = isProvider(backgroundProviderRaw) ? backgroundProviderRaw : undefined;
   const backgroundModel = trimmedString(await store.get("backgroundModel"));
 
+  const judgmentModelSourceRaw = await store.get("judgmentModelSource");
+  const judgmentModelSource = isJudgmentModelSource(judgmentModelSourceRaw) ? judgmentModelSourceRaw : undefined;
+  const judgmentProviderRaw = await store.get("judgmentProvider");
+  const judgmentProvider = isProvider(judgmentProviderRaw) ? judgmentProviderRaw : undefined;
+  const judgmentModel = trimmedString(await store.get("judgmentModel"));
+  const writingOverrides = sanitizeRoleOverrides(await store.get("writingOverrides"));
+  const judgmentOverrides = sanitizeRoleOverrides(await store.get("judgmentOverrides"));
+
   const base: AiSettings = {
     provider,
     apiKey: activeConfig.apiKey,
@@ -358,6 +423,11 @@ export async function loadSettings(): Promise<AiSettings> {
     chatModel: chatModel || undefined,
     backgroundProvider,
     backgroundModel: backgroundModel || undefined,
+    judgmentModelSource,
+    judgmentProvider,
+    judgmentModel: judgmentModel || undefined,
+    writingOverrides,
+    judgmentOverrides,
     temperature: optionalNumber(await store.get("temperature")) ?? modelDefaults?.temperature ?? 0.7,
     maxTokens: optionalNumber(await store.get("maxTokens")) ?? modelDefaults?.maxTokens ?? 8192,
     maxContextTokens: optionalNumber(await store.get("maxContextTokens")) ?? modelDefaults?.maxContextTokens ?? 65536,
@@ -365,6 +435,7 @@ export async function loadSettings(): Promise<AiSettings> {
     topK: optionalNumber(await store.get("topK")) ?? modelDefaults?.topK,
     frequencyPenalty: optionalNumber(await store.get("frequencyPenalty")) ?? modelDefaults?.frequencyPenalty,
     presencePenalty: optionalNumber(await store.get("presencePenalty")) ?? modelDefaults?.presencePenalty,
+    deepseekThinkingEnabled: optionalBoolean(await store.get("deepseekThinkingEnabled")),
     twoStageContinuation: optionalBoolean(await store.get("twoStageContinuation")),
     continuationReviewEnabled: optionalBoolean(await store.get("continuationReviewEnabled")),
     continuationUseBackgroundModel: optionalBoolean(await store.get("continuationUseBackgroundModel")),
@@ -446,6 +517,11 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("chatModel", settings.chatModel ?? null);
   await store.set("backgroundProvider", settings.backgroundProvider ?? null);
   await store.set("backgroundModel", settings.backgroundModel ?? null);
+  await store.set("judgmentModelSource", settings.judgmentModelSource ?? null);
+  await store.set("judgmentProvider", settings.judgmentProvider ?? null);
+  await store.set("judgmentModel", settings.judgmentModel ?? null);
+  await store.set("writingOverrides", settings.writingOverrides ?? null);
+  await store.set("judgmentOverrides", settings.judgmentOverrides ?? null);
   await store.set("temperature", settings.temperature);
   await store.set("maxTokens", settings.maxTokens);
   await store.set("maxContextTokens", settings.maxContextTokens);
@@ -455,6 +531,7 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await setIfDefined(store, "presencePenalty", settings.presencePenalty);
   await setIfDefined(store, "openaiReasoningEffort", settings.openaiReasoningEffort);
   await setIfDefined(store, "deepseekReasoningEffort", settings.deepseekReasoningEffort);
+  await store.set("deepseekThinkingEnabled", settings.deepseekThinkingEnabled ?? null);
   await setIfDefined(store, "anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
   await setIfDefined(store, "anthropicThinkingBudget", settings.anthropicThinkingBudget);
   await setIfDefined(store, "googleThinkingLevel", settings.googleThinkingLevel);
@@ -512,6 +589,29 @@ export function resolveBackgroundSettings(settings: AiSettings): AiSettings {
     baseUrl: specific.baseUrl,
     model: backgroundModel || fallbackModel || specific.model,
   };
+}
+
+/**
+ * 判断系工程(構想・査読・選定・カード生成・講評)用のモデル設定を解決する。
+ * source 未保存時は旧フラグ continuationUseBackgroundModel から後方互換で導出する。
+ */
+export function resolveJudgmentSettings(settings: AiSettings): AiSettings {
+  const source =
+    settings.judgmentModelSource ?? (settings.continuationUseBackgroundModel ? "background" : "main");
+  if (source === "background") return resolveBackgroundSettings(settings);
+  if (source === "custom") {
+    const provider = settings.judgmentProvider ?? settings.provider;
+    const specific = getProviderSpecificSettings(settings, provider);
+    const model = trimmedString(settings.judgmentModel);
+    return {
+      ...settings,
+      provider,
+      apiKey: specific.apiKey,
+      baseUrl: specific.baseUrl,
+      model: model || specific.model,
+    };
+  }
+  return { ...settings };
 }
 
 export function getActiveProvider(settings: AiSettings): Provider {

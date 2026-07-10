@@ -62,12 +62,23 @@ export interface AppElements {
   settingPresencePenalty: HTMLInputElement;
   settingOpenaiReasoningEffort: HTMLSelectElement;
   settingDeepseekReasoningEffort: HTMLSelectElement;
+  settingDeepseekThinking: HTMLInputElement;
   settingAnthropicThinkingEnabled: HTMLInputElement;
   settingAnthropicThinkingBudget: HTMLInputElement;
   settingGoogleThinkingLevel: HTMLSelectElement;
   settingTwoStageContinuation: HTMLInputElement;
   settingContinuationReview: HTMLInputElement;
-  settingContinuationUseBackgroundModel: HTMLInputElement;
+  settingJudgmentSource: HTMLSelectElement;
+  settingJudgmentProvider: HTMLSelectElement;
+  settingJudgmentModel: HTMLSelectElement;
+  settingWritingTemperature: HTMLInputElement;
+  settingWritingTopP: HTMLInputElement;
+  settingWritingScaffold: HTMLSelectElement;
+  settingWritingDeepseekThinking: HTMLSelectElement;
+  settingJudgmentTemperature: HTMLInputElement;
+  settingJudgmentTopP: HTMLInputElement;
+  settingJudgmentScaffold: HTMLSelectElement;
+  settingJudgmentDeepseekThinking: HTMLSelectElement;
   settingContinuationSceneState: HTMLInputElement;
   settingContinuationCharacterVoice: HTMLInputElement;
   settingContinuationBestOfTwo: HTMLInputElement;
@@ -173,12 +184,23 @@ export function getElements(): AppElements {
   const settingPresencePenalty = document.querySelector<HTMLInputElement>("#setting-presence-penalty");
   const settingOpenaiReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-openai-reasoning-effort");
   const settingDeepseekReasoningEffort = document.querySelector<HTMLSelectElement>("#setting-deepseek-reasoning-effort");
+  const settingDeepseekThinking = document.querySelector<HTMLInputElement>("#setting-deepseek-thinking");
   const settingAnthropicThinkingEnabled = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-enabled");
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
   const settingGoogleThinkingLevel = document.querySelector<HTMLSelectElement>("#setting-google-thinking-level");
   const settingTwoStageContinuation = document.querySelector<HTMLInputElement>("#setting-two-stage-continuation");
   const settingContinuationReview = document.querySelector<HTMLInputElement>("#setting-continuation-review");
-  const settingContinuationUseBackgroundModel = document.querySelector<HTMLInputElement>("#setting-continuation-use-background-model");
+  const settingJudgmentSource = document.querySelector<HTMLSelectElement>("#setting-judgment-source");
+  const settingJudgmentProvider = document.querySelector<HTMLSelectElement>("#setting-judgment-provider");
+  const settingJudgmentModel = document.querySelector<HTMLSelectElement>("#setting-judgment-model");
+  const settingWritingTemperature = document.querySelector<HTMLInputElement>("#setting-writing-temperature");
+  const settingWritingTopP = document.querySelector<HTMLInputElement>("#setting-writing-top-p");
+  const settingWritingScaffold = document.querySelector<HTMLSelectElement>("#setting-writing-scaffold");
+  const settingWritingDeepseekThinking = document.querySelector<HTMLSelectElement>("#setting-writing-deepseek-thinking");
+  const settingJudgmentTemperature = document.querySelector<HTMLInputElement>("#setting-judgment-temperature");
+  const settingJudgmentTopP = document.querySelector<HTMLInputElement>("#setting-judgment-top-p");
+  const settingJudgmentScaffold = document.querySelector<HTMLSelectElement>("#setting-judgment-scaffold");
+  const settingJudgmentDeepseekThinking = document.querySelector<HTMLSelectElement>("#setting-judgment-deepseek-thinking");
   const settingContinuationSceneState = document.querySelector<HTMLInputElement>("#setting-continuation-scene-state");
   const settingContinuationCharacterVoice = document.querySelector<HTMLInputElement>("#setting-continuation-character-voice");
   const settingContinuationBestOfTwo = document.querySelector<HTMLInputElement>("#setting-continuation-best-of-two");
@@ -247,12 +269,23 @@ export function getElements(): AppElements {
     !settingPresencePenalty ||
     !settingOpenaiReasoningEffort ||
     !settingDeepseekReasoningEffort ||
+    !settingDeepseekThinking ||
     !settingAnthropicThinkingEnabled ||
     !settingAnthropicThinkingBudget ||
     !settingGoogleThinkingLevel ||
     !settingTwoStageContinuation ||
     !settingContinuationReview ||
-    !settingContinuationUseBackgroundModel ||
+    !settingJudgmentSource ||
+    !settingJudgmentProvider ||
+    !settingJudgmentModel ||
+    !settingWritingTemperature ||
+    !settingWritingTopP ||
+    !settingWritingScaffold ||
+    !settingWritingDeepseekThinking ||
+    !settingJudgmentTemperature ||
+    !settingJudgmentTopP ||
+    !settingJudgmentScaffold ||
+    !settingJudgmentDeepseekThinking ||
     !settingContinuationSceneState ||
     !settingContinuationCharacterVoice ||
     !settingContinuationBestOfTwo ||
@@ -384,12 +417,23 @@ export function getElements(): AppElements {
     settingPresencePenalty,
     settingOpenaiReasoningEffort,
     settingDeepseekReasoningEffort,
+    settingDeepseekThinking,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
-    settingContinuationUseBackgroundModel,
+    settingJudgmentSource,
+    settingJudgmentProvider,
+    settingJudgmentModel,
+    settingWritingTemperature,
+    settingWritingTopP,
+    settingWritingScaffold,
+    settingWritingDeepseekThinking,
+    settingJudgmentTemperature,
+    settingJudgmentTopP,
+    settingJudgmentScaffold,
+    settingJudgmentDeepseekThinking,
     settingContinuationSceneState,
     settingContinuationCharacterVoice,
     settingContinuationBestOfTwo,

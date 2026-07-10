@@ -48,6 +48,15 @@ export function buildProviderOptions(
           deepseek: { thinking: { type: "disabled" } },
         };
       }
+      if (settings.deepseekThinkingEnabled === false) {
+        // thinking を明示的に OFF にする。thinking モードでは温度・top_p・ペナルティ類が
+        // 無視されるため、これらのサンプリングパラメータで文章の質を制御したい
+        // 創作用途（役割プロファイルの執筆系設定など）で使う。reasoningEffort は
+        // thinking OFF では意味を持たないため付けない。
+        return {
+          deepseek: { thinking: { type: "disabled" } },
+        };
+      }
       const options: Record<string, JSONValue> = {
         // DeepSeek V4 系は thinking がデフォルトで有効。温度・top_p・ペナルティ類は
         // thinking モードで無視されるため、通常時はここで有効にしておく。

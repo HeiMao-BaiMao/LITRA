@@ -233,6 +233,10 @@
             </div>
 
             <div class="provider-field-deepseek hidden">
+              <label class="checkbox-label">
+                <input id="setting-deepseek-thinking" type="checkbox" />
+                <span>thinking を有効にする（推奨）</span>
+              </label>
               <label>
                 <span>DeepSeek reasoning effort</span>
                 <select id="setting-deepseek-reasoning-effort">
@@ -280,9 +284,23 @@
               <span>続き生成の後にレビューと修正を実行（矛盾・表現・文体を点検して書き直します。API呼び出しが最大2回増えます）</span>
             </label>
 
-            <label class="checkbox-label">
-              <input id="setting-continuation-use-background-model" type="checkbox" />
-              <span>構想・レビューをバックグラウンドモデルで実行（上のバックグラウンドモデル設定を使用。未設定時は通常のモデルにフォールバックします）</span>
+            <label>
+              <span>判断系モデル（構想・査読・選定・カード）</span>
+              <select id="setting-judgment-source">
+                <option value="main">本文モデルと同じ</option>
+                <option value="background">バックグラウンドモデルと同じ</option>
+                <option value="custom">個別指定</option>
+              </select>
+            </label>
+
+            <label class="chat-provider-row hidden">
+              <span>判断系プロバイダーとモデル（個別指定時のみ）</span>
+              <select id="setting-judgment-provider">
+                <option value="">本文モデルと同じ</option>
+              </select>
+              <select id="setting-judgment-model">
+                <option value="">プロバイダ既定</option>
+              </select>
             </label>
 
             <label class="checkbox-label">
@@ -309,6 +327,64 @@
               <input id="setting-continuation-beat-split" type="checkbox" />
               <span>構想メモのビートごとに分割して執筆（構想ステップが有効な場合のみ動作します。ビート数だけAPI呼び出しが増えます）</span>
             </label>
+
+            <div class="role-params-group">
+              <h3>執筆系パラメータ（ドラフト・修正・リライト）</h3>
+              <label>
+                <span>温度 (temperature)</span>
+                <input id="setting-writing-temperature" type="number" step="0.01" min="0" max="2" placeholder="自動" />
+              </label>
+              <label>
+                <span>topP</span>
+                <input id="setting-writing-top-p" type="number" step="0.01" min="0" max="1" placeholder="自動" />
+              </label>
+              <label>
+                <span>足場レベル（プロンプト規則の詳細度）</span>
+                <select id="setting-writing-scaffold">
+                  <option value="">自動（モデル推奨）</option>
+                  <option value="full">フル（詳細な規則）</option>
+                  <option value="light">ライト（要点のみ）</option>
+                </select>
+              </label>
+              <label>
+                <span>DeepSeek thinking</span>
+                <select id="setting-writing-deepseek-thinking">
+                  <option value="">自動</option>
+                  <option value="on">ON</option>
+                  <option value="off">OFF</option>
+                </select>
+                <small>DeepSeek 使用時のみ有効。OFF で温度等が効く</small>
+              </label>
+            </div>
+
+            <div class="role-params-group">
+              <h3>判断系パラメータ（構想・査読・選定・カード・講評）</h3>
+              <label>
+                <span>温度 (temperature)</span>
+                <input id="setting-judgment-temperature" type="number" step="0.01" min="0" max="2" placeholder="自動" />
+              </label>
+              <label>
+                <span>topP</span>
+                <input id="setting-judgment-top-p" type="number" step="0.01" min="0" max="1" placeholder="自動" />
+              </label>
+              <label>
+                <span>足場レベル（プロンプト規則の詳細度）</span>
+                <select id="setting-judgment-scaffold">
+                  <option value="">自動（モデル推奨）</option>
+                  <option value="full">フル（詳細な規則）</option>
+                  <option value="light">ライト（要点のみ）</option>
+                </select>
+              </label>
+              <label>
+                <span>DeepSeek thinking</span>
+                <select id="setting-judgment-deepseek-thinking">
+                  <option value="">自動</option>
+                  <option value="on">ON</option>
+                  <option value="off">OFF</option>
+                </select>
+                <small>DeepSeek 使用時のみ有効。OFF で温度等が効く</small>
+              </label>
+            </div>
           </div>
 
           <div class="sync-settings">

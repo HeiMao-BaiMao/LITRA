@@ -18,7 +18,10 @@
           "topP": 1.0,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
-          "openaiReasoningEffort": "medium"
+          "openaiReasoningEffort": "medium",
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "gpt-5.4",
@@ -29,7 +32,10 @@
           "topP": 1.0,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
-          "openaiReasoningEffort": "medium"
+          "openaiReasoningEffort": "medium",
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "gpt-5.4-mini",
@@ -60,7 +66,10 @@
           "maxTokens": 128000,
           "maxContextTokens": 1000000,
           "topP": 1.0,
-          "anthropicThinkingEnabled": false
+          "anthropicThinkingEnabled": false,
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "claude-sonnet-4-6",
@@ -69,7 +78,10 @@
           "maxTokens": 64000,
           "maxContextTokens": 1000000,
           "topP": 1.0,
-          "anthropicThinkingEnabled": false
+          "anthropicThinkingEnabled": false,
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "claude-haiku-4-5-20251001",
@@ -98,7 +110,17 @@
           "maxTokens": 384000,
           "maxContextTokens": 1000000,
           "topP": 1.0,
-          "deepseekReasoningEffort": "high"
+          "deepseekReasoningEffort": "high",
+          "writing": {
+            "deepseekThinkingEnabled": false,
+            "temperature": 1.5,
+            "topP": 0.95,
+            "promptScaffold": "light"
+          },
+          "judgment": {
+            "deepseekThinkingEnabled": true,
+            "deepseekReasoningEffort": "high"
+          }
         },
         {
           "id": "deepseek-v4-pro",
@@ -107,7 +129,17 @@
           "maxTokens": 384000,
           "maxContextTokens": 1000000,
           "topP": 1.0,
-          "deepseekReasoningEffort": "high"
+          "deepseekReasoningEffort": "high",
+          "writing": {
+            "deepseekThinkingEnabled": false,
+            "temperature": 1.5,
+            "topP": 0.95,
+            "promptScaffold": "light"
+          },
+          "judgment": {
+            "deepseekThinkingEnabled": true,
+            "deepseekReasoningEffort": "high"
+          }
         }
       ]
     },
@@ -125,14 +157,20 @@
           "label": "Gemini 3.5 Flash",
           "maxTokens": 65536,
           "maxContextTokens": 1048576,
-          "googleThinkingLevel": "high"
+          "googleThinkingLevel": "high",
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "gemini-3.1-pro-preview",
           "label": "Gemini 3.1 Pro Preview",
           "maxTokens": 65536,
           "maxContextTokens": 1048576,
-          "googleThinkingLevel": "high"
+          "googleThinkingLevel": "high",
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "gemini-3-flash-preview",
@@ -286,7 +324,10 @@
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "minimax-m3",
@@ -296,7 +337,10 @@
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "writing": {
+            "promptScaffold": "light"
+          }
         },
         {
           "id": "glm-5.2",
@@ -356,7 +400,10 @@
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "writing": {
+            "promptScaffold": "light"
+          }
         }
       ]
     }

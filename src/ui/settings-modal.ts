@@ -3,9 +3,11 @@ import type {
   AiSettings,
   DeepSeekReasoningEffort,
   GoogleThinkingLevel,
+  JudgmentModelSource,
   OpenAIReasoningEffort,
   Provider,
   ProviderSpecificSettings,
+  RoleParamOverrides,
 } from "../settings.ts";
 import { getProviderEntry } from "../providers/config.ts";
 import {
@@ -158,6 +160,57 @@ function renderBackgroundModelOptions(
   }
 }
 
+function renderJudgmentProviderOptions(config: ProviderConfig): void {
+  const { settingJudgmentProvider } = getElements();
+  settingJudgmentProvider.innerHTML = "";
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "本文モデルと同じ";
+  settingJudgmentProvider.appendChild(emptyOption);
+  for (const provider of config.providers) {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.name;
+    settingJudgmentProvider.appendChild(option);
+  }
+}
+
+function renderJudgmentModelOptions(
+  config: ProviderConfig | null,
+  provider: Provider | "",
+  currentModel?: string,
+): void {
+  const { settingJudgmentModel } = getElements();
+  settingJudgmentModel.innerHTML = "";
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "プロバイダ既定";
+  settingJudgmentModel.appendChild(emptyOption);
+
+  if (provider !== "" && config) {
+    const entry = getProviderEntry(config, provider);
+    for (const model of entry?.models ?? []) {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.label ?? model.id;
+      settingJudgmentModel.appendChild(option);
+    }
+  }
+
+  if (currentModel && Array.from(settingJudgmentModel.options).some((opt) => opt.value === currentModel)) {
+    settingJudgmentModel.value = currentModel;
+  } else {
+    settingJudgmentModel.value = "";
+  }
+}
+
+// 判断系のプロバイダ・モデル行は source が「個別指定」のときだけ表示する。
+// 行は settingJudgmentProvider を包む label 要素(index.html の chat-provider-row)。
+function updateJudgmentCustomRowVisibility(source: string): void {
+  const { settingJudgmentProvider } = getElements();
+  settingJudgmentProvider.parentElement?.classList.toggle("hidden", source !== "custom");
+}
+
 function optionalNumberInput(value: number | undefined): string {
   return value === undefined ? "" : String(value);
 }
@@ -195,6 +248,52 @@ function parseGoogleThinkingLevel(value: string): GoogleThinkingLevel | undefine
     return value;
   }
   return undefined;
+}
+
+function parseJudgmentModelSource(value: string): JudgmentModelSource {
+  if (value === "background" || value === "custom") return value;
+  return "main";
+}
+
+// 役割別オーバーライドの deepseekThinkingEnabled を UI のセレクト値へ変換する。
+// true→"on", false→"off", undefined→""(自動)
+function deepseekThinkingToSelectValue(value: boolean | undefined): string {
+  if (value === true) return "on";
+  if (value === false) return "off";
+  return "";
+}
+
+// 役割別パラメータの入力群から RoleParamOverrides を組み立てる。
+// 空欄・""(自動)のキーは含めず、数値は NaN・範囲外を捨てる。
+// 有効なキーが1つも無ければ undefined を返す(ストアに保存しない)。
+function readRoleOverrides(
+  temperatureInput: HTMLInputElement,
+  topPInput: HTMLInputElement,
+  scaffoldSelect: HTMLSelectElement,
+  deepseekThinkingSelect: HTMLSelectElement,
+): RoleParamOverrides | undefined {
+  const overrides: RoleParamOverrides = {};
+
+  const temperature = parseOptionalNumber(temperatureInput.value);
+  if (temperature !== undefined && temperature >= 0 && temperature <= 2) {
+    overrides.temperature = temperature;
+  }
+  const topP = parseOptionalNumber(topPInput.value);
+  if (topP !== undefined && topP >= 0 && topP <= 1) {
+    overrides.topP = topP;
+  }
+  const scaffold = scaffoldSelect.value;
+  if (scaffold === "full" || scaffold === "light") {
+    overrides.promptScaffold = scaffold;
+  }
+  const thinking = deepseekThinkingSelect.value;
+  if (thinking === "on") {
+    overrides.deepseekThinkingEnabled = true;
+  } else if (thinking === "off") {
+    overrides.deepseekThinkingEnabled = false;
+  }
+
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
 function updateAdvancedVisibility(provider: Provider): void {
@@ -283,13 +382,20 @@ function setCapacityControlsEnabled(enabled: boolean): void {
 
 function updateSamplingControlsVisibility(provider: Provider): void {
   // service.ts の buildTemperatureOption / buildAdvancedOptions に対応させる。
-  // - deepseek: sampling / penalty とも disabled + hidden（thinking モードでは API に送られないため現状維持）。
+  // - deepseek: thinking 有効時は sampling / penalty とも disabled + hidden
+  //   （thinking モードでは API に送られない）。thinking 無効時（チェックボックス OFF）は
+  //   temperature/topP/topK/penalty を受け付けるため、すべて enabled にする。
   // - opencode: sampling / penalty とも disabled のみ（API に送られない。値は見える）。
   // - sakura:   penalty のみ disabled（sampling は送られる。値は見える）。
   // - 上記以外: すべて enabled。
   if (provider === "deepseek") {
-    setSamplingParamsEnabled(false, true);
-    setPenaltyParamsEnabled(false, true);
+    if (getElements().settingDeepseekThinking.checked) {
+      setSamplingParamsEnabled(false, true);
+      setPenaltyParamsEnabled(false, true);
+    } else {
+      setSamplingParamsEnabled(true, false);
+      setPenaltyParamsEnabled(true, false);
+    }
   } else if (provider === "opencode") {
     setSamplingParamsEnabled(false, false);
     setPenaltyParamsEnabled(false, false);
@@ -469,12 +575,21 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
     settingPresencePenalty,
     settingOpenaiReasoningEffort,
     settingDeepseekReasoningEffort,
+    settingDeepseekThinking,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
-    settingContinuationUseBackgroundModel,
+    settingJudgmentSource,
+    settingWritingTemperature,
+    settingWritingTopP,
+    settingWritingScaffold,
+    settingWritingDeepseekThinking,
+    settingJudgmentTemperature,
+    settingJudgmentTopP,
+    settingJudgmentScaffold,
+    settingJudgmentDeepseekThinking,
     settingContinuationSceneState,
     settingContinuationCharacterVoice,
     settingContinuationBestOfTwo,
@@ -494,12 +609,31 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingPresencePenalty.value = optionalNumberInput(settings.presencePenalty);
   settingOpenaiReasoningEffort.value = settings.openaiReasoningEffort ?? "";
   settingDeepseekReasoningEffort.value = settings.deepseekReasoningEffort ?? "";
+  // undefined は「既定=有効」を意味する(settings.ts の deepseekThinkingEnabled 参照)
+  settingDeepseekThinking.checked = settings.deepseekThinkingEnabled !== false;
   settingAnthropicThinkingEnabled.checked = settings.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
   settingGoogleThinkingLevel.value = settings.googleThinkingLevel ?? "";
   settingTwoStageContinuation.checked = settings.twoStageContinuation ?? false;
   settingContinuationReview.checked = settings.continuationReviewEnabled ?? false;
-  settingContinuationUseBackgroundModel.checked = settings.continuationUseBackgroundModel ?? false;
+
+  // 判断系モデルの選択元。source 未保存の旧設定は continuationUseBackgroundModel から
+  // 後方互換で初期表示を導出する(resolveJudgmentSettings と同じ規則)。
+  const judgmentSource: JudgmentModelSource =
+    settings.judgmentModelSource ?? (settings.continuationUseBackgroundModel ? "background" : "main");
+  settingJudgmentSource.value = judgmentSource;
+  updateJudgmentCustomRowVisibility(judgmentSource);
+
+  // 役割別パラメータ(執筆系/判断系)。undefined は空欄・""(自動)として表示する。
+  settingWritingTemperature.value = optionalNumberInput(settings.writingOverrides?.temperature);
+  settingWritingTopP.value = optionalNumberInput(settings.writingOverrides?.topP);
+  settingWritingScaffold.value = settings.writingOverrides?.promptScaffold ?? "";
+  settingWritingDeepseekThinking.value = deepseekThinkingToSelectValue(settings.writingOverrides?.deepseekThinkingEnabled);
+  settingJudgmentTemperature.value = optionalNumberInput(settings.judgmentOverrides?.temperature);
+  settingJudgmentTopP.value = optionalNumberInput(settings.judgmentOverrides?.topP);
+  settingJudgmentScaffold.value = settings.judgmentOverrides?.promptScaffold ?? "";
+  settingJudgmentDeepseekThinking.value = deepseekThinkingToSelectValue(settings.judgmentOverrides?.deepseekThinkingEnabled);
+
   settingContinuationSceneState.checked = settings.continuationSceneStateEnabled ?? false;
   settingContinuationCharacterVoice.checked = settings.continuationCharacterVoiceEnabled ?? false;
   settingContinuationBestOfTwo.checked = settings.continuationBestOfTwo ?? false;
@@ -524,6 +658,10 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
 
   renderBackgroundProviderOptions(config);
   renderBackgroundModelOptions(config, settings.backgroundProvider ?? "", settings.backgroundModel);
+
+  renderJudgmentProviderOptions(config);
+  getElements().settingJudgmentProvider.value = settings.judgmentProvider ?? "";
+  renderJudgmentModelOptions(config, settings.judgmentProvider ?? "", settings.judgmentModel);
 
   void renderWebDavSettings();
   void renderExaSettings();
@@ -565,12 +703,23 @@ export function readSettingsFromModal(): AiSettings {
     settingPresencePenalty,
     settingOpenaiReasoningEffort,
     settingDeepseekReasoningEffort,
+    settingDeepseekThinking,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
-    settingContinuationUseBackgroundModel,
+    settingJudgmentSource,
+    settingJudgmentProvider,
+    settingJudgmentModel,
+    settingWritingTemperature,
+    settingWritingTopP,
+    settingWritingScaffold,
+    settingWritingDeepseekThinking,
+    settingJudgmentTemperature,
+    settingJudgmentTopP,
+    settingJudgmentScaffold,
+    settingJudgmentDeepseekThinking,
     settingContinuationSceneState,
     settingContinuationCharacterVoice,
     settingContinuationBestOfTwo,
@@ -590,6 +739,11 @@ export function readSettingsFromModal(): AiSettings {
   const backgroundProviderValue = settingBackgroundProvider.value;
   const backgroundModelValue = settingBackgroundModel.value.trim();
 
+  // 判断系モデル。provider/model は「個別指定」のときだけ保存する。
+  const judgmentSource = parseJudgmentModelSource(settingJudgmentSource.value);
+  const judgmentProviderValue = settingJudgmentProvider.value;
+  const judgmentModelValue = settingJudgmentModel.value.trim();
+
   return {
     provider,
     apiKey: activeConfig.apiKey,
@@ -598,6 +752,22 @@ export function readSettingsFromModal(): AiSettings {
     providerConfigs: modalProviderConfigs,
     backgroundProvider: backgroundProviderValue === "" ? undefined : (backgroundProviderValue as Provider),
     backgroundModel: backgroundModelValue === "" ? undefined : backgroundModelValue,
+    judgmentModelSource: judgmentSource,
+    judgmentProvider:
+      judgmentSource === "custom" && judgmentProviderValue !== "" ? (judgmentProviderValue as Provider) : undefined,
+    judgmentModel: judgmentSource === "custom" && judgmentModelValue !== "" ? judgmentModelValue : undefined,
+    writingOverrides: readRoleOverrides(
+      settingWritingTemperature,
+      settingWritingTopP,
+      settingWritingScaffold,
+      settingWritingDeepseekThinking,
+    ),
+    judgmentOverrides: readRoleOverrides(
+      settingJudgmentTemperature,
+      settingJudgmentTopP,
+      settingJudgmentScaffold,
+      settingJudgmentDeepseekThinking,
+    ),
     temperature: Number(settingTemperature.value),
     maxTokens: Number(settingMaxTokens.value),
     maxContextTokens: Number(settingMaxContextTokens.value),
@@ -608,12 +778,15 @@ export function readSettingsFromModal(): AiSettings {
     presencePenalty: parseOptionalNumber(settingPresencePenalty.value),
     openaiReasoningEffort: parseOpenAIReasoningEffort(settingOpenaiReasoningEffort.value),
     deepseekReasoningEffort: parseDeepSeekReasoningEffort(settingDeepseekReasoningEffort.value),
+    // checked は既定(=有効)として undefined で保存し、明示的な OFF だけ false を残す
+    deepseekThinkingEnabled: settingDeepseekThinking.checked ? undefined : false,
     anthropicThinkingEnabled: settingAnthropicThinkingEnabled.checked,
     anthropicThinkingBudget: parseOptionalNumber(settingAnthropicThinkingBudget.value),
     googleThinkingLevel: parseGoogleThinkingLevel(settingGoogleThinkingLevel.value),
     twoStageContinuation: settingTwoStageContinuation.checked,
     continuationReviewEnabled: settingContinuationReview.checked,
-    continuationUseBackgroundModel: settingContinuationUseBackgroundModel.checked,
+    // 旧バージョンでこの設定を開いた場合の後方互換用に、source から旧フラグも導出して保存する
+    continuationUseBackgroundModel: judgmentSource === "background",
     continuationSceneStateEnabled: settingContinuationSceneState.checked,
     continuationCharacterVoiceEnabled: settingContinuationCharacterVoice.checked,
     continuationBestOfTwo: settingContinuationBestOfTwo.checked,
@@ -768,6 +941,7 @@ export function bindSettingsActions(actions: SettingsActions): void {
     licenseModal,
     btnCloseLicenses,
     settingWebdavEnabled,
+    settingDeepseekThinking,
   } = getElements();
 
   settingsForm.addEventListener("submit", (event) => {
@@ -776,6 +950,10 @@ export function bindSettingsActions(actions: SettingsActions): void {
   });
 
   settingWebdavEnabled.addEventListener("change", updateWebDavControlsState);
+  // DeepSeek thinking の ON/OFF で temperature/topP/penalty 欄の有効状態が変わる
+  settingDeepseekThinking.addEventListener("change", () => {
+    updateSamplingControlsVisibility(modalCurrentProvider);
+  });
   btnShowLicenses.addEventListener("click", () => void showLicenseModal());
   btnCloseLicenses.addEventListener("click", hideLicenseModal);
   licenseModal.querySelector(".modal-backdrop")?.addEventListener("click", hideLicenseModal);
@@ -816,5 +994,20 @@ export function bindBackgroundProviderChangeAction(): void {
       return;
     }
     renderBackgroundModelOptions(modalProviderConfig, value as Provider);
+  });
+}
+
+export function bindJudgmentModelControls(): void {
+  const { settingJudgmentSource, settingJudgmentProvider } = getElements();
+
+  // 「個別指定」を選んだときだけプロバイダ・モデル行を表示する
+  settingJudgmentSource.addEventListener("change", () => {
+    updateJudgmentCustomRowVisibility(settingJudgmentSource.value);
+  });
+
+  // プロバイダ切替でモデル一覧を再描画する(バックグラウンドモデルの change と同じパターン)
+  settingJudgmentProvider.addEventListener("change", () => {
+    const value = settingJudgmentProvider.value;
+    renderJudgmentModelOptions(modalProviderConfig, value === "" ? "" : (value as Provider));
   });
 }

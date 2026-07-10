@@ -17,7 +17,9 @@ import {
   type Provider,
   resolveChatSettings,
   resolveBackgroundSettings,
+  resolveJudgmentSettings,
   getProviderSpecificSettings,
+  type RoleParamOverrides,
 } from "./settings.ts";
 import { saveExaApiKey } from "./websearch-settings.ts";
 import { composeStyleSampleText, measureStyleFingerprint } from "./ai/style-fingerprint.ts";
@@ -106,6 +108,7 @@ import { bindToolbarActions } from "./ui/toolbar.ts";
 import {
   bindAdvancedSettingsToggle,
   bindBackgroundProviderChangeAction,
+  bindJudgmentModelControls,
   bindModelFetchAction,
   bindProviderChangeAction,
   bindSettingsActions,
@@ -165,6 +168,7 @@ import {
   providerRequiresApiKey,
   type ProviderModelDefaults,
   type ProviderConfig,
+  type ModelRoleProfile,
 } from "./providers/config.ts";
 import {
   createProject,
@@ -323,6 +327,52 @@ function applyRuntimeModelDefaults(
   };
 }
 
+/**
+ * 役割プロファイル(providers.json の writing/judgment)またはユーザーの役割別
+ * オーバーライドを1レイヤー分だけ設定へ重ねる内部ヘルパー。
+ * サンプリング系パラメータと promptScaffold は無条件で上書きする。
+ * reasoning/thinking 系は applyRuntimeModelDefaults と同じ方式で、現在のプロバイダに
+ * 一致するフィールドだけを適用する(不一致フィールドは無視するだけで、
+ * 対象プロバイダの既存値を undefined 化しない)。
+ */
+function applyRoleProfileLayer(settings: AiSettings, layer: ModelRoleProfile | undefined): AiSettings {
+  if (!layer) return settings;
+  const next: AiSettings = { ...settings };
+
+  if (layer.temperature !== undefined) next.temperature = layer.temperature;
+  if (layer.topP !== undefined) next.topP = layer.topP;
+  if (layer.topK !== undefined) next.topK = layer.topK;
+  if (layer.frequencyPenalty !== undefined) next.frequencyPenalty = layer.frequencyPenalty;
+  if (layer.presencePenalty !== undefined) next.presencePenalty = layer.presencePenalty;
+  if (layer.promptScaffold !== undefined) next.promptScaffold = layer.promptScaffold;
+
+  if (settings.provider === "openai" && layer.openaiReasoningEffort !== undefined) {
+    next.openaiReasoningEffort = layer.openaiReasoningEffort;
+  }
+  if (settings.provider === "deepseek") {
+    if (layer.deepseekReasoningEffort !== undefined) next.deepseekReasoningEffort = layer.deepseekReasoningEffort;
+    if (layer.deepseekThinkingEnabled !== undefined) next.deepseekThinkingEnabled = layer.deepseekThinkingEnabled;
+  }
+  if (settings.provider === "anthropic") {
+    if (layer.anthropicThinkingEnabled !== undefined) next.anthropicThinkingEnabled = layer.anthropicThinkingEnabled;
+    if (layer.anthropicThinkingBudget !== undefined) next.anthropicThinkingBudget = layer.anthropicThinkingBudget;
+  }
+  if (settings.provider === "google" && layer.googleThinkingLevel !== undefined) {
+    next.googleThinkingLevel = layer.googleThinkingLevel;
+  }
+
+  return next;
+}
+
+/// providers.json の役割プロファイルを先に、ユーザーの役割別オーバーライドを後に重ねる(後勝ち)。
+function applyRoleProfile(
+  settings: AiSettings,
+  profile: ModelRoleProfile | undefined,
+  overrides: RoleParamOverrides | undefined,
+): AiSettings {
+  return applyRoleProfileLayer(applyRoleProfileLayer(settings, profile), overrides);
+}
+
 function resolveChatRunSettings(settings: AiSettings): AiSettings {
   const resolved = resolveChatSettings(settings);
   const entry = getProviderEntry(providerConfig, resolved.provider);
@@ -340,6 +390,22 @@ function resolveBackgroundRunSettings(settings: AiSettings): AiSettings {
     getProviderModelDefaults(entry, resolved.model),
     usesBackgroundOverride,
   );
+}
+
+function resolveWritingRunSettings(settings: AiSettings): AiSettings {
+  // 本文モデルをそのまま執筆系として使う。ユーザー保存のグローバル値は loadSettings 済みなので
+  // ここでは役割プロファイルとオーバーライドだけを重ねる。
+  const defaults = getProviderModelDefaults(getProviderEntry(providerConfig, settings.provider), settings.model);
+  return applyRoleProfile(settings, defaults?.writing, settings.writingOverrides);
+}
+
+function resolveJudgmentRunSettings(settings: AiSettings): AiSettings {
+  const resolved = resolveJudgmentSettings(settings);
+  const entry = getProviderEntry(providerConfig, resolved.provider);
+  const defaults = getProviderModelDefaults(entry, resolved.model);
+  const usesOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
+  const base = applyRuntimeModelDefaults(resolved, defaults, usesOverride);
+  return applyRoleProfile(base, defaults?.judgment, settings.judgmentOverrides);
 }
 
 function getProviderProtocol(settings: AiSettings): string {
@@ -2331,7 +2397,7 @@ async function handleContinue(): Promise<void> {
   const controller = startGeneration();
   try {
     const run = await streamContinuation({
-      settings: currentSettings,
+      settings: resolveWritingRunSettings(currentSettings),
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       relatedScenes,
@@ -2345,7 +2411,7 @@ async function handleContinue(): Promise<void> {
       onStage: (stage) => {
         btnContinue.textContent = CONTINUATION_STAGE_LABELS[stage];
       },
-      getBackgroundSettings: () => resolveBackgroundRunSettings(currentSettings),
+      getJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
       styleFingerprint,
       abortSignal: controller.signal,
     });
@@ -2376,7 +2442,7 @@ async function handleRewrite(): Promise<void> {
   const controller = startGeneration();
   try {
     await streamRewrite({
-      settings: currentSettings,
+      settings: resolveWritingRunSettings(currentSettings),
       selection,
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
@@ -2408,7 +2474,7 @@ async function handleFeedback(): Promise<void> {
   const controller = startGeneration();
   try {
     const run = await streamFeedback({
-      settings: currentSettings,
+      settings: resolveJudgmentRunSettings(currentSettings),
       selection,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       onChunk: (chunk) => {
@@ -2925,6 +2991,7 @@ function bindUiEvents(): void {
   });
 
   bindBackgroundProviderChangeAction();
+  bindJudgmentModelControls();
 
   bindAdvancedSettingsToggle();
   bindChatSettingsSelectors();

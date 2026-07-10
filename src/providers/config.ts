@@ -19,6 +19,11 @@ export type ModelSelectionMode = "fixed" | "fetch";
 /// - "replace": ユーザー定義の models をそのまま使う（既定からの追加・復元をしない）
 export type ModelsPolicy = "merge" | "replace";
 
+/// 執筆系・判断系プロンプトの足場（規則ブロック）の詳細度。
+/// prompts.ts の PromptScaffoldLevel と構造的に同一だが、config.ts は
+/// プロンプト実装に依存させないためこちらで独立に定義する。
+export type PromptScaffold = "full" | "light";
+
 export interface ProviderModelDefaults {
   id: string;
   label?: string;
@@ -36,6 +41,28 @@ export interface ProviderModelDefaults {
   /// Gemini 3 系のみ対応。Gemini 3 系は temperature/topP/topK の代わりにこちらで
   /// 思考の深さを指定する（両方は指定不可）。Gemma 系には存在しない概念のため未指定のままにする。
   googleThinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /// 執筆系工程（ドラフト・修正・リライト）向けの上書きプロファイル。
+  writing?: ModelRoleProfile;
+  /// 判断系工程（構想・査読・選定・カード生成・講評）向けの上書きプロファイル。
+  judgment?: ModelRoleProfile;
+}
+
+/// モデル既定値のうち、役割（執筆系/判断系）ごとに上書きしたい値だけを持つ
+/// 部分プロファイル。id を持たない点以外は ProviderModelDefaults の
+/// パラメータ系フィールドと同じ形。
+export interface ModelRoleProfile {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  openaiReasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  deepseekReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
+  deepseekThinkingEnabled?: boolean;
+  anthropicThinkingEnabled?: boolean;
+  anthropicThinkingBudget?: number;
+  googleThinkingLevel?: "minimal" | "low" | "medium" | "high";
+  promptScaffold?: PromptScaffold;
 }
 
 export interface ProviderEntry {
@@ -177,6 +204,40 @@ export function isFixedModelSelection(provider: ProviderEntry | undefined): bool
   return provider?.modelSelection === "fixed" && (provider.models?.length ?? 0) > 0;
 }
 
+function isModelRoleProfile(value: unknown): value is ModelRoleProfile {
+  if (typeof value !== "object" || value === null) return false;
+  const profile = value as Partial<ModelRoleProfile>;
+  return (
+    (profile.temperature === undefined || typeof profile.temperature === "number") &&
+    (profile.topP === undefined || typeof profile.topP === "number") &&
+    (profile.topK === undefined || typeof profile.topK === "number") &&
+    (profile.frequencyPenalty === undefined || typeof profile.frequencyPenalty === "number") &&
+    (profile.presencePenalty === undefined || typeof profile.presencePenalty === "number") &&
+    (profile.openaiReasoningEffort === undefined ||
+      profile.openaiReasoningEffort === "none" ||
+      profile.openaiReasoningEffort === "minimal" ||
+      profile.openaiReasoningEffort === "low" ||
+      profile.openaiReasoningEffort === "medium" ||
+      profile.openaiReasoningEffort === "high" ||
+      profile.openaiReasoningEffort === "xhigh") &&
+    (profile.deepseekReasoningEffort === undefined ||
+      profile.deepseekReasoningEffort === "low" ||
+      profile.deepseekReasoningEffort === "medium" ||
+      profile.deepseekReasoningEffort === "high" ||
+      profile.deepseekReasoningEffort === "xhigh" ||
+      profile.deepseekReasoningEffort === "max") &&
+    (profile.deepseekThinkingEnabled === undefined || typeof profile.deepseekThinkingEnabled === "boolean") &&
+    (profile.anthropicThinkingEnabled === undefined || typeof profile.anthropicThinkingEnabled === "boolean") &&
+    (profile.anthropicThinkingBudget === undefined || typeof profile.anthropicThinkingBudget === "number") &&
+    (profile.googleThinkingLevel === undefined ||
+      profile.googleThinkingLevel === "minimal" ||
+      profile.googleThinkingLevel === "low" ||
+      profile.googleThinkingLevel === "medium" ||
+      profile.googleThinkingLevel === "high") &&
+    (profile.promptScaffold === undefined || profile.promptScaffold === "full" || profile.promptScaffold === "light")
+  );
+}
+
 function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults {
   if (typeof value !== "object" || value === null) return false;
   const model = value as Partial<ProviderModelDefaults>;
@@ -209,7 +270,9 @@ function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults
       model.googleThinkingLevel === "minimal" ||
       model.googleThinkingLevel === "low" ||
       model.googleThinkingLevel === "medium" ||
-      model.googleThinkingLevel === "high")
+      model.googleThinkingLevel === "high") &&
+    (model.writing === undefined || isModelRoleProfile(model.writing)) &&
+    (model.judgment === undefined || isModelRoleProfile(model.judgment))
   );
 }
 
