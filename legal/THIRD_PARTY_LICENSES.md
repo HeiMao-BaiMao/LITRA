@@ -188,6 +188,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | png | 0.17.16 | MIT OR Apache-2.0 | [link](https://github.com/image-rs/image-png) |
 | cargo | potential_utf | 0.1.5 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | powerfmt | 0.2.0 | MIT OR Apache-2.0 | [link](https://github.com/jhpratt/powerfmt) |
+| cargo | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 | [link](https://github.com/cryptocorrosion/cryptocorrosion) |
 | cargo | precomputed-hash | 0.1.1 | MIT | [link](https://github.com/emilio/precomputed-hash) |
 | cargo | prettyplease | 0.2.37 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/prettyplease) |
 | cargo | proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/proc-macro2) |
@@ -198,9 +199,12 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | quinn-udp | 0.5.15 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
 | cargo | quinn | 0.11.11 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
 | cargo | quote | 1.0.46 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/quote) |
+| cargo | rand_chacha | 0.3.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
 | cargo | rand_core | 0.10.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand_core) |
+| cargo | rand_core | 0.6.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
 | cargo | rand_pcg | 0.10.2 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rngs) |
 | cargo | rand | 0.10.2 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
+| cargo | rand | 0.8.6 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
 | cargo | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | [link](https://github.com/rust-windowing/raw-window-handle) |
 | cargo | rayon-core | 1.13.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/rayon) |
 | cargo | rayon | 1.12.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/rayon) |
@@ -375,6 +379,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | xml5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | yoke-derive | 0.8.2 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | yoke | 0.8.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | zerocopy | 0.8.54 | BSD-2-Clause OR Apache-2.0 OR MIT | [link](https://github.com/google/zerocopy) |
 | cargo | zerofrom-derive | 0.1.7 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerofrom | 0.1.8 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zeroize_derive | 1.5.0 | Apache-2.0 OR MIT | [link](https://github.com/RustCrypto/utils) |

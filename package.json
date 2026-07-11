@@ -9,7 +9,8 @@
     "generate:licenses": "node scripts/generate-licenses.mjs",
     "build": "bun run generate:licenses && tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:unit": "bun test src/ai/__tests__"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.85",

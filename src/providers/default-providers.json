@@ -5,10 +5,64 @@
       "name": "OpenAI",
       "sdkType": "openai",
       "defaultBaseUrl": "https://api.openai.com/v1",
-      "defaultModel": "gpt-5.5",
+      "defaultModel": "gpt-5.6-sol",
       "requiresApiKey": true,
       "modelSelection": "fetch",
       "models": [
+        {
+          "id": "gpt-5.6-sol",
+          "label": "GPT-5.6 Sol",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "label": "GPT-5.6 Terra",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "label": "GPT-5.6 Luna",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
         {
           "id": "gpt-5.5",
           "label": "GPT-5.5",
@@ -19,6 +73,10 @@
           "frequencyPenalty": 0,
           "presencePenalty": 0,
           "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
           "writing": {
             "promptScaffold": "light"
           }
@@ -33,6 +91,10 @@
           "frequencyPenalty": 0,
           "presencePenalty": 0,
           "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
           "writing": {
             "promptScaffold": "light"
           }
@@ -46,7 +108,11 @@
           "topP": 1.0,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
-          "openaiReasoningEffort": "none"
+          "openaiReasoningEffort": "none",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none"]
+          }
         }
       ]
     },
@@ -55,10 +121,27 @@
       "name": "Anthropic",
       "sdkType": "anthropic",
       "defaultBaseUrl": "https://api.anthropic.com",
-      "defaultModel": "claude-sonnet-4-6",
+      "defaultModel": "claude-fable-5",
       "requiresApiKey": true,
       "modelSelection": "fetch",
       "models": [
+        {
+          "id": "claude-fable-5",
+          "label": "Claude Fable 5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-adaptive",
+            "supportedEfforts": ["low","medium","high","xhigh","max"],
+            "display": "summarized"
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
         {
           "id": "claude-opus-4-8",
           "label": "Claude Opus 4.8",
@@ -67,6 +150,13 @@
           "maxContextTokens": 1000000,
           "topP": 1.0,
           "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-budget",
+            "canDisable": true,
+            "supportsBudget": true,
+            "minBudget": 1000,
+            "maxBudget": 64000
+          },
           "writing": {
             "promptScaffold": "light"
           }
@@ -79,6 +169,13 @@
           "maxContextTokens": 1000000,
           "topP": 1.0,
           "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-budget",
+            "canDisable": true,
+            "supportsBudget": true,
+            "minBudget": 1000,
+            "maxBudget": 32000
+          },
           "writing": {
             "promptScaffold": "light"
           }
@@ -111,6 +208,11 @@
           "maxContextTokens": 1000000,
           "topP": 1.0,
           "deepseekReasoningEffort": "high",
+          "reasoningCapability": {
+            "kind": "deepseek",
+            "supportedEfforts": ["low","medium","high","xhigh","max"],
+            "canDisable": true
+          },
           "writing": {
             "deepseekThinkingEnabled": false,
             "temperature": 1.5,
@@ -130,6 +232,11 @@
           "maxContextTokens": 1000000,
           "topP": 1.0,
           "deepseekReasoningEffort": "high",
+          "reasoningCapability": {
+            "kind": "deepseek",
+            "supportedEfforts": ["low","medium","high","xhigh","max"],
+            "canDisable": true
+          },
           "writing": {
             "deepseekThinkingEnabled": false,
             "temperature": 1.5,
@@ -158,6 +265,10 @@
           "maxTokens": 65536,
           "maxContextTokens": 1048576,
           "googleThinkingLevel": "high",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": ["minimal","low","medium","high"]
+          },
           "writing": {
             "promptScaffold": "light"
           }
@@ -168,6 +279,10 @@
           "maxTokens": 65536,
           "maxContextTokens": 1048576,
           "googleThinkingLevel": "high",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": ["minimal","low","medium","high"]
+          },
           "writing": {
             "promptScaffold": "light"
           }
@@ -177,14 +292,22 @@
           "label": "Gemini 3 Flash Preview",
           "maxTokens": 65536,
           "maxContextTokens": 1048576,
-          "googleThinkingLevel": "high"
+          "googleThinkingLevel": "high",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": ["minimal","low","medium","high"]
+          }
         },
         {
           "id": "gemini-3.1-flash-lite",
           "label": "Gemini 3.1 Flash-Lite",
           "maxTokens": 65536,
           "maxContextTokens": 1048576,
-          "googleThinkingLevel": "minimal"
+          "googleThinkingLevel": "minimal",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": ["minimal","low","medium","high"]
+          }
         },
         {
           "id": "gemma-4-26b-a4b-it",
@@ -294,6 +417,249 @@
           "maxTokens": 20000,
           "maxContextTokens": 262144,
           "topP": 1.0
+        }
+      ]
+    },
+    {
+      "id": "codex",
+      "name": "ChatGPT Codex",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://chatgpt.com/backend-api/codex",
+      "defaultModel": "gpt-5.6-sol",
+      "requiresApiKey": false,
+      "modelSelection": "fixed",
+      "models": [
+        {
+          "id": "gpt-5.6-sol",
+          "label": "GPT-5.6 Sol",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "label": "GPT-5.6 Terra",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "label": "GPT-5.6 Luna",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 400000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "gpt-5.4",
+          "label": "GPT-5.4",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "gpt-5.4-mini",
+          "label": "GPT-5.4 Mini",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 400000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "gpt-5.3-codex-spark",
+          "label": "GPT-5.3 Codex Spark",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 400000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        }
+      ]
+    },
+    {
+      "id": "github-copilot",
+      "name": "GitHub Copilot",
+      "sdkType": "openai",
+      "defaultBaseUrl": "https://api.githubcopilot.com",
+      "defaultModel": "gpt-5.6-sol",
+      "requiresApiKey": false,
+      "modelSelection": "fetch",
+      "models": [
+        {
+          "id": "gpt-5.6-sol",
+          "label": "GPT-5.6 Sol",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "label": "GPT-5.6 Terra",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "label": "GPT-5.6 Luna",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 200000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "gpt-5.4",
+          "label": "GPT-5.4",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 200000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "gpt-5.4-mini",
+          "label": "GPT-5.4 Mini",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 200000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "gpt-5.4-nano",
+          "label": "GPT-5.4 Nano",
+          "temperature": 1.0,
+          "maxTokens": 16384,
+          "maxContextTokens": 200000,
+          "topP": 1.0,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "label": "Claude Sonnet 4.6",
+          "temperature": 1.0,
+          "maxTokens": 64000,
+          "maxContextTokens": 200000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-budget",
+            "canDisable": true,
+            "supportsBudget": true,
+            "minBudget": 1000,
+            "maxBudget": 32000
+          }
+        },
+        {
+          "id": "claude-fable-5",
+          "label": "Claude Fable 5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-adaptive",
+            "supportedEfforts": ["low","medium","high"],
+            "display": "summarized"
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
         }
       ]
     },

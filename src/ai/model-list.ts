@@ -7,6 +7,7 @@ import {
   loadProviderConfig,
   providerRequiresApiKey,
 } from "../providers/config.ts";
+import { fetchCopilotModels } from "../providers/copilot-auth.ts";
 
 export interface ModelListResult {
   models: string[];
@@ -192,6 +193,24 @@ export async function fetchAvailableModels(
 
   if (providerRequiresApiKey(entry) && !settings.apiKey) {
     return { models: [], error: "API キーが設定されていません。" };
+  }
+
+  // github-copilot は専用の /models エンドポイントを使う
+  if (settings.provider === "github-copilot") {
+    try {
+      const modelsMap = await fetchCopilotModels();
+      const modelIds = Object.keys(modelsMap).sort();
+      const fallback = getFallbackModels(configuredModels);
+      const combined = fallback
+        ? Array.from(new Set([...modelIds, ...fallback])).sort()
+        : modelIds;
+      return { models: combined };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const fallback = getFallbackModels(configuredModels);
+      if (fallback) return { models: fallback };
+      return { models: [], error: message };
+    }
   }
 
   switch (entry.sdkType) {

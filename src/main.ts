@@ -20,6 +20,7 @@ import {
   resolveJudgmentSettings,
   getProviderSpecificSettings,
   type RoleParamOverrides,
+  type AnthropicThinkingEffort,
 } from "./settings.ts";
 import { saveExaApiKey } from "./websearch-settings.ts";
 import { composeStyleSampleText, measureStyleFingerprint } from "./ai/style-fingerprint.ts";
@@ -35,6 +36,9 @@ import {
 } from "./ai/service.ts";
 import { buildSummaryPrompt, limitPromptText, parseSummaryOutput, samplePromptText } from "./ai/prompts.ts";
 import { formatAiErrorMessage } from "./ai/provider-options.ts";
+import { getEffectiveCapability } from "./ai/capability.ts";
+import { getCopilotModelCacheEntry } from "./providers/copilot-auth.ts";
+import { updateAdvancedVisibility } from "./ui/settings-modal.ts";
 import {
   createCheckConsistencyTool,
   createCreateCharacterTool,
@@ -170,6 +174,8 @@ import {
   type ProviderConfig,
   type ModelRoleProfile,
 } from "./providers/config.ts";
+import { readCodexCredential } from "./providers/codex-auth.ts";
+import { readCopilotCredential } from "./providers/copilot-auth.ts";
 import {
   createProject,
   deleteProject,
@@ -311,7 +317,13 @@ function applyRuntimeModelDefaults(
 ): AiSettings {
   if (!defaults) return settings;
 
-  return {
+  const capability = getEffectiveCapability(
+    settings.provider,
+    settings.model,
+    defaults,
+    getCopilotModelCacheEntry,
+  );
+  const next: AiSettings = {
     ...settings,
     temperature: defaults.temperature ?? settings.temperature,
     maxTokens: applyTokenDefaults ? defaults.maxTokens ?? settings.maxTokens : settings.maxTokens,
@@ -320,11 +332,30 @@ function applyRuntimeModelDefaults(
     topK: defaults.topK,
     frequencyPenalty: defaults.frequencyPenalty,
     presencePenalty: defaults.presencePenalty,
-    openaiReasoningEffort: settings.provider === "openai" ? defaults.openaiReasoningEffort : undefined,
-    deepseekReasoningEffort: settings.provider === "deepseek" ? defaults.deepseekReasoningEffort : undefined,
-    anthropicThinkingEnabled: settings.provider === "anthropic" ? defaults.anthropicThinkingEnabled : undefined,
-    anthropicThinkingBudget: settings.provider === "anthropic" ? defaults.anthropicThinkingBudget : undefined,
+    reasoningCapability: capability,
   };
+  if (capability?.kind === "openai") {
+    next.openaiReasoningEffort = defaults.openaiReasoningEffort ?? settings.openaiReasoningEffort;
+  } else if (capability?.kind === "deepseek") {
+    next.deepseekReasoningEffort = defaults.deepseekReasoningEffort ?? settings.deepseekReasoningEffort;
+  } else if (capability?.kind === "anthropic-adaptive") {
+    next.anthropicThinkingEnabled = true;
+    next.anthropicThinkingBudget = undefined;
+    const defaultEffort = capability.defaultEffort;
+    const validDefaultEffort =
+      defaultEffort === "low" || defaultEffort === "medium" || defaultEffort === "high" ||
+      defaultEffort === "xhigh" || defaultEffort === "max"
+        ? defaultEffort as AnthropicThinkingEffort
+        : undefined;
+    next.anthropicThinkingEffort = defaults.anthropicThinkingEffort ?? settings.anthropicThinkingEffort ?? validDefaultEffort;
+  } else if (capability?.kind === "anthropic-budget") {
+    next.anthropicThinkingEnabled = defaults.anthropicThinkingEnabled ?? settings.anthropicThinkingEnabled;
+    next.anthropicThinkingBudget = defaults.anthropicThinkingBudget ?? settings.anthropicThinkingBudget;
+    next.anthropicThinkingEffort = undefined;
+  } else if (capability?.kind === "google") {
+    next.googleThinkingLevel = defaults.googleThinkingLevel ?? settings.googleThinkingLevel;
+  }
+  return next;
 }
 
 /**
@@ -346,18 +377,24 @@ function applyRoleProfileLayer(settings: AiSettings, layer: ModelRoleProfile | u
   if (layer.presencePenalty !== undefined) next.presencePenalty = layer.presencePenalty;
   if (layer.promptScaffold !== undefined) next.promptScaffold = layer.promptScaffold;
 
-  if (settings.provider === "openai" && layer.openaiReasoningEffort !== undefined) {
+  const kind = settings.reasoningCapability?.kind;
+  if (kind === "openai" && layer.openaiReasoningEffort !== undefined) {
     next.openaiReasoningEffort = layer.openaiReasoningEffort;
   }
-  if (settings.provider === "deepseek") {
+  if (kind === "deepseek") {
     if (layer.deepseekReasoningEffort !== undefined) next.deepseekReasoningEffort = layer.deepseekReasoningEffort;
     if (layer.deepseekThinkingEnabled !== undefined) next.deepseekThinkingEnabled = layer.deepseekThinkingEnabled;
   }
-  if (settings.provider === "anthropic") {
+  if (kind === "anthropic-adaptive") {
+    if (layer.anthropicThinkingEffort !== undefined) next.anthropicThinkingEffort = layer.anthropicThinkingEffort;
+    next.anthropicThinkingEnabled = true;
+    next.anthropicThinkingBudget = undefined;
+  }
+  if (kind === "anthropic-budget") {
     if (layer.anthropicThinkingEnabled !== undefined) next.anthropicThinkingEnabled = layer.anthropicThinkingEnabled;
     if (layer.anthropicThinkingBudget !== undefined) next.anthropicThinkingBudget = layer.anthropicThinkingBudget;
   }
-  if (settings.provider === "google" && layer.googleThinkingLevel !== undefined) {
+  if (kind === "google" && layer.googleThinkingLevel !== undefined) {
     next.googleThinkingLevel = layer.googleThinkingLevel;
   }
 
@@ -396,7 +433,8 @@ function resolveWritingRunSettings(settings: AiSettings): AiSettings {
   // 本文モデルをそのまま執筆系として使う。ユーザー保存のグローバル値は loadSettings 済みなので
   // ここでは役割プロファイルとオーバーライドだけを重ねる。
   const defaults = getProviderModelDefaults(getProviderEntry(providerConfig, settings.provider), settings.model);
-  return applyRoleProfile(settings, defaults?.writing, settings.writingOverrides);
+  const base = applyRuntimeModelDefaults(settings, defaults, false);
+  return applyRoleProfile(base, defaults?.writing, settings.writingOverrides);
 }
 
 function resolveJudgmentRunSettings(settings: AiSettings): AiSettings {
@@ -421,6 +459,10 @@ function getProviderProtocol(settings: AiSettings): string {
     case "anthropic":
     case "google":
       return settings.provider;
+    case "codex":
+      return "responses";
+    case "github-copilot":
+      return "chat-completions";
   }
 }
 
@@ -538,9 +580,33 @@ function validateEpisode(): boolean {
   return true;
 }
 
-function validateSettings(): boolean {
+/** OAuth プロバイダーがログイン済みか確認する */
+async function isOAuthLoggedIn(provider: Provider): Promise<boolean> {
+  if (provider === "codex") {
+    const cred = await readCodexCredential();
+    return cred !== undefined;
+  }
+  if (provider === "github-copilot") {
+    const cred = await readCopilotCredential();
+    return cred !== undefined;
+  }
+  return false;
+}
+
+function isOAuthProvider(provider: Provider): boolean {
+  return provider === "codex" || provider === "github-copilot";
+}
+
+async function validateSettings(): Promise<boolean> {
   const entry = getProviderEntry(providerConfig, currentSettings.provider);
-  if (providerRequiresApiKey(entry) && !currentSettings.apiKey) {
+  if (isOAuthProvider(currentSettings.provider)) {
+    const loggedIn = await isOAuthLoggedIn(currentSettings.provider);
+    if (!loggedIn) {
+      window.alert("ログインしてください。");
+      openSettings();
+      return false;
+    }
+  } else if (providerRequiresApiKey(entry) && !currentSettings.apiKey) {
     window.alert("API キーを設定してください。");
     openSettings();
     return false;
@@ -553,10 +619,17 @@ function validateSettings(): boolean {
   return true;
 }
 
-function validateChatSettings(): boolean {
+async function validateChatSettings(): Promise<boolean> {
   const chatSettings = resolveChatRunSettings(currentSettings);
   const entry = getProviderEntry(providerConfig, chatSettings.provider);
-  if (providerRequiresApiKey(entry) && !chatSettings.apiKey) {
+  if (isOAuthProvider(chatSettings.provider)) {
+    const loggedIn = await isOAuthLoggedIn(chatSettings.provider);
+    if (!loggedIn) {
+      window.alert(`${entry?.name ?? chatSettings.provider} にログインしてください。`);
+      openSettings();
+      return false;
+    }
+  } else if (providerRequiresApiKey(entry) && !chatSettings.apiKey) {
     window.alert(`${entry?.name ?? chatSettings.provider} の API キーを設定してください。`);
     openSettings();
     return false;
@@ -1691,7 +1764,7 @@ async function handleReorderEpisodes(orderedIds: string[]): Promise<void> {
 }
 
 async function handleGenerateSummary(episodeId: string): Promise<void> {
-  if (!currentProject || !validateSettings()) return;
+  if (!currentProject || !(await validateSettings())) return;
 
   const episode = episodes.find((ep) => ep.id === episodeId);
   if (!episode) return;
@@ -2375,7 +2448,7 @@ async function findPreviousEpisodeContent(): Promise<string | undefined> {
 }
 
 async function handleContinue(): Promise<void> {
-  if (!validateEpisode() || !validateSettings()) return;
+  if (!validateEpisode() || !(await validateSettings())) return;
 
   await saveCurrentEpisode();
 
@@ -2428,7 +2501,7 @@ async function handleContinue(): Promise<void> {
 }
 
 async function handleRewrite(): Promise<void> {
-  if (!validateEpisode() || !validateSettings()) return;
+  if (!validateEpisode() || !(await validateSettings())) return;
 
   const { start, end, text: selection } = getSelection();
   if (start === end) {
@@ -2462,7 +2535,7 @@ async function handleRewrite(): Promise<void> {
 }
 
 async function handleFeedback(): Promise<void> {
-  if (!validateEpisode() || !validateSettings()) return;
+  if (!validateEpisode() || !(await validateSettings())) return;
 
   const { start, end, text: selection } = getSelection();
   if (start === end) {
@@ -2578,7 +2651,7 @@ async function handleChatCommand(message: string): Promise<boolean> {
 }
 
 async function handleChatSubmit(): Promise<void> {
-  if (!validateProject() || !validateChatSettings()) return;
+  if (!validateProject() || !(await validateChatSettings())) return;
   if (state.isGenerating || chatMessageInFlight) return;
 
   if (state.currentEpisodeId) {
@@ -2703,7 +2776,7 @@ async function handleSelectImportFolder(): Promise<void> {
     return;
   }
 
-  if (!validateSettings()) {
+  if (!(await validateSettings())) {
     return;
   }
 
@@ -2857,6 +2930,11 @@ async function handleFetchModels(settings: AiSettings): Promise<void> {
     populateModelList(models);
     if (result.models.length === 0) {
       window.alert("利用可能なモデルが見つかりませんでした。");
+    }
+
+    // Copilot のモデル取得後、キャッシュされた能力情報に基づいて UI を再描画する
+    if (settings.provider === "github-copilot") {
+      updateAdvancedVisibility(settings.provider, settings.model);
     }
   } finally {
     btnFetchModels.disabled = false;
@@ -3088,6 +3166,8 @@ async function init(): Promise<void> {
         sakura: { apiKey: "", baseUrl: "", model: "" },
         plamo: { apiKey: "", baseUrl: "", model: "" },
         opencode: { apiKey: "", baseUrl: "", model: "" },
+        codex: { apiKey: "", baseUrl: "", model: "" },
+        "github-copilot": { apiKey: "", baseUrl: "", model: "" },
       },
       temperature: 0.7,
       maxTokens: 8192,
@@ -3124,7 +3204,7 @@ async function init(): Promise<void> {
   });
 
   listen<{ content: string }>("chat-send", async (event) => {
-    if (!validateProject() || !validateChatSettings()) return;
+    if (!validateProject() || !(await validateChatSettings())) return;
     if (state.isGenerating || chatMessageInFlight) return;
     const content = typeof event.payload.content === "string" ? event.payload.content.trim() : "";
     if (!content) return;

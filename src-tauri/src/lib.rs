@@ -1,3 +1,4 @@
+mod codex_oauth;
 mod genre_search;
 mod genre_windows;
 mod import;
@@ -18,7 +19,10 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(codex_oauth::OAuthCancelFlag::new())
         .invoke_handler(tauri::generate_handler![
+            codex_oauth::start_codex_browser_auth,
+            codex_oauth::cancel_codex_browser_auth,
             genre_search::rebuild_genre_search_index,
             genre_search::search_genre,
             genre_windows::open_genre_chat_window,

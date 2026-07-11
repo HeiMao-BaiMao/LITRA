@@ -4,6 +4,14 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { AiSettings } from "../settings.ts";
+import {
+  createCodexFetch,
+} from "../providers/codex-auth.ts";
+import {
+  createCopilotFetch,
+  DEFAULT_COPILOT_BASE,
+  getCopilotModelEndpoint,
+} from "../providers/copilot-auth.ts";
 
 const FLOAT_PARAMETER_KEYS = new Set([
   "temperature",
@@ -859,6 +867,29 @@ export function createModel(settings: AiSettings) {
         return createAnthropic(common)(settings.model);
       }
       return createOpenAI(common).chat(settings.model);
+    case "codex": {
+      // Codex は OpenAI Responses API 互換。OAuth トークンは fetch ラッパーが処理する。
+      const codexCommon = {
+        ...common,
+        apiKey: "sk-codex-oauth",
+        fetch: createCodexFetch(),
+        baseURL: baseURL || "https://chatgpt.com/backend-api/codex",
+      };
+      return createOpenAI(codexCommon).responses(settings.model);
+    }
+    case "github-copilot": {
+      const endpoint = getCopilotModelEndpoint(settings.model);
+      const copilotBaseUrl = baseURL || DEFAULT_COPILOT_BASE;
+      const copilotCommon = {
+        ...common,
+        apiKey: "sk-copilot-oauth",
+        fetch: createCopilotFetch(),
+        baseURL: endpoint === "messages" ? `${copilotBaseUrl.replace(/\/$/, "")}/v1` : copilotBaseUrl,
+      };
+      if (endpoint === "messages") return createAnthropic(copilotCommon)(settings.model);
+      const openai = createOpenAI(copilotCommon);
+      return endpoint === "responses" ? openai.responses(settings.model) : openai.chat(settings.model);
+    }
     case "anthropic":
       return createAnthropic(common)(settings.model);
     case "deepseek":

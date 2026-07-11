@@ -24,6 +24,39 @@ export type ModelsPolicy = "merge" | "replace";
 /// プロンプト実装に依存させないためこちらで独立に定義する。
 export type PromptScaffold = "full" | "light";
 
+/// 推論/思考の種類。
+/// - "openai": OpenAI / Codex Responses API の reasoningEffort
+/// - "anthropic-adaptive": Anthropic adaptive thinking（常時有効、effort のみ）
+/// - "anthropic-budget": Anthropic budget thinking（ON/OFF + budget）
+/// - "deepseek": DeepSeek thinking（ON/OFF + effort）
+/// - "google": Google Gemini thinkingLevel
+export type ReasoningKind =
+  | "openai"
+  | "anthropic-adaptive"
+  | "anthropic-budget"
+  | "deepseek"
+  | "google";
+
+/// モデルが持つ推論/思考能力の記述メタデータ。
+/// プロトコルごとに表示すべき UI コントロールと送信すべきオプションを決定する。
+export interface ReasoningCapability {
+  kind: ReasoningKind;
+  /// 対応する effort 値の一覧（未指定の場合はその kind の既定値を使う）。
+  supportedEfforts?: string[];
+  /// thinking を無効化できるか（anthropic-budget / deepseek 向け）。
+  canDisable?: boolean;
+  /// 予算トークン指定に対応するか。
+  supportsBudget?: boolean;
+  /// 適応的思考の表示モード（anthropic-adaptive のみ）。
+  display?: "summarized" | "detailed";
+  /// 最小予算。
+  minBudget?: number;
+  /// 最大予算。
+  maxBudget?: number;
+  /// 既定の effort 値。
+  defaultEffort?: string;
+}
+
 export interface ProviderModelDefaults {
   id: string;
   label?: string;
@@ -38,9 +71,13 @@ export interface ProviderModelDefaults {
   deepseekReasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
+  anthropicThinkingEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   /// Gemini 3 系のみ対応。Gemini 3 系は temperature/topP/topK の代わりにこちらで
   /// 思考の深さを指定する（両方は指定不可）。Gemma 系には存在しない概念のため未指定のままにする。
   googleThinkingLevel?: "minimal" | "low" | "medium" | "high";
+  /// モデルの推論/思考能力に関するメタデータ。表示すべき UI コントロールと
+  /// 送信すべきプロトコルオプションの決定に使う（プロバイダ単位ではなくモデル単位）。
+  reasoningCapability?: ReasoningCapability;
   /// 執筆系工程（ドラフト・修正・リライト）向けの上書きプロファイル。
   writing?: ModelRoleProfile;
   /// 判断系工程（構想・査読・選定・カード生成・講評）向けの上書きプロファイル。
@@ -61,6 +98,7 @@ export interface ModelRoleProfile {
   deepseekThinkingEnabled?: boolean;
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
+  anthropicThinkingEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   googleThinkingLevel?: "minimal" | "low" | "medium" | "high";
   promptScaffold?: PromptScaffold;
 }
@@ -229,6 +267,12 @@ function isModelRoleProfile(value: unknown): value is ModelRoleProfile {
     (profile.deepseekThinkingEnabled === undefined || typeof profile.deepseekThinkingEnabled === "boolean") &&
     (profile.anthropicThinkingEnabled === undefined || typeof profile.anthropicThinkingEnabled === "boolean") &&
     (profile.anthropicThinkingBudget === undefined || typeof profile.anthropicThinkingBudget === "number") &&
+    (profile.anthropicThinkingEffort === undefined ||
+      profile.anthropicThinkingEffort === "low" ||
+      profile.anthropicThinkingEffort === "medium" ||
+      profile.anthropicThinkingEffort === "high" ||
+      profile.anthropicThinkingEffort === "xhigh" ||
+      profile.anthropicThinkingEffort === "max") &&
     (profile.googleThinkingLevel === undefined ||
       profile.googleThinkingLevel === "minimal" ||
       profile.googleThinkingLevel === "low" ||
@@ -271,6 +315,7 @@ function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults
       model.googleThinkingLevel === "low" ||
       model.googleThinkingLevel === "medium" ||
       model.googleThinkingLevel === "high") &&
+    (model.reasoningCapability === undefined || true) &&
     (model.writing === undefined || isModelRoleProfile(model.writing)) &&
     (model.judgment === undefined || isModelRoleProfile(model.judgment))
   );

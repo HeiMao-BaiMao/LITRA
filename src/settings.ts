@@ -7,15 +7,33 @@ import {
   type ProviderModelDefaults,
   type ModelRoleProfile,
   type PromptScaffold,
+  type ReasoningCapability,
   resetProviderConfig,
 } from "./providers/config.ts";
 import { clearPanelRatios } from "./layout-store.ts";
 import { clearWindowState } from "./window/bounds.ts";
-import { apiKeySecretKey, secretDelete, secretGet, setOrDeleteSecret } from "./secrets.ts";
+import {
+  apiKeySecretKey,
+  secretDelete,
+  secretGet,
+  setOrDeleteSecret,
+  deleteOAuthCredential,
+} from "./secrets.ts";
 
-export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "llamacpp" | "sakura" | "plamo" | "opencode";
+export type Provider =
+  | "openai"
+  | "anthropic"
+  | "deepseek"
+  | "google"
+  | "llamacpp"
+  | "sakura"
+  | "plamo"
+  | "opencode"
+  | "codex"
+  | "github-copilot";
 export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type DeepSeekReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type AnthropicThinkingEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export type GoogleThinkingLevel = "minimal" | "low" | "medium" | "high";
 export type ChatSubmitShortcut = "ctrlEnter" | "enter";
 // 判断系工程(構想・査読・選定・カード生成・講評)に使うモデルの出所。
@@ -58,11 +76,15 @@ export interface AiSettings {
   deepseekThinkingEnabled?: boolean;
   anthropicThinkingEnabled?: boolean;
   anthropicThinkingBudget?: number;
+  anthropicThinkingEffort?: AnthropicThinkingEffort;
   googleThinkingLevel?: GoogleThinkingLevel;
   // 解決済みのプロンプト足場レベルを実行時に運ぶためだけのフィールド。
   // ストアには保存しない(SETTINGS_STORE_KEYS にも load/save にも含めない)。
   // main.ts が役割プロファイル・オーバーライドから解決した値をここへ積んで service.ts へ渡す。
   promptScaffold?: PromptScaffold;
+  /// 選択されたモデルの解決済み推論能力。ProviderModelDefaults の reasoningCapability
+  /// から派生して実行時に運ばれる一時フィールド。ストアには保存しない。
+  reasoningCapability?: ReasoningCapability;
   twoStageContinuation?: boolean;
   continuationReviewEnabled?: boolean;
   continuationUseBackgroundModel?: boolean;
@@ -79,7 +101,18 @@ const LEGACY_STORE_NAME = "phenex-settings.json";
 
 const DEFAULT_PROVIDER: Provider = "openai";
 
-const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode"];
+const ALL_PROVIDERS: Provider[] = [
+  "openai",
+  "anthropic",
+  "deepseek",
+  "google",
+  "llamacpp",
+  "sakura",
+  "plamo",
+  "opencode",
+  "codex",
+  "github-copilot",
+];
 
 const SETTINGS_STORE_KEYS = [
   "provider",
@@ -111,6 +144,7 @@ const SETTINGS_STORE_KEYS = [
   "deepseekThinkingEnabled",
   "anthropicThinkingEnabled",
   "anthropicThinkingBudget",
+  "anthropicThinkingEffort",
   "googleThinkingLevel",
   "twoStageContinuation",
   "continuationReviewEnabled",
@@ -140,6 +174,8 @@ export async function resetAllSettings(): Promise<void> {
   await resetProviderConfig();
   for (const p of ALL_PROVIDERS) {
     await secretDelete(apiKeySecretKey(p)).catch(() => {});
+    // OAuth クレデンシャルも削除する
+    await deleteOAuthCredential(p).catch(() => {});
   }
   await secretDelete("webdav:password").catch(() => {});
 }
@@ -181,6 +217,10 @@ function isDeepSeekReasoningEffort(value: unknown): value is DeepSeekReasoningEf
   return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
 }
 
+function isAnthropicThinkingEffort(value: unknown): value is AnthropicThinkingEffort {
+  return value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max";
+}
+
 function isGoogleThinkingLevel(value: unknown): value is GoogleThinkingLevel {
   return value === "minimal" || value === "low" || value === "medium" || value === "high";
 }
@@ -194,7 +234,9 @@ function isProvider(value: unknown): value is Provider {
     value === "llamacpp" ||
     value === "sakura" ||
     value === "plamo" ||
-    value === "opencode"
+    value === "opencode" ||
+    value === "codex" ||
+    value === "github-copilot"
   );
 }
 
@@ -229,6 +271,7 @@ function sanitizeRoleOverrides(value: unknown): RoleParamOverrides | undefined {
   if (typeof record.deepseekThinkingEnabled === "boolean") result.deepseekThinkingEnabled = record.deepseekThinkingEnabled;
   if (typeof record.anthropicThinkingEnabled === "boolean") result.anthropicThinkingEnabled = record.anthropicThinkingEnabled;
   if (typeof record.anthropicThinkingBudget === "number") result.anthropicThinkingBudget = record.anthropicThinkingBudget;
+  if (isAnthropicThinkingEffort(record.anthropicThinkingEffort)) result.anthropicThinkingEffort = record.anthropicThinkingEffort;
   if (isGoogleThinkingLevel(record.googleThinkingLevel)) result.googleThinkingLevel = record.googleThinkingLevel;
   if (isPromptScaffold(record.promptScaffold)) result.promptScaffold = record.promptScaffold;
 
@@ -450,7 +493,7 @@ export async function loadSettings(): Promise<AiSettings> {
   };
 
   // 旧共有フィールドからプロバイダー別フィールドへ移行
-  if (provider === "openai") {
+  if (provider === "openai" || provider === "codex") {
     base.openaiReasoningEffort =
       (isOpenAIReasoningEffort(await store.get("openaiReasoningEffort"))
         ? (await store.get("openaiReasoningEffort") as OpenAIReasoningEffort)
@@ -475,6 +518,10 @@ export async function loadSettings(): Promise<AiSettings> {
       legacyThinkingBudget ??
       modelDefaults?.anthropicThinkingBudget ??
       undefined;
+    base.anthropicThinkingEffort =
+      isAnthropicThinkingEffort(await store.get("anthropicThinkingEffort"))
+        ? (await store.get("anthropicThinkingEffort") as AnthropicThinkingEffort)
+        : undefined;
   } else if (provider === "google") {
     base.googleThinkingLevel =
       (isGoogleThinkingLevel(await store.get("googleThinkingLevel"))
@@ -534,6 +581,7 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("deepseekThinkingEnabled", settings.deepseekThinkingEnabled ?? null);
   await setIfDefined(store, "anthropicThinkingEnabled", settings.anthropicThinkingEnabled);
   await setIfDefined(store, "anthropicThinkingBudget", settings.anthropicThinkingBudget);
+  await setIfDefined(store, "anthropicThinkingEffort", settings.anthropicThinkingEffort);
   await setIfDefined(store, "googleThinkingLevel", settings.googleThinkingLevel);
   await setIfDefined(store, "twoStageContinuation", settings.twoStageContinuation);
   await setIfDefined(store, "continuationReviewEnabled", settings.continuationReviewEnabled);

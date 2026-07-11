@@ -1467,6 +1467,42 @@ button#btn-cancel:hover:not(:disabled) {
   flex-shrink: 0;
 }
 
+/* OAuth コントロール */
+.oauth-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.oauth-status {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.oauth-user-code {
+  font-size: 0.85rem;
+  color: var(--accent);
+  word-break: break-all;
+  padding: 0.3rem 0;
+}
+
+.btn-oauth {
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.9rem;
+  max-width: 10rem;
+}
+
+.btn-oauth:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

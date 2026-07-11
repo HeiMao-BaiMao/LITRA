@@ -145,6 +145,8 @@
               <option value="deepseek">DeepSeek</option>
               <option value="google">Google</option>
               <option value="plamo">PLaMo</option>
+              <option value="codex">ChatGPT Codex</option>
+              <option value="github-copilot">GitHub Copilot</option>
             </select>
           </label>
           <label class="chat-provider-row">
@@ -156,10 +158,18 @@
               <option value="">チャット欄に同期</option>
             </select>
           </label>
-          <label>
+          <label id="setting-api-key-row">
             <span>API キー</span>
             <input id="setting-api-key" type="password" autocomplete="off" />
           </label>
+          <!-- OAuth プロバイダー用の認証 UI（codex / github-copilot 選択時に表示） -->
+          <div id="setting-oauth-row" class="oauth-controls hidden">
+            <div id="setting-oauth-status" class="oauth-status">未ログイン</div>
+            <button id="btn-oauth-login" type="button" class="btn-oauth">ログイン</button>
+            <button id="btn-oauth-logout" type="button" class="btn-oauth hidden">ログアウト</button>
+            <button id="btn-oauth-cancel" type="button" class="btn-oauth hidden">キャンセル</button>
+            <div id="setting-oauth-user-code" class="oauth-user-code hidden"></div>
+          </div>
           <label>
             <span>ベース URL</span>
             <input id="setting-base-url" type="url" />
@@ -251,13 +261,27 @@
             </div>
 
             <div class="provider-field-anthropic hidden">
-              <label class="checkbox-label">
+              <label class="checkbox-label anthropic-thinking-enabled-row">
                 <input id="setting-anthropic-thinking-enabled" type="checkbox" />
                 <span>Anthropic thinking を有効化</span>
               </label>
-              <label>
+              <label class="anthropic-thinking-budget-row">
                 <span>Anthropic thinking budget tokens</span>
                 <input id="setting-anthropic-thinking-budget" type="number" step="1" min="0" placeholder="未指定" />
+              </label>
+            </div>
+
+            <div class="provider-field-anthropic-adaptive hidden">
+              <label>
+                <span>Anthropic thinking effort (適応的思考)</span>
+                <select id="setting-anthropic-thinking-effort">
+                  <option value="">未指定</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="xhigh">xhigh</option>
+                  <option value="max">max</option>
+                </select>
               </label>
             </div>
 

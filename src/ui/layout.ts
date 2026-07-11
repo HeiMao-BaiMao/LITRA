@@ -46,6 +46,13 @@ export interface AppElements {
   settingBackgroundProvider: HTMLSelectElement;
   settingBackgroundModel: HTMLSelectElement;
   settingApiKey: HTMLInputElement;
+  settingApiKeyRow: HTMLElement;
+  settingOAuthRow: HTMLElement;
+  settingOAuthStatus: HTMLElement;
+  settingOAuthUserCode: HTMLElement;
+  btnOAuthLogin: HTMLButtonElement;
+  btnOAuthLogout: HTMLButtonElement;
+  btnOAuthCancel: HTMLButtonElement;
   settingBaseUrl: HTMLInputElement;
   settingModel: HTMLInputElement;
   settingModelSelect: HTMLSelectElement;
@@ -65,6 +72,7 @@ export interface AppElements {
   settingDeepseekThinking: HTMLInputElement;
   settingAnthropicThinkingEnabled: HTMLInputElement;
   settingAnthropicThinkingBudget: HTMLInputElement;
+  settingAnthropicThinkingEffort: HTMLSelectElement;
   settingGoogleThinkingLevel: HTMLSelectElement;
   settingTwoStageContinuation: HTMLInputElement;
   settingContinuationReview: HTMLInputElement;
@@ -168,6 +176,13 @@ export function getElements(): AppElements {
   const settingBackgroundProvider = document.querySelector<HTMLSelectElement>("#setting-background-provider");
   const settingBackgroundModel = document.querySelector<HTMLSelectElement>("#setting-background-model");
   const settingApiKey = document.querySelector<HTMLInputElement>("#setting-api-key");
+  const settingApiKeyRow = document.querySelector<HTMLElement>("#setting-api-key-row");
+  const settingOAuthRow = document.querySelector<HTMLElement>("#setting-oauth-row");
+  const settingOAuthStatus = document.querySelector<HTMLElement>("#setting-oauth-status");
+  const settingOAuthUserCode = document.querySelector<HTMLElement>("#setting-oauth-user-code");
+  const btnOAuthLogin = document.querySelector<HTMLButtonElement>("#btn-oauth-login");
+  const btnOAuthLogout = document.querySelector<HTMLButtonElement>("#btn-oauth-logout");
+  const btnOAuthCancel = document.querySelector<HTMLButtonElement>("#btn-oauth-cancel");
   const settingBaseUrl = document.querySelector<HTMLInputElement>("#setting-base-url");
   const settingModel = document.querySelector<HTMLInputElement>("#setting-model");
   const settingModelSelect = document.querySelector<HTMLSelectElement>("#setting-model-select");
@@ -187,6 +202,7 @@ export function getElements(): AppElements {
   const settingDeepseekThinking = document.querySelector<HTMLInputElement>("#setting-deepseek-thinking");
   const settingAnthropicThinkingEnabled = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-enabled");
   const settingAnthropicThinkingBudget = document.querySelector<HTMLInputElement>("#setting-anthropic-thinking-budget");
+  const settingAnthropicThinkingEffort = document.querySelector<HTMLSelectElement>("#setting-anthropic-thinking-effort");
   const settingGoogleThinkingLevel = document.querySelector<HTMLSelectElement>("#setting-google-thinking-level");
   const settingTwoStageContinuation = document.querySelector<HTMLInputElement>("#setting-two-stage-continuation");
   const settingContinuationReview = document.querySelector<HTMLInputElement>("#setting-continuation-review");
@@ -253,6 +269,13 @@ export function getElements(): AppElements {
     !settingBackgroundProvider ||
     !settingBackgroundModel ||
     !settingApiKey ||
+    !settingApiKeyRow ||
+    !settingOAuthRow ||
+    !settingOAuthStatus ||
+    !settingOAuthUserCode ||
+    !btnOAuthLogin ||
+    !btnOAuthLogout ||
+    !btnOAuthCancel ||
     !settingBaseUrl ||
     !settingModel ||
     !settingModelSelect ||
@@ -272,6 +295,7 @@ export function getElements(): AppElements {
     !settingDeepseekThinking ||
     !settingAnthropicThinkingEnabled ||
     !settingAnthropicThinkingBudget ||
+    !settingAnthropicThinkingEffort ||
     !settingGoogleThinkingLevel ||
     !settingTwoStageContinuation ||
     !settingContinuationReview ||
@@ -401,6 +425,13 @@ export function getElements(): AppElements {
     settingBackgroundProvider,
     settingBackgroundModel,
     settingApiKey,
+    settingApiKeyRow,
+    settingOAuthRow,
+    settingOAuthStatus,
+    settingOAuthUserCode,
+    btnOAuthLogin,
+    btnOAuthLogout,
+    btnOAuthCancel,
     settingBaseUrl,
     settingModel,
     settingModelSelect,
@@ -420,6 +451,7 @@ export function getElements(): AppElements {
     settingDeepseekThinking,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingAnthropicThinkingEffort,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,

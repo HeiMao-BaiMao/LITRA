@@ -1,6 +1,7 @@
 import { getElements } from "./layout.ts";
 import type {
   AiSettings,
+  AnthropicThinkingEffort,
   DeepSeekReasoningEffort,
   GoogleThinkingLevel,
   JudgmentModelSource,
@@ -18,16 +19,41 @@ import {
   type ProviderEntry,
   type ProviderModelDefaults,
 } from "../providers/config.ts";
+import {
+  getEffectiveCapability,
+  getControlType,
+  getSupportedEfforts,
+  isThinkingAlwaysOn,
+} from "../ai/capability.ts";
 import { type FixedModel } from "../ai/model-list.ts";
 import {
   loadWebDavSyncConfig,
   type WebDavSyncConfig,
 } from "../sync/webdav.ts";
 import { loadExaApiKey } from "../websearch-settings.ts";
+import {
+  loginWithBrowserCode as codexBrowserLogin,
+  readCodexCredential,
+  deleteCodexCredential,
+} from "../providers/codex-auth.ts";
+import {
+  loginWithDeviceCode as copilotLogin,
+  readCopilotCredential,
+  deleteCopilotCredential,
+  getCopilotModelCacheEntry,
+} from "../providers/copilot-auth.ts";
 
 let modalProviderConfigs: Record<Provider, ProviderSpecificSettings> | null = null;
 let modalProviderConfig: ProviderConfig | null = null;
 let modalCurrentProvider: Provider = "openai";
+
+/** OAuth ログイン中の AbortController（キャンセル用） */
+let oauthAbortController: AbortController | null = null;
+
+/** OAuth プロバイダーかどうか */
+function isOAuthProvider(provider: Provider): boolean {
+  return provider === "codex" || provider === "github-copilot";
+}
 
 interface ThirdPartyLicenseEntry {
   ecosystem: string;
@@ -44,7 +70,7 @@ interface ThirdPartyLicensePayload {
   entries: ThirdPartyLicenseEntry[];
 }
 
-const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode"];
+const ALL_PROVIDERS: Provider[] = ["openai", "anthropic", "deepseek", "google", "llamacpp", "sakura", "plamo", "opencode", "codex", "github-copilot"];
 
 /// providers.json の `modelSelection: "fixed"` なプロバイダーの固定選択肢を返す。
 /// 固定方式でない（または設定未読込・models 空の）場合は undefined。
@@ -243,6 +269,13 @@ function parseDeepSeekReasoningEffort(value: string): DeepSeekReasoningEffort | 
   return undefined;
 }
 
+function parseAnthropicThinkingEffort(value: string): AnthropicThinkingEffort | undefined {
+  if (value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max") {
+    return value;
+  }
+  return undefined;
+}
+
 function parseGoogleThinkingLevel(value: string): GoogleThinkingLevel | undefined {
   if (value === "minimal" || value === "low" || value === "medium" || value === "high") {
     return value;
@@ -296,25 +329,249 @@ function readRoleOverrides(
   return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
-function updateAdvancedVisibility(provider: Provider): void {
+/// <select> の <option> を supportedEfforts にフィルターする。
+/// 「未指定」(value="") の option は常に保持する。
+/// 現在選択中の値が supportedEfforts に含まれない場合は空文字（未指定）にリセットする。
+function filterEffortOptions(select: HTMLSelectElement | null, supportedEfforts: string[]): void {
+  if (!select) return;
+  const currentValue = select.value;
+  // Rebuild instead of destructively filtering: a later model may support tiers
+  // removed for the previous model.
+  select.replaceChildren();
+  const automatic = document.createElement("option");
+  automatic.value = "";
+  automatic.textContent = "未指定";
+  select.appendChild(automatic);
+  for (const effort of supportedEfforts) {
+    const option = document.createElement("option");
+    option.value = effort;
+    option.textContent = effort;
+    select.appendChild(option);
+  }
+  select.value = supportedEfforts.includes(currentValue) ? currentValue : "";
+}
+
+/// 選択されたモデルの reasoningCapability に基づいて、詳細設定内の
+/// 集中思考/推論コントロール群を表示/非表示にする。
+/// プロバイダー単位ではなくモデル単位で制御する。
+/// モーダル外から（handleFetchModels 等）からも呼ばれるため export する。
+export function updateAdvancedVisibility(provider: Provider, modelId?: string): void {
   const { advancedSettings } = getElements();
   const openaiGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-openai");
   const deepseekGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-deepseek");
   const anthropicGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-anthropic");
   const googleGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-google");
+  const anthropicAdaptiveGroup = advancedSettings.querySelector<HTMLElement>(".provider-field-anthropic-adaptive");
 
-  if (openaiGroup) {
-    openaiGroup.classList.toggle("hidden", provider !== "openai");
+  // モデルが未指定の場合は現在の providerConfigs から取得
+  const resolvedModelId = modelId || (modalProviderConfigs?.[provider]?.model ?? "");
+
+  // ProviderModelDefaults を検索して capability 解決に渡す（blocker 1）
+  const entry = modalProviderConfig ? getProviderEntry(modalProviderConfig, provider) : undefined;
+  const defaults = entry ? getProviderModelDefaults(entry, resolvedModelId) : undefined;
+
+  // getEffectiveCapability で Copilot キャッシュ→curated→fallback の優先順位で解決（blocker 1, 2）
+  const cap = getEffectiveCapability(provider, resolvedModelId, defaults, getCopilotModelCacheEntry);
+  const controlType = getControlType(cap);
+  const alwaysOn = isThinkingAlwaysOn(cap);
+
+  // 全 reasoning グループをいったん hidden にする
+  if (openaiGroup) openaiGroup.classList.add("hidden");
+  if (deepseekGroup) deepseekGroup.classList.add("hidden");
+  if (anthropicGroup) anthropicGroup.classList.add("hidden");
+  if (googleGroup) googleGroup.classList.add("hidden");
+  if (anthropicAdaptiveGroup) anthropicAdaptiveGroup.classList.add("hidden");
+
+  // blocker 6: まず常に ON/OFF と budget 行を復帰（hidden 解除）してから、必要に応じて隠す
+  const thinkingEnabledRow = advancedSettings.querySelector<HTMLElement>(".anthropic-thinking-enabled-row");
+  const thinkingBudgetRow = advancedSettings.querySelector<HTMLElement>(".anthropic-thinking-budget-row");
+  if (thinkingEnabledRow) thinkingEnabledRow.classList.remove("hidden");
+  if (thinkingBudgetRow) thinkingBudgetRow.classList.remove("hidden");
+
+  switch (controlType) {
+    case "openai-reasoning-effort":
+      if (openaiGroup) openaiGroup.classList.remove("hidden");
+      // blocker 3: filter effort options
+      filterEffortOptions(
+        advancedSettings.querySelector<HTMLSelectElement>("#setting-openai-reasoning-effort"),
+        getSupportedEfforts(cap),
+      );
+      break;
+    case "anthropic-adaptive":
+      if (anthropicAdaptiveGroup) anthropicAdaptiveGroup.classList.remove("hidden");
+      // blocker 3: filter effort options
+      filterEffortOptions(
+        advancedSettings.querySelector<HTMLSelectElement>("#setting-anthropic-thinking-effort"),
+        getSupportedEfforts(cap),
+      );
+      break;
+    case "anthropic-budget":
+      if (anthropicGroup) anthropicGroup.classList.remove("hidden");
+      break;
+    case "deepseek":
+      if (deepseekGroup) deepseekGroup.classList.remove("hidden");
+      // blocker 3: filter effort options for DeepSeek
+      filterEffortOptions(
+        advancedSettings.querySelector<HTMLSelectElement>("#setting-deepseek-reasoning-effort"),
+        getSupportedEfforts(cap),
+      );
+      break;
+    case "google-thinking-level":
+      if (googleGroup) googleGroup.classList.remove("hidden");
+      // blocker 3: filter effort options for Google
+      filterEffortOptions(
+        advancedSettings.querySelector<HTMLSelectElement>("#setting-google-thinking-level"),
+        getSupportedEfforts(cap),
+      );
+      break;
+    default:
+      break;
   }
-  if (deepseekGroup) {
-    deepseekGroup.classList.toggle("hidden", provider !== "deepseek");
+
+  // blocker 6: 適応的思考モデルの場合のみ thinking ON/OFF と budget を非表示
+  if (alwaysOn) {
+    if (thinkingEnabledRow) thinkingEnabledRow.classList.add("hidden");
+    if (thinkingBudgetRow) thinkingBudgetRow.classList.add("hidden");
   }
-  if (anthropicGroup) {
-    anthropicGroup.classList.toggle("hidden", provider !== "anthropic");
+}
+
+/** OAuth プロバイダーの場合、API キー行を隠して OAuth コントロールを表示する。 */
+function updateOAuthControls(provider: Provider): void {
+  const {
+    settingApiKeyRow,
+    settingOAuthRow,
+    settingOAuthStatus,
+    btnOAuthLogin,
+    btnOAuthLogout,
+    btnOAuthCancel,
+  } = getElements();
+
+  const isOAuth = isOAuthProvider(provider);
+  settingApiKeyRow.classList.toggle("hidden", isOAuth);
+  settingOAuthRow.classList.toggle("hidden", !isOAuth);
+
+  if (isOAuth) {
+    // ボタン類を既定状態に戻す（ログインボタンのみ表示）
+    btnOAuthLogin.classList.remove("hidden");
+    btnOAuthLogout.classList.add("hidden");
+    btnOAuthCancel.classList.add("hidden");
+    settingOAuthStatus.textContent = "未ログイン";
+
+    // 現在のログイン状態を確認して表示を更新
+    void refreshOAuthStatus(provider);
   }
-  if (googleGroup) {
-    googleGroup.classList.toggle("hidden", provider !== "google");
+}
+
+/** OAuth プロバイダーのログイン状態をキーリングから読み取って UI を更新する。 */
+async function refreshOAuthStatus(provider: Provider): Promise<void> {
+  const {
+    settingOAuthStatus,
+    settingOAuthUserCode,
+    btnOAuthLogin,
+    btnOAuthLogout,
+  } = getElements();
+
+  settingOAuthUserCode.classList.add("hidden");
+
+  let loggedIn = false;
+  if (provider === "codex") {
+    const cred = await readCodexCredential();
+    loggedIn = cred !== undefined;
+  } else if (provider === "github-copilot") {
+    const cred = await readCopilotCredential();
+    loggedIn = cred !== undefined;
   }
+
+  if (loggedIn) {
+    settingOAuthStatus.textContent = "ログイン済み";
+    btnOAuthLogin.classList.add("hidden");
+    btnOAuthLogout.classList.remove("hidden");
+  } else {
+    settingOAuthStatus.textContent = "未ログイン";
+    btnOAuthLogin.classList.remove("hidden");
+    btnOAuthLogout.classList.add("hidden");
+  }
+}
+
+/** OAuth ログインフローを開始する。 */
+async function startOAuthLogin(provider: Provider): Promise<void> {
+  const {
+    settingOAuthStatus,
+    settingOAuthUserCode,
+    btnOAuthLogin,
+    btnOAuthLogout,
+    btnOAuthCancel,
+  } = getElements();
+
+  if (oauthAbortController) {
+    oauthAbortController.abort();
+  }
+  oauthAbortController = new AbortController();
+
+  // UI をポーリング状態に切り替え
+  btnOAuthLogin.classList.add("hidden");
+  btnOAuthLogout.classList.add("hidden");
+  btnOAuthCancel.classList.remove("hidden");
+  settingOAuthStatus.textContent = "認証中…";
+  settingOAuthUserCode.classList.add("hidden");
+
+  // ユーザーコード表示用コールバック
+  const onUserCode = (code: string, verificationUri: string) => {
+    settingOAuthUserCode.textContent = `コード: ${code} を ${verificationUri} で入力してください`;
+    settingOAuthUserCode.classList.remove("hidden");
+    settingOAuthStatus.textContent = "ブラウザでコードを入力して認証を完了してください…";
+  };
+
+  try {
+    if (provider === "codex") {
+      settingOAuthStatus.textContent = "ブラウザで認証を完了してください…";
+      await codexBrowserLogin(oauthAbortController.signal);
+    } else if (provider === "github-copilot") {
+      settingOAuthStatus.textContent = "ブラウザで認証を完了してください…";
+      await copilotLogin(oauthAbortController.signal, undefined, onUserCode);
+    }
+
+    // ログイン成功
+    settingOAuthUserCode.classList.add("hidden");
+    settingOAuthStatus.textContent = "ログイン済み";
+    btnOAuthLogin.classList.add("hidden");
+    btnOAuthLogout.classList.remove("hidden");
+    btnOAuthCancel.classList.add("hidden");
+
+    // ログイン後にモデルキャッシュが無効化されているため UI を再描画
+    updateAdvancedVisibility(provider);
+  } catch (err) {
+    if (oauthAbortController?.signal.aborted) {
+      settingOAuthStatus.textContent = "キャンセルされました";
+    } else {
+      const message = err instanceof Error ? err.message : String(err);
+      settingOAuthStatus.textContent = `エラー: ${message}`;
+    }
+    settingOAuthUserCode.classList.add("hidden");
+    btnOAuthLogin.classList.remove("hidden");
+    btnOAuthLogout.classList.add("hidden");
+    btnOAuthCancel.classList.add("hidden");
+  } finally {
+    oauthAbortController = null;
+  }
+}
+
+/** OAuth ログアウト処理 */
+async function logoutOAuth(provider: Provider): Promise<void> {
+  const { settingOAuthStatus, btnOAuthLogin, btnOAuthLogout } = getElements();
+
+  if (provider === "codex") {
+    await deleteCodexCredential();
+  } else if (provider === "github-copilot") {
+    await deleteCopilotCredential();
+  }
+
+  settingOAuthStatus.textContent = "未ログイン";
+  btnOAuthLogin.classList.remove("hidden");
+  btnOAuthLogout.classList.add("hidden");
+
+  // ログアウト後にモデルキャッシュが無効化されているため UI を再描画
+  updateAdvancedVisibility(provider);
 }
 
 function populateFixedModelSelect(provider: Provider, currentModel: string): void {
@@ -529,6 +786,7 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string, p
     settingDeepseekReasoningEffort,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingAnthropicThinkingEffort,
     settingGoogleThinkingLevel,
   } = getElements();
 
@@ -543,6 +801,7 @@ function applyModelDefaults(entry: ProviderEntry | undefined, modelId: string, p
   settingDeepseekReasoningEffort.value = defaults.deepseekReasoningEffort ?? "";
   settingAnthropicThinkingEnabled.checked = defaults.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(defaults.anthropicThinkingBudget);
+  settingAnthropicThinkingEffort.value = defaults.reasoningCapability?.defaultEffort ?? "";
   settingGoogleThinkingLevel.value = defaults.googleThinkingLevel ?? "";
 
   // モデル定義に存在しないパラメータを disabled にする（プロバイダ単位で enabled のもののみ）。
@@ -578,6 +837,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
     settingDeepseekThinking,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingAnthropicThinkingEffort,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
@@ -613,6 +873,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingDeepseekThinking.checked = settings.deepseekThinkingEnabled !== false;
   settingAnthropicThinkingEnabled.checked = settings.anthropicThinkingEnabled ?? false;
   settingAnthropicThinkingBudget.value = optionalNumberInput(settings.anthropicThinkingBudget);
+  settingAnthropicThinkingEffort.value = settings.anthropicThinkingEffort ?? "";
   settingGoogleThinkingLevel.value = settings.googleThinkingLevel ?? "";
   settingTwoStageContinuation.checked = settings.twoStageContinuation ?? false;
   settingContinuationReview.checked = settings.continuationReviewEnabled ?? false;
@@ -641,7 +902,9 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingContinuationBeatSplit.checked = settings.continuationBeatSplitEnabled ?? false;
 
   applyProviderConfig(settings.provider);
-  updateAdvancedVisibility(settings.provider);
+  // model-aware: pass the current model ID for capability-based control visibility
+  updateAdvancedVisibility(settings.provider, modalProviderConfigs[settings.provider].model);
+  updateOAuthControls(settings.provider);
   updateModelFetchState(settings.provider);
   updateModelInputMode(settings.provider);
   updateSamplingControlsVisibility(settings.provider);
@@ -706,6 +969,7 @@ export function readSettingsFromModal(): AiSettings {
     settingDeepseekThinking,
     settingAnthropicThinkingEnabled,
     settingAnthropicThinkingBudget,
+    settingAnthropicThinkingEffort,
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
@@ -782,6 +1046,7 @@ export function readSettingsFromModal(): AiSettings {
     deepseekThinkingEnabled: settingDeepseekThinking.checked ? undefined : false,
     anthropicThinkingEnabled: settingAnthropicThinkingEnabled.checked,
     anthropicThinkingBudget: parseOptionalNumber(settingAnthropicThinkingBudget.value),
+    anthropicThinkingEffort: parseAnthropicThinkingEffort(settingAnthropicThinkingEffort.value),
     googleThinkingLevel: parseGoogleThinkingLevel(settingGoogleThinkingLevel.value),
     twoStageContinuation: settingTwoStageContinuation.checked,
     continuationReviewEnabled: settingContinuationReview.checked,
@@ -900,7 +1165,8 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
 
     const entry = actions.onChange(provider);
 
-    updateAdvancedVisibility(provider);
+    updateAdvancedVisibility(provider, modalProviderConfigs?.[provider]?.model);
+    updateOAuthControls(provider);
     updateModelFetchState(provider);
     updateModelInputMode(provider);
     updateSamplingControlsVisibility(provider);
@@ -917,6 +1183,7 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     // モデル切替時は、まずプロバイダ単位の enabled/disabled 状態に戻してから
     // モデル単位の disabled を適用する。そうしないと、前のモデルで disabled に
     // されたパラメータ（例: topK 未対応モデル→対応モデル）が re-enable されない。
+    updateAdvancedVisibility(provider, modalProviderConfigs?.[provider]?.model);
     updateSamplingControlsVisibility(provider);
     updateCapacityControlsVisibility(provider);
     applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "", provider);
@@ -926,6 +1193,7 @@ export function bindProviderChangeAction(actions: ProviderChangeActions): void {
     if (!modalProviderConfig) return;
     const provider = modalCurrentProvider;
     captureProviderConfig(provider);
+    updateAdvancedVisibility(provider, modalProviderConfigs?.[provider]?.model);
     updateSamplingControlsVisibility(provider);
     updateCapacityControlsVisibility(provider);
     applyModelDefaults(getProviderEntry(modalProviderConfig, provider), modalProviderConfigs?.[provider].model ?? "", provider);
@@ -942,6 +1210,9 @@ export function bindSettingsActions(actions: SettingsActions): void {
     btnCloseLicenses,
     settingWebdavEnabled,
     settingDeepseekThinking,
+    btnOAuthLogin,
+    btnOAuthLogout,
+    btnOAuthCancel,
   } = getElements();
 
   settingsForm.addEventListener("submit", (event) => {
@@ -959,6 +1230,20 @@ export function bindSettingsActions(actions: SettingsActions): void {
   licenseModal.querySelector(".modal-backdrop")?.addEventListener("click", hideLicenseModal);
   btnCancelSettings.addEventListener("click", actions.onCancel);
   btnInitializeSettings.addEventListener("click", () => actions.onInitialize());
+
+  // OAuth ボタン
+  btnOAuthLogin.addEventListener("click", () => {
+    void startOAuthLogin(modalCurrentProvider);
+  });
+  btnOAuthLogout.addEventListener("click", () => {
+    void logoutOAuth(modalCurrentProvider);
+  });
+  btnOAuthCancel.addEventListener("click", () => {
+    if (oauthAbortController) {
+      oauthAbortController.abort();
+      oauthAbortController = null;
+    }
+  });
 }
 
 export function bindModelFetchAction(actions: ModelFetchActions): void {
