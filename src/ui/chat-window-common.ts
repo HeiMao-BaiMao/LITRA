@@ -16,6 +16,9 @@ export interface RenderableChatMessage {
   role: string;
   content: string;
   thinking?: string;
+  provider?: string;
+  model?: string;
+  transport?: { provider?: string; model?: string; responseModelId?: string };
 }
 
 export function queryChatWindowControls(): ChatWindowControls | undefined {
@@ -138,7 +141,12 @@ export function renderChatMessageList<T extends RenderableChatMessage>(
     if (message.id) {
       element.dataset.messageId = message.id;
     }
-    renderChatMessageContent(element, message.content, message.thinking);
+    renderChatMessageHtml(
+      element,
+      message.content,
+      message.thinking,
+      message.transport ?? { provider: message.provider, model: message.model },
+    );
     options.afterRender?.(element, message);
     container.appendChild(element);
   }

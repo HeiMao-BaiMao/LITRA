@@ -10,6 +10,8 @@ import {
   buildContinuationReviewPrompt,
   buildDraftSelectionPrompt,
   buildFeedbackPrompt,
+  buildLineEditReviewPrompt,
+  buildLineEditRevisionPrompt,
   buildRewritePrompt,
   buildSceneStateCardPrompt,
   buildTargetedRevisionPrompt,
@@ -31,25 +33,39 @@ import type { AiSettings } from "../settings.ts";
 const BEAT_CONTEXT_CHAR_BUDGET = 12000;
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
+// 非ストリーミング(generateText)の背景ステップ用の出力上限。
+// 16K 超の非ストリーミング要求は HTTP タイムアウト域に入るため、
+// thinking トークンの余裕を残しつつ 32K に制限する
+// (従来は settings.maxTokens をそのまま使っており、DeepSeek の既定 384000 等が渡っていた)。
+const NONSTREAMING_MAX_OUTPUT_TOKENS = 32768;
 const TOOL_LOOP_MAX_STEPS = 16;
 const DUPLICATE_TOOL_CALL_INPUT_LIMIT = 4;
 
-function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean): boolean {
-  // DeepSeek の thinking モードはツール呼び出しと両立しない。
-  // ツールを使う場合、または役割プロファイル等で明示的に無効化されている場合は
-  // thinking を無効にし、代わりに温度・top_p・ペナルティ類のサンプリングパラメータを有効にする。
-  return settings.provider === "deepseek" && !toolsEnabled && settings.deepseekThinkingEnabled !== false;
+function isDeepSeekThinkingEnabled(settings: AiSettings): boolean {
+  // DeepSeek V3.2 以降、thinking モードはツール呼び出しと両立する
+  // (ツール有効時の強制 OFF は V3 時代の制約なので廃止)。
+  // thinking 中は温度・top_p・ペナルティ類のサンプリングパラメータが無視される。
+  return settings.provider === "deepseek" && settings.deepseekThinkingEnabled !== false;
 }
 
 function isGoogleGemini3(settings: AiSettings): boolean {
   return settings.provider === "google" && isGemini3Model(settings.model);
 }
 
-function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
+// Anthropic Messages 系(直接 / Copilot 経由 Claude)かどうか。
+// Claude 4 以降は temperature と top_p の併送が 400 になるため temperature のみ送る。
+function isAnthropicMessagesModel(settings: AiSettings): boolean {
+  return (
+    settings.provider === "anthropic" ||
+    (settings.provider === "github-copilot" && settings.model.startsWith("claude-"))
+  );
+}
+
+function buildTemperatureOption(settings: AiSettings) {
   // DeepSeek の thinking モードでは temperature は無視される。
   // OpenCode Go プロバイダでは OpenCode クライアントに合わせて temperature を送らない
   // (OpenCode の transform.ts:481-498 で DeepSeek/GLM/MiniMax/MiMo 等は undefined を返す)。
-  if (isDeepSeekThinkingEnabled(settings, toolsEnabled)) return {};
+  if (isDeepSeekThinkingEnabled(settings)) return {};
   if (settings.provider === "opencode") return {};
   // Gemini 3 系は「temperature は既定値 1.0 のまま変更しない」ことが公式に強く
   // 推奨されており、変更するとループや推論品質の劣化を招き得るため送らない。
@@ -57,17 +73,20 @@ function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
   return { temperature: settings.temperature };
 }
 
-function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
-  const providerOptions = buildProviderOptions(settings, toolsEnabled);
+function buildAdvancedOptions(settings: AiSettings) {
+  const providerOptions = buildProviderOptions(settings);
   // OpenCode Go プロバイダでは OpenCode クライアントに合わせるため、
   // topP / topK / frequencyPenalty / presencePenalty をすべて送らない
   // (transform.ts:500-507 と native-request.ts:135-143 で populate されない)。
   // Gemini 3 系も同様に、topP/topK 等の sampling params は公式に非推奨となり
   // thinkingConfig.thinkingLevel（buildProviderOptions 経由）に置き換わっている。
+  // Anthropic Messages 系は temperature と top_p の併送が Claude 4+ で 400 になり、
+  // ペナルティ類も API に存在しないため、これらを送らない(temperature のみ)。
   const ignoreSampling =
-    isDeepSeekThinkingEnabled(settings, toolsEnabled) ||
+    isDeepSeekThinkingEnabled(settings) ||
     settings.provider === "opencode" ||
-    isGoogleGemini3(settings);
+    isGoogleGemini3(settings) ||
+    isAnthropicMessagesModel(settings);
   const ignorePenalty = settings.provider === "sakura" || settings.provider === "opencode";
   return {
     ...(!ignoreSampling && settings.topP !== undefined && { topP: settings.topP }),
@@ -80,6 +99,31 @@ function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
     }),
     ...(providerOptions && { providerOptions }),
   };
+}
+
+/**
+ * ツール呼び出しを強制したい局面で使う tool_choice を解決する。
+ * - OpenCode Go: OpenCode クライアントに合わせて送らない
+ * - DeepSeek thinking 有効時: "required"/特定関数指定は 400 になるため "auto"
+ * - Anthropic 系で thinking が有効(Fable 5 は常時有効)な場合: "required"
+ *   (= {type:"any"}) は thinking と両立しないため "auto"
+ * - それ以外: "required"
+ */
+export function resolveForcedToolChoice(settings: AiSettings): "required" | "auto" | undefined {
+  if (settings.provider === "opencode") return undefined;
+  if (settings.provider === "deepseek") {
+    return isDeepSeekThinkingEnabled(settings) ? "auto" : "required";
+  }
+  if (isAnthropicMessagesModel(settings)) {
+    if (settings.model.includes("fable") || settings.model.includes("mythos")) return "auto";
+    const thinking = buildProviderOptions(settings)?.anthropic?.thinking;
+    const thinkingType =
+      thinking && typeof thinking === "object" && !Array.isArray(thinking)
+        ? (thinking as { type?: unknown }).type
+        : undefined;
+    if (thinkingType === "adaptive" || thinkingType === "enabled") return "auto";
+  }
+  return "required";
 }
 
 function hasTools(tools: ToolSet | undefined): tools is ToolSet {
@@ -535,6 +579,9 @@ export interface StreamRewriteOptions {
   onReasoning?: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
+  // 作者からの書き直し指示(チャット経由の rewritePassage ツールで使用)。
+  // 省略時は従来どおりの無指示リライト。
+  instruction?: string;
 }
 
 export interface StreamFeedbackOptions {
@@ -578,6 +625,12 @@ async function verifyToolCallNeed(
       prompt: jsonPrompt,
       maxOutputTokens: 1024,
       temperature: 0.1,
+      // DeepSeek はサーバ既定で thinking ON のため、そのままだと推論時間で
+      // 15 秒タイムアウトに達し検証が常に失敗する。この判定は軽量で良いので
+      // thinking を明示的に無効化する(非 thinking なら temperature 0.1 も効く)。
+      ...(settings.provider === "deepseek" && {
+        providerOptions: { deepseek: { thinking: { type: "disabled" } } },
+      }),
       abortSignal: controller.signal,
     });
 
@@ -650,6 +703,13 @@ function normalizeSettings(settings: AiSettings): AiSettings {
   if (normalized.anthropicThinkingEnabled && normalized.anthropicThinkingBudget === undefined) {
     normalized.anthropicThinkingBudget = DEFAULT_ANTHROPIC_THINKING_BUDGET;
   }
+  // Anthropic API は budget_tokens < max_tokens かつ 1024 以上を要求する
+  if (
+    normalized.anthropicThinkingBudget !== undefined &&
+    normalized.anthropicThinkingBudget >= normalized.maxTokens
+  ) {
+    normalized.anthropicThinkingBudget = Math.max(1024, normalized.maxTokens - 1024);
+  }
 
   return normalized;
 }
@@ -681,13 +741,13 @@ export async function streamChat({
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
       messages,
-      ...buildTemperatureOption(s, toolsEnabled),
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
       toolChoice: toolsEnabled ? toolChoice : undefined,
       stopWhen: toolsEnabled ? toolLoopStopConditions(stopWhen) : stopWhen,
-      ...buildAdvancedOptions(s, toolsEnabled),
+      ...buildAdvancedOptions(s),
     });
 
     const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent, onReasoning);
@@ -718,13 +778,13 @@ export async function streamChat({
           ...buildRetryOption(s),
           system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames }),
           messages: retryMessages,
-          ...buildTemperatureOption(s, toolsEnabled),
+          ...buildTemperatureOption(s),
           maxOutputTokens: s.maxTokens,
           abortSignal,
           tools,
-          toolChoice: s.provider === "opencode" ? undefined : "required",
+          toolChoice: resolveForcedToolChoice(s),
           stopWhen: toolLoopStopConditions(isLoopFinished() as StopCondition<ToolSet>),
-          ...buildAdvancedOptions(s, toolsEnabled),
+          ...buildAdvancedOptions(s),
         });
         return await consumeStream(retryResult, onChunk, onToolEvent, onReasoning);
       }
@@ -756,12 +816,12 @@ async function runContinuationPlanStep(
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes),
-      ...buildTemperatureOption(settings, false),
+      ...buildTemperatureOption(settings),
       // thinking 系モデルでは推論トークンもこの上限を消費するため、
       // 構想の深さを絞らないよう本体生成と同じ上限を使う。
-      maxOutputTokens: settings.maxTokens,
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const planText = result.text.trim();
@@ -796,12 +856,12 @@ async function runContinuationReviewStep(
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildContinuationReviewPrompt(draft, context, settingsContext, plan, relatedScenes, extras),
-      ...buildTemperatureOption(settings, false),
+      ...buildTemperatureOption(settings),
       // thinking 系モデルでは推論トークンもこの上限を消費するため、
       // 査読の深さを絞らないよう本体生成と同じ上限を使う。
-      maxOutputTokens: settings.maxTokens,
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const reviewText = result.text.trim();
@@ -854,10 +914,10 @@ async function runSceneStateCardStep(
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildSceneStateCardPrompt(context, settingsContext),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
     const card = result.text.trim();
     if (!card) return undefined;
@@ -892,10 +952,10 @@ async function runCharacterVoiceCardsStep(
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildCharacterVoiceCardsPrompt(names, excerpts, settingsContext),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
     const card = result.text.trim();
     if (!card) return undefined;
@@ -927,10 +987,10 @@ async function runDraftSelectionStep(
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const text = result.text.trim();
@@ -999,10 +1059,10 @@ async function runTargetedRevisionStep(
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildTargetedRevisionPrompt(draft, review, context, settingsContext, extras),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const text = result.text.trim();
@@ -1021,6 +1081,76 @@ async function runTargetedRevisionStep(
   } catch (error) {
     if (abortSignal?.aborted) throw error;
     console.warn("[litra] targeted revision step failed; falling back to full revision", error);
+    return undefined;
+  }
+}
+
+/**
+ * ペン入れ第1工程 — 編集者の査読(判断系モデル)。
+ * プロンプトは buildLineEditReviewPrompt で、出力形式は続き生成のレビューと同じ。
+ * 失敗時は undefined を返す。
+ */
+export async function runLineEditReview(
+  settings: AiSettings,
+  passage: string,
+  context: string,
+  settingsContext?: string,
+  instruction?: string,
+  extras?: FictionPromptExtras,
+  abortSignal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildLineEditReviewPrompt(passage, context, settingsContext, instruction, extras),
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+      abortSignal,
+      ...buildAdvancedOptions(settings),
+    });
+    const reviewText = result.text.trim();
+    if (!reviewText) return undefined;
+    return reviewText;
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] line edit review step failed", error);
+    return undefined;
+  }
+}
+
+/**
+ * ペン入れ第2工程 — 査読に基づく置換案生成(執筆系モデル)。
+ * プロンプトは buildLineEditRevisionPrompt で、出力形式は続き生成のスパン限定修正と同一。
+ * buildLineEditRevisionPrompt から parseTargetedRevision で読める置換案を生成する。
+ * 失敗時は undefined を返す。
+ */
+export async function runLineEditRevision(
+  settings: AiSettings,
+  passage: string,
+  review: string,
+  context: string,
+  settingsContext?: string,
+  instruction?: string,
+  extras?: FictionPromptExtras,
+  abortSignal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildLineEditRevisionPrompt(passage, review, context, settingsContext, instruction, extras),
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+      abortSignal,
+      ...buildAdvancedOptions(settings),
+    });
+    const text = result.text.trim();
+    if (!text) return undefined;
+    return text;
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] line edit revision step failed", error);
     return undefined;
   }
 }
@@ -1094,12 +1224,12 @@ export async function streamContinuation({
         ...buildRetryOption(s),
         system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
         prompt: buildContinuationPrompt(draftContext, settingsContext, plan, relatedScenes, draftExtras),
-        ...buildTemperatureOption(s, toolsEnabled),
+        ...buildTemperatureOption(s),
         maxOutputTokens: s.maxTokens,
         abortSignal,
         tools,
         stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
-        ...buildAdvancedOptions(s, toolsEnabled),
+        ...buildAdvancedOptions(s),
       });
       let text = "";
       const run = await consumeStream(
@@ -1244,10 +1374,10 @@ export async function streamContinuation({
         ...buildRetryOption(s),
         system: buildAssistantSystemPrompt({ toolsEnabled: false }),
         prompt: buildContinuationRevisionPrompt(draftText, review, context, settingsContext, relatedScenes, extras),
-        ...buildTemperatureOption(s, false),
+        ...buildTemperatureOption(s),
         maxOutputTokens: s.maxTokens,
         abortSignal,
-        ...buildAdvancedOptions(s, false),
+        ...buildAdvancedOptions(s),
       });
       const revisionRun = await consumeStream(
         revisionResult,
@@ -1290,6 +1420,7 @@ export async function streamRewrite({
   abortSignal,
   settingsContext,
   onReasoning,
+  instruction,
 }: StreamRewriteOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
@@ -1297,11 +1428,11 @@ export async function streamRewrite({
       model: createModel(s),
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled: false }),
-      prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold),
-      ...buildTemperatureOption(s, false),
+      prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold, instruction),
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(s, false),
+      ...buildAdvancedOptions(s),
     });
 
     return await consumeStream(result, onChunk, undefined, onReasoning);
@@ -1326,10 +1457,10 @@ export async function streamFeedback({
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled: false }),
       prompt: buildFeedbackPrompt(selection, settingsContext),
-      ...buildTemperatureOption(s, false),
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(s, false),
+      ...buildAdvancedOptions(s),
     });
 
     return await consumeStream(result, onChunk, undefined, onReasoning);

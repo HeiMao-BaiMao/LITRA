@@ -37,32 +37,55 @@ export function getModelCapability(
     if (modelId === "claude-fable-5") {
       return { kind: "anthropic-adaptive", supportedEfforts: ["low", "medium", "high", "xhigh", "max"], display: "summarized" };
     }
+    if (modelId.startsWith("claude-opus-4-7") || modelId.startsWith("claude-opus-4-8")) {
+      return {
+        kind: "anthropic-adaptive",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        display: "summarized",
+        canDisable: true,
+      };
+    }
     if (modelId.startsWith("claude-")) {
       return { kind: "anthropic-budget", canDisable: true, supportsBudget: true };
     }
   }
 
   if (provider === "deepseek") {
-    return { kind: "deepseek", supportedEfforts: ["low", "medium", "high", "xhigh", "max"], canDisable: true };
+    // reasoning_effort の有効値は "high"/"max" のみ(それ以外はサーバ既定 high に任せる)
+    return { kind: "deepseek", supportedEfforts: ["high", "max"], canDisable: true };
   }
 
   if (provider === "google" && /^gemini-3(\.|-|$)/.test(modelId)) {
+    // gemini-3.1-pro 系は thinkingLevel に "minimal" 非対応
+    if (modelId.startsWith("gemini-3.1-pro")) {
+      return { kind: "google", supportedEfforts: ["low", "medium", "high"] };
+    }
     return { kind: "google", supportedEfforts: ["minimal", "low", "medium", "high"] };
   }
 
   if (provider === "openai" || provider === "codex") {
-    return { kind: "openai", supportedEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"] };
+    // GPT-5.1 以降 "minimal" は廃止("none" が後継)
+    return { kind: "openai", supportedEfforts: ["none", "low", "medium", "high", "xhigh"] };
   }
 
   if (provider === "github-copilot") {
     if (modelId.startsWith("claude-fable-5")) {
       return { kind: "anthropic-adaptive", supportedEfforts: ["low", "medium", "high"], display: "summarized" };
     }
+    if (modelId.startsWith("claude-opus-4-7") || modelId.startsWith("claude-opus-4-8")) {
+      return {
+        kind: "anthropic-adaptive",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        display: "summarized",
+        canDisable: true,
+      };
+    }
     if (modelId.startsWith("claude-")) {
       return { kind: "anthropic-budget", canDisable: true, supportsBudget: true };
     }
     if (/^gpt-5/.test(modelId)) {
-      return { kind: "openai", supportedEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"] };
+      // GPT-5.1 以降 "minimal" は廃止("none" が後継)
+      return { kind: "openai", supportedEfforts: ["none", "low", "medium", "high", "xhigh"] };
     }
   }
 
@@ -161,10 +184,12 @@ export function canDisableThinking(cap?: ReasoningCapability): boolean {
 
 /**
  * reasoning/thinking が常時有効かどうかを返す。
- * anthropic-adaptive は常時有効。
+ * anthropic-adaptive は原則常時有効(Fable 5 は thinking パラメータ省略が 400 になるため
+ * 常時 ON)だが、Opus 4.8 のように canDisable: true な adaptive モデルは切替可能なため
+ * 常時有効とはみなさない。
  */
 export function isThinkingAlwaysOn(cap?: ReasoningCapability): boolean {
-  return cap?.kind === "anthropic-adaptive";
+  return cap?.kind === "anthropic-adaptive" && cap.canDisable !== true;
 }
 
 /**

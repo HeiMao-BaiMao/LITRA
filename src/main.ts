@@ -15,12 +15,7 @@ import {
   resetAllSettings,
   type AiSettings,
   type Provider,
-  resolveChatSettings,
-  resolveBackgroundSettings,
-  resolveJudgmentSettings,
   getProviderSpecificSettings,
-  type RoleParamOverrides,
-  type AnthropicThinkingEffort,
 } from "./settings.ts";
 import { saveExaApiKey } from "./websearch-settings.ts";
 import { composeStyleSampleText, measureStyleFingerprint } from "./ai/style-fingerprint.ts";
@@ -31,14 +26,20 @@ import {
   streamContinuation,
   streamFeedback,
   streamRewrite,
+  resolveForcedToolChoice,
   type StreamRunResult,
   type StreamToolEvent,
 } from "./ai/service.ts";
 import { buildSummaryPrompt, limitPromptText, parseSummaryOutput, samplePromptText } from "./ai/prompts.ts";
 import { formatAiErrorMessage } from "./ai/provider-options.ts";
-import { getEffectiveCapability } from "./ai/capability.ts";
-import { getCopilotModelCacheEntry } from "./providers/copilot-auth.ts";
+import {
+  resolveChatRunSettings as resolveChatRunSettingsWith,
+  resolveBackgroundRunSettings as resolveBackgroundRunSettingsWith,
+  resolveWritingRunSettings as resolveWritingRunSettingsWith,
+  resolveJudgmentRunSettings as resolveJudgmentRunSettingsWith,
+} from "./ai/role-settings.ts";
 import { updateAdvancedVisibility } from "./ui/settings-modal.ts";
+import { pickDefinedOrFallback } from "./settings-merge.ts";
 import {
   createCheckConsistencyTool,
   createCreateCharacterTool,
@@ -68,6 +69,8 @@ import {
   createListWorldEntriesTool,
   createRebuildSearchIndexTool,
   createRetrieveEpisodeTool,
+  createRewritePassageTool,
+  createLineEditPassageTool,
   createSaveEpisodeMemoTool,
   createSaveEpisodeOneLinerTool,
   createSaveEpisodeSummaryAndOneLinerTool,
@@ -170,9 +173,7 @@ import {
   getProviderModelIds,
   loadProviderConfig,
   providerRequiresApiKey,
-  type ProviderModelDefaults,
   type ProviderConfig,
-  type ModelRoleProfile,
 } from "./providers/config.ts";
 import { readCodexCredential } from "./providers/codex-auth.ts";
 import { readCopilotCredential } from "./providers/copilot-auth.ts";
@@ -310,140 +311,23 @@ function getPromptContextBudgets(settings: AiSettings = currentSettings): Prompt
   };
 }
 
-function applyRuntimeModelDefaults(
-  settings: AiSettings,
-  defaults: ProviderModelDefaults | undefined,
-  applyTokenDefaults: boolean,
-): AiSettings {
-  if (!defaults) return settings;
-
-  const capability = getEffectiveCapability(
-    settings.provider,
-    settings.model,
-    defaults,
-    getCopilotModelCacheEntry,
-  );
-  const next: AiSettings = {
-    ...settings,
-    temperature: defaults.temperature ?? settings.temperature,
-    maxTokens: applyTokenDefaults ? defaults.maxTokens ?? settings.maxTokens : settings.maxTokens,
-    maxContextTokens: applyTokenDefaults ? defaults.maxContextTokens ?? settings.maxContextTokens : settings.maxContextTokens,
-    topP: defaults.topP,
-    topK: defaults.topK,
-    frequencyPenalty: defaults.frequencyPenalty,
-    presencePenalty: defaults.presencePenalty,
-    reasoningCapability: capability,
-  };
-  if (capability?.kind === "openai") {
-    next.openaiReasoningEffort = defaults.openaiReasoningEffort ?? settings.openaiReasoningEffort;
-  } else if (capability?.kind === "deepseek") {
-    next.deepseekReasoningEffort = defaults.deepseekReasoningEffort ?? settings.deepseekReasoningEffort;
-  } else if (capability?.kind === "anthropic-adaptive") {
-    next.anthropicThinkingEnabled = true;
-    next.anthropicThinkingBudget = undefined;
-    const defaultEffort = capability.defaultEffort;
-    const validDefaultEffort =
-      defaultEffort === "low" || defaultEffort === "medium" || defaultEffort === "high" ||
-      defaultEffort === "xhigh" || defaultEffort === "max"
-        ? defaultEffort as AnthropicThinkingEffort
-        : undefined;
-    next.anthropicThinkingEffort = defaults.anthropicThinkingEffort ?? settings.anthropicThinkingEffort ?? validDefaultEffort;
-  } else if (capability?.kind === "anthropic-budget") {
-    next.anthropicThinkingEnabled = defaults.anthropicThinkingEnabled ?? settings.anthropicThinkingEnabled;
-    next.anthropicThinkingBudget = defaults.anthropicThinkingBudget ?? settings.anthropicThinkingBudget;
-    next.anthropicThinkingEffort = undefined;
-  } else if (capability?.kind === "google") {
-    next.googleThinkingLevel = defaults.googleThinkingLevel ?? settings.googleThinkingLevel;
-  }
-  return next;
-}
-
-/**
- * 役割プロファイル(providers.json の writing/judgment)またはユーザーの役割別
- * オーバーライドを1レイヤー分だけ設定へ重ねる内部ヘルパー。
- * サンプリング系パラメータと promptScaffold は無条件で上書きする。
- * reasoning/thinking 系は applyRuntimeModelDefaults と同じ方式で、現在のプロバイダに
- * 一致するフィールドだけを適用する(不一致フィールドは無視するだけで、
- * 対象プロバイダの既存値を undefined 化しない)。
- */
-function applyRoleProfileLayer(settings: AiSettings, layer: ModelRoleProfile | undefined): AiSettings {
-  if (!layer) return settings;
-  const next: AiSettings = { ...settings };
-
-  if (layer.temperature !== undefined) next.temperature = layer.temperature;
-  if (layer.topP !== undefined) next.topP = layer.topP;
-  if (layer.topK !== undefined) next.topK = layer.topK;
-  if (layer.frequencyPenalty !== undefined) next.frequencyPenalty = layer.frequencyPenalty;
-  if (layer.presencePenalty !== undefined) next.presencePenalty = layer.presencePenalty;
-  if (layer.promptScaffold !== undefined) next.promptScaffold = layer.promptScaffold;
-
-  const kind = settings.reasoningCapability?.kind;
-  if (kind === "openai" && layer.openaiReasoningEffort !== undefined) {
-    next.openaiReasoningEffort = layer.openaiReasoningEffort;
-  }
-  if (kind === "deepseek") {
-    if (layer.deepseekReasoningEffort !== undefined) next.deepseekReasoningEffort = layer.deepseekReasoningEffort;
-    if (layer.deepseekThinkingEnabled !== undefined) next.deepseekThinkingEnabled = layer.deepseekThinkingEnabled;
-  }
-  if (kind === "anthropic-adaptive") {
-    if (layer.anthropicThinkingEffort !== undefined) next.anthropicThinkingEffort = layer.anthropicThinkingEffort;
-    next.anthropicThinkingEnabled = true;
-    next.anthropicThinkingBudget = undefined;
-  }
-  if (kind === "anthropic-budget") {
-    if (layer.anthropicThinkingEnabled !== undefined) next.anthropicThinkingEnabled = layer.anthropicThinkingEnabled;
-    if (layer.anthropicThinkingBudget !== undefined) next.anthropicThinkingBudget = layer.anthropicThinkingBudget;
-  }
-  if (kind === "google" && layer.googleThinkingLevel !== undefined) {
-    next.googleThinkingLevel = layer.googleThinkingLevel;
-  }
-
-  return next;
-}
-
-/// providers.json の役割プロファイルを先に、ユーザーの役割別オーバーライドを後に重ねる(後勝ち)。
-function applyRoleProfile(
-  settings: AiSettings,
-  profile: ModelRoleProfile | undefined,
-  overrides: RoleParamOverrides | undefined,
-): AiSettings {
-  return applyRoleProfileLayer(applyRoleProfileLayer(settings, profile), overrides);
-}
-
+// 実行時のモデル設定解決(applyRuntimeModelDefaults / applyRoleProfile / resolve*RunSettings)は
+// src/ai/role-settings.ts へ共有化した。ここでは providerConfig(モジュール変数)を渡すだけの
+// 薄いラッパーを残し、既存の呼び出し箇所の差分を最小化する。挙動は移設前と同一。
 function resolveChatRunSettings(settings: AiSettings): AiSettings {
-  const resolved = resolveChatSettings(settings);
-  const entry = getProviderEntry(providerConfig, resolved.provider);
-  const usesChatOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
-  return applyRuntimeModelDefaults(resolved, getProviderModelDefaults(entry, resolved.model), usesChatOverride);
+  return resolveChatRunSettingsWith(providerConfig, settings);
 }
 
 function resolveBackgroundRunSettings(settings: AiSettings): AiSettings {
-  const resolved = resolveBackgroundSettings(settings);
-  const entry = getProviderEntry(providerConfig, resolved.provider);
-  const usesBackgroundOverride =
-    resolved.provider !== settings.provider || resolved.model !== settings.model;
-  return applyRuntimeModelDefaults(
-    resolved,
-    getProviderModelDefaults(entry, resolved.model),
-    usesBackgroundOverride,
-  );
+  return resolveBackgroundRunSettingsWith(providerConfig, settings);
 }
 
 function resolveWritingRunSettings(settings: AiSettings): AiSettings {
-  // 本文モデルをそのまま執筆系として使う。ユーザー保存のグローバル値は loadSettings 済みなので
-  // ここでは役割プロファイルとオーバーライドだけを重ねる。
-  const defaults = getProviderModelDefaults(getProviderEntry(providerConfig, settings.provider), settings.model);
-  const base = applyRuntimeModelDefaults(settings, defaults, false);
-  return applyRoleProfile(base, defaults?.writing, settings.writingOverrides);
+  return resolveWritingRunSettingsWith(providerConfig, settings);
 }
 
 function resolveJudgmentRunSettings(settings: AiSettings): AiSettings {
-  const resolved = resolveJudgmentSettings(settings);
-  const entry = getProviderEntry(providerConfig, resolved.provider);
-  const defaults = getProviderModelDefaults(entry, resolved.model);
-  const usesOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
-  const base = applyRuntimeModelDefaults(resolved, defaults, usesOverride);
-  return applyRoleProfile(base, defaults?.judgment, settings.judgmentOverrides);
+  return resolveJudgmentRunSettingsWith(providerConfig, settings);
 }
 
 function getProviderProtocol(settings: AiSettings): string {
@@ -491,6 +375,9 @@ function annotateLastAssistantRun(
       createdAt,
       kind,
     };
+    // Streaming rendering completed before transport metadata was available.
+    // Re-render once so the model badge appears in the response card.
+    updateMessageContent(i, message.content);
     return;
   }
 }
@@ -766,6 +653,25 @@ function createAiTools(): ToolSet | undefined {
       resolveSettings: () => resolveBackgroundRunSettings(currentSettings),
       currentEpisodeId: state.currentEpisodeId ?? undefined,
     }),
+    // チャットで「もっと良い表現にできない?」等と頼まれたときに、チャットモデルの
+    // 即興ではなく、リライトボタンと同じ執筆系パイプライン(役割解決・足場・語りの型
+    // 規則・設定資料)で差し替え案を生成させるためのツール。
+    rewritePassage: createRewritePassageTool({
+      resolveSettings: () => resolveWritingRunSettings(currentSettings),
+      getEditorText: () => getElements().editor.value,
+      getSettingsContext: () => buildSettingsContext(state.currentEpisodeId ?? undefined),
+      getContextSideBudget: () => getPromptContextBudgets().rewriteContextSide,
+    }),
+    // チャットで「編集者として直して」「ペン入れして」等と頼まれたときに、
+    // チャットモデルの即興ではなく、判断系モデル(編集者)の査読→執筆系モデルの
+    // 置換案生成の二段階プロセスで編集提案を生成させるツール。
+    lineEditPassage: createLineEditPassageTool({
+      resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
+      resolveWritingSettings: () => resolveWritingRunSettings(currentSettings),
+      getEditorText: () => getElements().editor.value,
+      getSettingsContext: () => buildSettingsContext(state.currentEpisodeId ?? undefined),
+      getContextSideBudget: () => getPromptContextBudgets().rewriteContextSide,
+    }),
   };
 
   if (state.currentEpisodeId) {
@@ -953,14 +859,14 @@ function formatToolLog(state: ToolLogState): string {
   return text;
 }
 
-function upsertToolLog(next: Omit<ToolLogState, "messageIndex">): void {
+function upsertToolLog(next: Omit<ToolLogState, "messageIndex">, settings?: AiSettings): void {
   const existing = toolLogStates.get(next.toolCallId);
   if (existing) {
     const updated: ToolLogState = { ...existing, ...next };
     toolLogStates.set(next.toolCallId, updated);
     if (!updateMessageContent(existing.messageIndex, formatToolLog(updated))) {
       toolLogStates.delete(next.toolCallId);
-      upsertToolLog(next);
+      upsertToolLog(next, settings);
     }
     return;
   }
@@ -969,17 +875,30 @@ function upsertToolLog(next: Omit<ToolLogState, "messageIndex">): void {
   const messageIndex = state.chatMessages.length;
   const created: ToolLogState = { ...next, messageIndex };
   appendMessage("assistant", formatToolLog(created));
+  const message = state.chatMessages[messageIndex];
+  if (message && settings) {
+    const createdAt = new Date().toISOString();
+    message.transport = {
+      provider: settings.provider,
+      model: settings.model,
+      baseUrl: settings.baseUrl,
+      protocol: getProviderProtocol(settings),
+      createdAt,
+      kind: "chat",
+    };
+    updateMessageContent(messageIndex, message.content);
+  }
   toolLogStates.set(next.toolCallId, created);
 }
 
-function handleToolEvent(event: StreamToolEvent): void {
+function handleToolEvent(event: StreamToolEvent, settings: AiSettings): void {
   switch (event.type) {
     case "input-start":
       upsertToolLog({
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         status: "input",
-      });
+      }, settings);
       break;
     case "call":
       upsertToolLog({
@@ -987,7 +906,7 @@ function handleToolEvent(event: StreamToolEvent): void {
         toolName: event.toolName,
         status: "running",
         input: event.input,
-      });
+      }, settings);
       break;
     case "result":
       upsertToolLog({
@@ -996,7 +915,7 @@ function handleToolEvent(event: StreamToolEvent): void {
         status: isFailureToolOutput(event.output) ? "failure" : "success",
         input: event.input,
         output: event.output,
-      });
+      }, settings);
       break;
     case "error":
       upsertToolLog({
@@ -1005,7 +924,7 @@ function handleToolEvent(event: StreamToolEvent): void {
         status: "failure",
         input: event.input,
         output: { error: event.error },
-      });
+      }, settings);
       break;
   }
 }
@@ -1082,7 +1001,7 @@ async function streamChatOnce(
     onReasoning: (chunk) => {
       appendAssistantThinking(chunk);
     },
-    onToolEvent: allowTools ? handleToolEvent : undefined,
+    onToolEvent: allowTools ? (event) => handleToolEvent(event, settings) : undefined,
     abortSignal: controller.signal,
   });
 }
@@ -1820,15 +1739,12 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
 
     const resolvedRunSettings = resolveBackgroundRunSettings(currentSettings);
     // プロバイダ判定は解決後の設定で行う(バックグラウンドでは opencode になる場合がある)。
-    // OpenCode クライアントは通常 tool_choice を省略するため、OpenCode Go では undefined を渡す。
-    // DeepSeek 直接は "auto"、それ以外は "required"。
-    const isDeepSeek = resolvedRunSettings.provider === "deepseek";
-    const isOpencodeGo = resolvedRunSettings.provider === "opencode";
+    // thinking と tool_choice の両立可否はプロバイダ毎に異なるため一元化したヘルパーで解決する。
     const run = await streamChat({
       settings: resolvedRunSettings,
       messages,
       tools: summaryTools,
-      toolChoice: isOpencodeGo ? undefined : isDeepSeek ? "auto" : "required",
+      toolChoice: resolveForcedToolChoice(resolvedRunSettings),
       stopWhen: hasToolCall("saveEpisodeSummaryAndOneLiner"),
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
@@ -1836,7 +1752,7 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       onReasoning: (chunk) => {
         appendAssistantThinking(chunk);
       },
-      onToolEvent: handleToolEvent,
+      onToolEvent: (event) => handleToolEvent(event, resolvedRunSettings),
       abortSignal: controller.signal,
     });
     finalizeToolRun(run);
@@ -2426,6 +2342,17 @@ const CONTINUATION_STAGE_LABELS = {
   revise: "修正中…",
 } as const;
 
+// ボタン表示用にモデルラベルを切り詰める(長いモデルIDでツールバーが崩れるのを防ぐ)
+function truncateModelLabel(label: string, maxChars = 20): string {
+  return label.length <= maxChars ? label : `${label.slice(0, maxChars)}…`;
+}
+
+// ステージ表示に併記するモデルラベルを解決済み設定から取る
+function stageModelLabel(settings: AiSettings): string {
+  const entry = getProviderEntry(providerConfig, settings.provider);
+  return truncateModelLabel(getProviderModelDefaults(entry, settings.model)?.label ?? settings.model);
+}
+
 // 現エピソードの直前のエピソード本文を返す(文体指紋の計測材料が短すぎる場合の補完用)。
 // 取得失敗は文体指紋の質が落ちるだけで続き生成全体を止めてはならないため、ここで吸収する。
 async function findPreviousEpisodeContent(): Promise<string | undefined> {
@@ -2469,8 +2396,11 @@ async function handleContinue(): Promise<void> {
 
   const controller = startGeneration();
   try {
+    // 執筆系・判断系の設定は生成開始時に一度だけ解決し、ステージ表示のモデル名併記にも使う
+    const writingRun = resolveWritingRunSettings(currentSettings);
+    const judgmentRun = resolveJudgmentRunSettings(currentSettings);
     const run = await streamContinuation({
-      settings: resolveWritingRunSettings(currentSettings),
+      settings: writingRun,
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       relatedScenes,
@@ -2480,11 +2410,13 @@ async function handleContinue(): Promise<void> {
       onChunk: (chunk) => {
         insertAtCursor(chunk);
       },
-      onToolEvent: handleToolEvent,
+      onToolEvent: (event) => handleToolEvent(event, writingRun),
       onStage: (stage) => {
-        btnContinue.textContent = CONTINUATION_STAGE_LABELS[stage];
+        // 構想・査読は判断系モデル、ドラフト・修正は執筆系モデルが実行する
+        const stageSettings = stage === "plan" || stage === "review" ? judgmentRun : writingRun;
+        btnContinue.textContent = `${CONTINUATION_STAGE_LABELS[stage]}〔${stageModelLabel(stageSettings)}〕`;
       },
-      getJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
+      getJudgmentSettings: () => judgmentRun,
       styleFingerprint,
       abortSignal: controller.signal,
     });
@@ -2730,14 +2662,17 @@ function openSettings(): void {
 }
 
 async function saveAndCloseSettings(settings: AiSettings): Promise<void> {
-  // 設定モーダルから chatProvider/chatModel/backgroundProvider/backgroundModel が
-  // 欠落するケースに備えて、既存の currentSettings の値でマージして保持する。
+  // chatProvider/chatModel は設定モーダルから返されないため、未指定時は
+  // currentSettings の値を維持する。backgroundProvider/backgroundModel は
+  // モーダルから返されるが、明示的な undefined(チャット欄に同期) を尊重して
+  // クリアできるようにするため、in 演算子で「存在するが undefined」と
+  // 「そもそも存在しない」を区別する pickDefinedOrFallback を使う。
   const merged: AiSettings = {
     ...settings,
     chatProvider: settings.chatProvider ?? currentSettings.chatProvider,
     chatModel: settings.chatModel ?? currentSettings.chatModel,
-    backgroundProvider: settings.backgroundProvider ?? currentSettings.backgroundProvider,
-    backgroundModel: settings.backgroundModel ?? currentSettings.backgroundModel,
+    backgroundProvider: pickDefinedOrFallback(settings, currentSettings, "backgroundProvider"),
+    backgroundModel: pickDefinedOrFallback(settings, currentSettings, "backgroundModel"),
   };
   currentSettings = merged;
   await saveSettings(merged);

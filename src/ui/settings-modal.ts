@@ -25,6 +25,13 @@ import {
   getSupportedEfforts,
   isThinkingAlwaysOn,
 } from "../ai/capability.ts";
+import {
+  resolveChatRunSettings,
+  resolveBackgroundRunSettings,
+  resolveWritingRunSettings,
+  resolveJudgmentRunSettings,
+} from "../ai/role-settings.ts";
+import { isGemini3Model } from "../ai/provider-options.ts";
 import { type FixedModel } from "../ai/model-list.ts";
 import {
   loadWebDavSyncConfig,
@@ -404,6 +411,13 @@ export function updateAdvancedVisibility(provider: Provider, modelId?: string): 
         advancedSettings.querySelector<HTMLSelectElement>("#setting-anthropic-thinking-effort"),
         getSupportedEfforts(cap),
       );
+      // 2-7: Opus 4.8 のように canDisable な adaptive モデルは、budget kind 用の
+      // thinking ON/OFF チェックボックスを流用して表示する（最小実装）。
+      // budget 入力欄（トークン数）は budget kind 専用のため、ここでは隠したままにする。
+      if (cap?.canDisable === true) {
+        if (anthropicGroup) anthropicGroup.classList.remove("hidden");
+        if (thinkingBudgetRow) thinkingBudgetRow.classList.add("hidden");
+      }
       break;
     case "anthropic-budget":
       if (anthropicGroup) anthropicGroup.classList.remove("hidden");
@@ -926,6 +940,9 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   getElements().settingJudgmentProvider.value = settings.judgmentProvider ?? "";
   renderJudgmentModelOptions(config, settings.judgmentProvider ?? "", settings.judgmentModel);
 
+  // 初回描画。以後はフォームの change/input 委譲リスナー(bindSettingsActions)が更新する
+  renderModelResolutionPreview();
+
   void renderWebDavSettings();
   void renderExaSettings();
 }
@@ -1058,6 +1075,150 @@ export function readSettingsFromModal(): AiSettings {
     continuationTargetedRevision: settingContinuationTargetedRevision.checked,
     continuationBeatSplitEnabled: settingContinuationBeatSplit.checked,
   };
+}
+
+/* ============================================================
+ * モデル解決プレビュー — 保存前のフォーム内容から、各工程で実際に
+ * どのモデル・パラメータが使われるかをミニテーブルで表示する。
+ * ============================================================ */
+
+/// モデル列: プロバイダ表示名 + モデルラベル(providers.json に無いモデルは ID をそのまま)
+export function describePreviewModel(config: ProviderConfig, resolved: AiSettings): string {
+  const entry = getProviderEntry(config, resolved.provider);
+  const modelLabel = getProviderModelDefaults(entry, resolved.model)?.label ?? resolved.model;
+  return `${entry?.name ?? resolved.provider} / ${modelLabel}`;
+}
+
+/// 温度列: 実際に API へ送られない構成では理由付きの「—」を出す
+/// (service.ts の buildTemperatureOption と対応)
+export function describePreviewTemperature(resolved: AiSettings): string {
+  if (resolved.provider === "deepseek" && resolved.deepseekThinkingEnabled !== false) {
+    return "—（thinkingでは無視）";
+  }
+  if (resolved.provider === "opencode") {
+    return "—（送信されない）";
+  }
+  if (resolved.provider === "google" && isGemini3Model(resolved.model)) {
+    return "—（既定1.0固定）";
+  }
+  return String(resolved.temperature);
+}
+
+/// 思考列: プロバイダ/capability 別に thinking・reasoning の要約を出す
+export function describePreviewThinking(resolved: AiSettings): string {
+  const kind = resolved.reasoningCapability?.kind;
+  if (kind === "deepseek" || (kind === undefined && resolved.provider === "deepseek")) {
+    if (resolved.deepseekThinkingEnabled === false) return "thinking OFF";
+    return resolved.deepseekReasoningEffort
+      ? `thinking ON（${resolved.deepseekReasoningEffort}）`
+      : "thinking ON";
+  }
+  if (kind === "anthropic-adaptive") {
+    // 2-7: Opus 4.8 のように canDisable な adaptive モデルは OFF 表示もあり得る
+    // (Fable 5 は canDisable でないため常に ON 表示のまま)。
+    if (resolved.reasoningCapability?.canDisable === true && !resolved.anthropicThinkingEnabled) {
+      return "thinking OFF";
+    }
+    return resolved.anthropicThinkingEffort
+      ? `thinking ON（${resolved.anthropicThinkingEffort}）`
+      : "thinking ON";
+  }
+  if (kind === "anthropic-budget" || (kind === undefined && resolved.provider === "anthropic")) {
+    if (!resolved.anthropicThinkingEnabled) return "thinking OFF";
+    return resolved.anthropicThinkingBudget !== undefined
+      ? `thinking ON（予算 ${resolved.anthropicThinkingBudget}）`
+      : "thinking ON";
+  }
+  if (kind === "openai" || (kind === undefined && resolved.provider === "openai")) {
+    return resolved.openaiReasoningEffort ?? "—";
+  }
+  if (kind === "google" || (kind === undefined && resolved.provider === "google" && isGemini3Model(resolved.model))) {
+    return resolved.googleThinkingLevel ?? "既定";
+  }
+  return "—";
+}
+
+export interface ModelResolutionPreviewRow {
+  role: string;
+  resolved: AiSettings;
+  /// 足場列を表示する行(執筆系・判断系のみ)
+  showScaffold: boolean;
+}
+
+/**
+ * フォームの現在値から各工程の解決結果を計算する純関数(テスト可能)。
+ * @returns 各行のデータ。config が未ロードの場合は undefined。
+ */
+export function computeModelResolutionPreviewRows(
+  config: ProviderConfig | undefined | null,
+  settings: AiSettings,
+): ModelResolutionPreviewRow[] | undefined {
+  if (!config) return undefined;
+  return [
+    { role: "チャット", resolved: resolveChatRunSettings(config, settings), showScaffold: false },
+    { role: "執筆系（ドラフト・修正・リライト）", resolved: resolveWritingRunSettings(config, settings), showScaffold: true },
+    { role: "判断系（構想・査読・選定・カード・講評）", resolved: resolveJudgmentRunSettings(config, settings), showScaffold: true },
+    { role: "バックグラウンド（要約・整合性チェック）", resolved: resolveBackgroundRunSettings(config, settings), showScaffold: false },
+  ];
+}
+
+/**
+ * フォームの現在値から各工程の解決結果を計算してミニテーブルを描画する。
+ * readSettingsFromModal は DOM 読み取り(+モーダル内キャッシュの同期)だけで
+ * ストアや設定本体には触れないため、入力のたびに呼んで問題ない。
+ * モーダル未描画などで計算できない場合はその旨を表示する。
+ */
+export function renderModelResolutionPreview(): void {
+  const body = document.querySelector<HTMLElement>("#model-resolution-preview-body");
+  if (!body) return;
+
+  const config = modalProviderConfig;
+  let rows: ModelResolutionPreviewRow[] | undefined;
+  try {
+    const settings = readSettingsFromModal();
+    rows = computeModelResolutionPreviewRows(config, settings);
+  } catch (error) {
+    console.warn("[litra] model resolution preview failed:", error);
+    body.textContent = "計算できません";
+    return;
+  }
+
+  if (!rows) {
+    body.textContent = "計算できません";
+    return;
+  }
+
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const heading of ["工程", "モデル", "温度", "思考", "足場"]) {
+    const th = document.createElement("th");
+    th.textContent = heading;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    const cells = [
+      row.role,
+      describePreviewModel(config!, row.resolved),
+      describePreviewTemperature(row.resolved),
+      describePreviewThinking(row.resolved),
+      row.showScaffold ? row.resolved.promptScaffold ?? "full" : "—",
+    ];
+    for (const text of cells) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+
+  body.replaceChildren(table);
 }
 
 export function populateModelList(modelIds: string[]): void {
@@ -1225,6 +1386,9 @@ export function bindSettingsActions(actions: SettingsActions): void {
   settingDeepseekThinking.addEventListener("change", () => {
     updateSamplingControlsVisibility(modalCurrentProvider);
   });
+  // どの入力が変わってもモデル解決プレビューを更新する(委譲リスナー。描画は軽量なので都度実行)
+  settingsForm.addEventListener("change", () => renderModelResolutionPreview());
+  settingsForm.addEventListener("input", () => renderModelResolutionPreview());
   btnShowLicenses.addEventListener("click", () => void showLicenseModal());
   btnCloseLicenses.addEventListener("click", hideLicenseModal);
   licenseModal.querySelector(".modal-backdrop")?.addEventListener("click", hideLicenseModal);
@@ -1259,7 +1423,9 @@ export function bindAdvancedSettingsToggle(): void {
 
   advancedSettingsToggle.addEventListener("click", () => {
     const isHidden = advancedSettings.classList.toggle("hidden");
-    advancedSettingsToggle.textContent = isHidden ? "詳細設定を表示" : "詳細設定を隠す";
+    advancedSettingsToggle.textContent = isHidden
+      ? "生成・執筆支援の詳細を表示"
+      : "生成・執筆支援の詳細を隠す";
     advancedSettingsToggle.setAttribute("aria-expanded", String(!isHidden));
   });
 }

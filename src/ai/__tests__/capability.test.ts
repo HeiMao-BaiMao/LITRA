@@ -27,7 +27,7 @@ const openaiDefaults: ProviderModelDefaults = {
   openaiReasoningEffort: "medium",
   reasoningCapability: {
     kind: "openai",
-    supportedEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
+    supportedEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
   },
 };
 
@@ -41,15 +41,14 @@ const fableDefaults: ProviderModelDefaults = {
   },
 };
 
-const opusBudgetDefaults: ProviderModelDefaults = {
+const opusAdaptiveDefaults: ProviderModelDefaults = {
   id: "claude-opus-4-8",
   anthropicThinkingEnabled: false,
   reasoningCapability: {
-    kind: "anthropic-budget",
+    kind: "anthropic-adaptive",
+    supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+    display: "summarized",
     canDisable: true,
-    supportsBudget: true,
-    minBudget: 1000,
-    maxBudget: 64000,
   },
 };
 
@@ -58,7 +57,7 @@ const copilotGptDefaults: ProviderModelDefaults = {
   openaiReasoningEffort: "medium",
   reasoningCapability: {
     kind: "openai",
-    supportedEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
+    supportedEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
   },
 };
 
@@ -77,7 +76,7 @@ describe("getModelCapability with defaults", () => {
   it("uses curated reasoningCapability from defaults when provided", () => {
     const cap = getModelCapability("openai", "gpt-5.6-sol", openaiDefaults);
     expect(cap?.kind).toBe("openai");
-    expect(cap?.supportedEfforts).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(cap?.supportedEfforts).toEqual(["none", "low", "medium", "high", "xhigh", "max"]);
   });
 
   it("uses curated anthropic-adaptive from defaults", () => {
@@ -87,13 +86,11 @@ describe("getModelCapability with defaults", () => {
     expect(cap?.supportedEfforts).toContain("max");
   });
 
-  it("uses curated anthropic-budget from defaults", () => {
-    const cap = getModelCapability("anthropic", "claude-opus-4-8", opusBudgetDefaults);
-    expect(cap?.kind).toBe("anthropic-budget");
+  it("uses curated disableable anthropic-adaptive from defaults", () => {
+    const cap = getModelCapability("anthropic", "claude-opus-4-8", opusAdaptiveDefaults);
+    expect(cap?.kind).toBe("anthropic-adaptive");
     expect(cap?.canDisable).toBe(true);
-    expect(cap?.supportsBudget).toBe(true);
-    expect(cap?.minBudget).toBe(1000);
-    expect(cap?.maxBudget).toBe(64000);
+    expect(cap?.supportedEfforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   it("falls back to heuristic when no reasoningCapability in defaults", () => {
@@ -212,10 +209,11 @@ describe("buildProviderOptions", () => {
       model: "gpt-5.6-sol",
       openaiReasoningEffort: "medium",
     } as any);
+    // reasoningSummary は "detailed" がスナップショットにより拒否された実績があるため "auto" を使う
     expect(opts).toEqual({
       openai: {
         reasoningEffort: "medium",
-        reasoningSummary: "detailed",
+        reasoningSummary: "auto",
       },
     });
   });
@@ -259,7 +257,7 @@ describe("buildProviderOptions", () => {
     });
   });
 
-  it("Anthropic adaptive returns undefined when no effort set", () => {
+  it("Anthropic adaptive (non-canDisable) omits options when no effort is set", () => {
     const opts = buildProviderOptions({
       provider: "anthropic",
       model: "claude-fable-5",
@@ -267,6 +265,44 @@ describe("buildProviderOptions", () => {
       reasoningCapability: { kind: "anthropic-adaptive" },
     } as any);
     expect(opts).toBeUndefined();
+  });
+
+  it("Anthropic adaptive (canDisable, e.g. Opus 4.8) omits thinking when disabled", () => {
+    const opts = buildProviderOptions({
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      anthropicThinkingEnabled: false,
+      anthropicThinkingEffort: "high",
+      reasoningCapability: {
+        kind: "anthropic-adaptive",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        display: "summarized",
+        canDisable: true,
+      },
+    } as any);
+    // 省略 = OFF({type:"disabled"} は 400 になるモデルがあるため一切送らない)
+    expect(opts).toBeUndefined();
+  });
+
+  it("Anthropic adaptive (canDisable, e.g. Opus 4.8) sends thinking when enabled", () => {
+    const opts = buildProviderOptions({
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      anthropicThinkingEnabled: true,
+      anthropicThinkingEffort: "xhigh",
+      reasoningCapability: {
+        kind: "anthropic-adaptive",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        display: "summarized",
+        canDisable: true,
+      },
+    } as any);
+    expect(opts).toEqual({
+      anthropic: {
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "xhigh",
+      },
+    });
   });
 
   it("returns Anthropic budget thinking ON options", () => {
@@ -360,13 +396,13 @@ describe("buildProviderOptions", () => {
     });
   });
 
-  it("returns DeepSeek thinking disabled options when tools enabled", () => {
+  it("keeps DeepSeek thinking enabled when tools are enabled", () => {
     const opts = buildProviderOptions({
       provider: "deepseek",
       model: "deepseek-v4-flash",
     } as any, true);
     expect(opts).toEqual({
-      deepseek: { thinking: { type: "disabled" } },
+      deepseek: { thinking: { type: "enabled" } },
     });
   });
 
@@ -422,17 +458,17 @@ describe("getModelCapability (existing)", () => {
     expect(cap?.supportedEfforts).toContain("max");
   });
 
-  it("returns anthropic-budget for Claude Opus/Sonnet", () => {
+  it("returns disableable anthropic-adaptive for Claude Opus 4.8", () => {
     const cap = getModelCapability("anthropic", "claude-opus-4-8");
-    expect(cap?.kind).toBe("anthropic-budget");
+    expect(cap?.kind).toBe("anthropic-adaptive");
     expect(cap?.canDisable).toBe(true);
-    expect(cap?.supportsBudget).toBe(true);
+    expect(cap?.supportedEfforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   it("returns deepseek capability for DeepSeek models", () => {
     const cap = getModelCapability("deepseek", "deepseek-v4-flash");
     expect(cap?.kind).toBe("deepseek");
-    expect(cap?.supportedEfforts).toContain("max");
+    expect(cap?.supportedEfforts).toEqual(["high", "max"]);
     expect(cap?.canDisable).toBe(true);
   });
 
@@ -440,6 +476,15 @@ describe("getModelCapability (existing)", () => {
     const cap = getModelCapability("google", "gemini-3.5-flash");
     expect(cap?.kind).toBe("google");
     expect(cap?.supportedEfforts).toContain("high");
+  });
+
+  it("uses model-specific Google fallback efforts", () => {
+    expect(getModelCapability("google", "gemini-3.1-pro-preview")?.supportedEfforts).toEqual([
+      "low", "medium", "high",
+    ]);
+    expect(getModelCapability("google", "gemini-3.5-flash")?.supportedEfforts).toEqual([
+      "minimal", "low", "medium", "high",
+    ]);
   });
 
   it("handles Copilot models correctly", () => {
@@ -478,6 +523,9 @@ describe("isThinkingAlwaysOn", () => {
   });
   it("returns false for budget models", () => {
     expect(isThinkingAlwaysOn({ kind: "anthropic-budget" })).toBe(false);
+  });
+  it("returns false for disableable adaptive models", () => {
+    expect(isThinkingAlwaysOn({ kind: "anthropic-adaptive", canDisable: true })).toBe(false);
   });
 });
 
