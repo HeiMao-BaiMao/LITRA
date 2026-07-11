@@ -69,6 +69,7 @@ import {
   createListWorldEntriesTool,
   createRebuildSearchIndexTool,
   createRetrieveEpisodeTool,
+  createContinuePassageTool,
   createRewritePassageTool,
   createLineEditPassageTool,
   createSaveEpisodeMemoTool,
@@ -653,11 +654,36 @@ function createAiTools(): ToolSet | undefined {
       resolveSettings: () => resolveBackgroundRunSettings(currentSettings),
       currentEpisodeId: state.currentEpisodeId ?? undefined,
     }),
+    // チャットからの新規本文生成も、続き生成ボタンと同じ執筆パイプラインへ送る。
+    continuePassage: createContinuePassageTool({
+      resolveWritingSettings: () => resolveWritingRunSettings(currentSettings),
+      resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
+      prepareContext: async () => {
+        const text = getElements().editor.value;
+        const { start } = getSelection();
+        const context = buildContinuationContext(text, start);
+        const relatedScenes = await buildContinuationRelatedScenes(context);
+        return {
+          context,
+          settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
+          relatedScenes,
+          styleFingerprint: measureStyleFingerprint(
+            composeStyleSampleText(text, await findPreviousEpisodeContent()),
+          ),
+          episodeId: state.currentEpisodeId ?? undefined,
+          characterVoiceInput: {
+            names: findMentionedCharacterNames(characters, context),
+            excerpts: relatedScenes ?? "",
+          },
+        };
+      },
+    }),
     // チャットで「もっと良い表現にできない?」等と頼まれたときに、チャットモデルの
     // 即興ではなく、リライトボタンと同じ執筆系パイプライン(役割解決・足場・語りの型
     // 規則・設定資料)で差し替え案を生成させるためのツール。
     rewritePassage: createRewritePassageTool({
       resolveSettings: () => resolveWritingRunSettings(currentSettings),
+      resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
       getEditorText: () => getElements().editor.value,
       getSettingsContext: () => buildSettingsContext(state.currentEpisodeId ?? undefined),
       getContextSideBudget: () => getPromptContextBudgets().rewriteContextSide,
@@ -2448,6 +2474,7 @@ async function handleRewrite(): Promise<void> {
   try {
     await streamRewrite({
       settings: resolveWritingRunSettings(currentSettings),
+      judgmentSettings: resolveJudgmentRunSettings(currentSettings),
       selection,
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),

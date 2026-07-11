@@ -4,6 +4,7 @@ import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provid
 import {
   buildAssistantSystemPrompt,
   buildCharacterVoiceCardsPrompt,
+  buildCandidateSelectionPrompt,
   buildContinuationPlanPrompt,
   buildContinuationPrompt,
   buildContinuationRevisionPrompt,
@@ -569,6 +570,8 @@ export interface StreamContinuationOptions {
   episodeId?: string;
   // 話し方カード(提案7)の対象人物名と、その根拠となる原稿抜粋(文字列照合+検索のみで生成。LLM呼び出しなし)
   characterVoiceInput?: { names: string[]; excerpts: string };
+  /** チャットから渡された、この続き生成に固有の作者指示。 */
+  authorInstruction?: string;
 }
 
 export interface StreamRewriteOptions {
@@ -582,6 +585,8 @@ export interface StreamRewriteOptions {
   // 作者からの書き直し指示(チャット経由の rewritePassage ツールで使用)。
   // 省略時は従来どおりの無指示リライト。
   instruction?: string;
+  /** 複数候補の選定に使う判断系設定。未指定なら単一生成。 */
+  judgmentSettings?: AiSettings;
 }
 
 export interface StreamFeedbackOptions {
@@ -810,12 +815,13 @@ async function runContinuationPlanStep(
   settingsContext: string | undefined,
   relatedScenes: string | undefined,
   abortSignal?: AbortSignal,
+  authorInstruction?: string,
 ): Promise<string | undefined> {
   try {
     const result = await generateText({
       model: createModel(settings),
       ...buildRetryOption(settings),
-      prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes),
+      prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes, authorInstruction),
       ...buildTemperatureOption(settings),
       // thinking 系モデルでは推論トークンもこの上限を消費するため、
       // 構想の深さを絞らないよう本体生成と同じ上限を使う。
@@ -981,12 +987,13 @@ async function runDraftSelectionStep(
   plan: string | undefined,
   abortSignal?: AbortSignal,
   scaffold?: PromptScaffoldLevel,
+  authorInstruction?: string,
 ): Promise<number | undefined> {
   try {
     const result = await generateText({
       model: createModel(settings),
       ...buildRetryOption(settings),
-      prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold),
+      prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold, authorInstruction),
       ...buildTemperatureOption(settings),
       maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
@@ -1000,6 +1007,41 @@ async function runDraftSelectionStep(
   } catch (error) {
     if (abortSignal?.aborted) throw error;
     console.warn("[litra] draft selection step failed; using first draft", error);
+    return undefined;
+  }
+}
+
+async function runCandidateSelectionStep(
+  settings: AiSettings,
+  candidates: string[],
+  task: string,
+  originalText: string,
+  context: string,
+  settingsContext?: string,
+  abortSignal?: AbortSignal,
+  scaffold?: PromptScaffoldLevel,
+): Promise<number | undefined> {
+  try {
+    const result = await generateText({
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildCandidateSelectionPrompt(
+        candidates,
+        task,
+        originalText,
+        context,
+        settingsContext,
+        scaffold,
+      ),
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+      abortSignal,
+      ...buildAdvancedOptions(settings),
+    });
+    return parseDraftSelection(result.text.trim(), candidates.length);
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] candidate selection failed; using first candidate", error);
     return undefined;
   }
 }
@@ -1134,20 +1176,42 @@ export async function runLineEditRevision(
   instruction?: string,
   extras?: FictionPromptExtras,
   abortSignal?: AbortSignal,
+  judgmentSettings?: AiSettings,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
-      model: createModel(settings),
-      ...buildRetryOption(settings),
-      prompt: buildLineEditRevisionPrompt(passage, review, context, settingsContext, instruction, extras),
-      ...buildTemperatureOption(settings),
-      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+    const generateCandidate = async (): Promise<string> => {
+      const result = await generateText({
+        model: createModel(settings),
+        ...buildRetryOption(settings),
+        prompt: buildLineEditRevisionPrompt(passage, review, context, settingsContext, instruction, extras),
+        ...buildTemperatureOption(settings),
+        maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+        abortSignal,
+        ...buildAdvancedOptions(settings),
+      });
+      return result.text.trim();
+    };
+    const first = await generateCandidate();
+    if (!first) return undefined;
+    if (!settings.continuationBestOfTwo || !judgmentSettings) return first;
+    const second = await generateCandidate();
+    if (!second) return first;
+    const validCandidates = [first, second].filter(
+      (candidate) => parseTargetedRevision(candidate) !== undefined,
+    );
+    if (validCandidates.length === 0) return first;
+    if (validCandidates.length === 1) return validCandidates[0];
+    const selected = await runCandidateSelectionStep(
+      judgmentSettings,
+      validCandidates,
+      "査読に基づく局所的な修正案",
+      passage,
+      context,
+      settingsContext,
       abortSignal,
-      ...buildAdvancedOptions(settings),
-    });
-    const text = result.text.trim();
-    if (!text) return undefined;
-    return text;
+      judgmentSettings.promptScaffold,
+    );
+    return validCandidates[selected ?? 0] ?? validCandidates[0];
   } catch (error) {
     if (abortSignal?.aborted) throw error;
     console.warn("[litra] line edit revision step failed", error);
@@ -1170,6 +1234,7 @@ export async function streamContinuation({
   styleFingerprint,
   episodeId,
   characterVoiceInput,
+  authorInstruction,
 }: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
@@ -1180,6 +1245,7 @@ export async function streamContinuation({
       ? { promptScaffold: s.promptScaffold }
       : undefined;
     if (styleFingerprint) extras = { ...extras, styleFingerprint };
+    if (authorInstruction?.trim()) extras = { ...extras, authorInstruction };
 
     // 構想・レビューは出力が短く「判断」寄りの工程のため、判断系モデルに振る。
     // source の判定(本文/バックグラウンド/カスタム)は main.ts 側が担う。
@@ -1206,7 +1272,14 @@ export async function streamContinuation({
 
     if (s.twoStageContinuation) onStage?.("plan");
     const plan = s.twoStageContinuation
-      ? await runContinuationPlanStep(judgmentSettings, context, settingsContext, relatedScenes, abortSignal)
+      ? await runContinuationPlanStep(
+          judgmentSettings,
+          context,
+          settingsContext,
+          relatedScenes,
+          abortSignal,
+          authorInstruction,
+        )
       : undefined;
 
     onStage?.("draft");
@@ -1268,6 +1341,7 @@ export async function streamContinuation({
         plan,
         abortSignal,
         judgmentSettings.promptScaffold,
+        authorInstruction,
       );
       const chosen = candidates[selectedIndex ?? 0] ?? candidateA;
       draftText = chosen.text;
@@ -1421,21 +1495,51 @@ export async function streamRewrite({
   settingsContext,
   onReasoning,
   instruction,
+  judgmentSettings,
 }: StreamRewriteOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const result = streamText<ToolSet>({
-      model: createModel(s),
-      ...buildRetryOption(s),
-      system: buildAssistantSystemPrompt({ toolsEnabled: false }),
-      prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold, instruction),
-      ...buildTemperatureOption(s),
-      maxOutputTokens: s.maxTokens,
-      abortSignal,
-      ...buildAdvancedOptions(s),
-    });
+    const runCandidate = async (emit: (chunk: string) => void): Promise<{ text: string; run: StreamRunResult }> => {
+      const result = streamText<ToolSet>({
+        model: createModel(s),
+        ...buildRetryOption(s),
+        system: buildAssistantSystemPrompt({ toolsEnabled: false }),
+        prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold, instruction),
+        ...buildTemperatureOption(s),
+        maxOutputTokens: s.maxTokens,
+        abortSignal,
+        ...buildAdvancedOptions(s),
+      });
+      let text = "";
+      const run = await consumeStream(result, (chunk) => { text += chunk; emit(chunk); }, undefined, onReasoning);
+      return { text: sanitizeDraftText(text), run };
+    };
 
-    return await consumeStream(result, onChunk, undefined, onReasoning);
+    if (!s.continuationBestOfTwo || !judgmentSettings) {
+      const single = await runCandidate(onChunk);
+      return single.run;
+    }
+
+    const first = await runCandidate(() => {});
+    const second = await runCandidate(() => {});
+    const selected = await runCandidateSelectionStep(
+      normalizeSettings(judgmentSettings),
+      [first.text, second.text],
+      "指定範囲の書き直し案",
+      selection,
+      context,
+      settingsContext,
+      abortSignal,
+      judgmentSettings.promptScaffold,
+    );
+    const chosen = [first, second][selected ?? 0] ?? first;
+    onChunk(chosen.text);
+    return {
+      ...chosen.run,
+      toolCallCount: first.run.toolCallCount + second.run.toolCallCount,
+      toolResultCount: first.run.toolResultCount + second.run.toolResultCount,
+      toolErrorCount: first.run.toolErrorCount + second.run.toolErrorCount,
+    };
   } catch (error) {
     console.error("streamRewrite error:", error);
     throw error;

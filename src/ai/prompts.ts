@@ -228,6 +228,15 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
 8. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write a restatement of the diff or filler such as 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read — write it as if a future session depends on it, because it does.`);
   }
 
+  if (hasTool(available, "continuePassage")) {
+    sections.push(`NEW FICTION GENERATION (continuePassage):
+- IF the user asks you to write a new continuation, scene, passage, dialogue sequence, or other manuscript prose → you MUST call continuePassage. Do NOT compose the prose in the chat model and do NOT place prose you invented directly into editEpisode/editEpisodeBatch.
+- Put the complete author request into instruction: desired event, mood, length, viewpoint constraints, and anything that must or must not happen.
+- The tool uses the dedicated writing settings and, when enabled, multiple candidates, judgment-model selection, review, and deterministic checks.
+- The result is a proposal and does NOT modify the manuscript. Apply generatedText with editEpisode only when the user explicitly requested immediate application or explicitly accepts the proposal.
+- IF the tool fails → report the failure honestly. Do not silently replace it with chat-model prose.`);
+  }
+
   if (hasTool(available, "rewritePassage")) {
     sections.push(`CREATIVE REWRITE (rewritePassage):
 - IF the user asks for better phrasing, a rewrite, polish, or a stylistic variant of manuscript prose (「もっと良い表現にできない？」「ここを書き直して」「別の言い回しは？」) → you MUST call rewritePassage instead of rewriting the prose yourself in chat. It runs the dedicated writing model with the full Japanese-fiction ruleset (viewpoint rules, style continuity, canon, the author's role parameters), which produces better prose than an inline chat rewrite.
@@ -594,11 +603,18 @@ export function buildContinuationPlanPrompt(
   context: string,
   settingsContext?: string,
   relatedScenes?: string,
+  authorInstruction?: string,
 ): string {
   const referenceSection = buildStoryReferenceSection(settingsContext);
   const relatedScenesSection = buildRelatedScenesSection(relatedScenes);
+  const authorInstructionSection = buildAuthorInstructionSection(
+    authorInstruction,
+    "構想する展開の最優先条件として従う。正史と直前本文に矛盾する場合は、その矛盾を避けた形で満たす。",
+  );
   return `【依頼】
 提示された日本語小説の続きを書く前の構想を練る。本文はまだ書かない。
+
+${authorInstructionSection}
 
 【手順 — この順番で必ず実行する】
 手順1: 直前本文の末尾から、場面の状況、感情の流れ、未解決の緊張、直前の文が持つ勢いを1〜2行で把握する。
@@ -864,6 +880,8 @@ export interface FictionPromptExtras {
   beatDirective?: BeatDirective;
   /** 続き生成のみ: 破棄した前回ドラフトの機械検査結果(リトライ時) */
   mechanicalFindings?: string[];
+  /** チャット等から渡された、この生成に固有の作者指示。 */
+  authorInstruction?: string;
   /**
    * プロンプト足場レベル。実行するモデルの役割設定から配線側が解決して渡す。
    * 未指定は "full"(従来と同一の出力)。
@@ -991,6 +1009,10 @@ function buildExtraContextSections(extras?: FictionPromptExtras): string {
     buildSceneStateSection(extras.sceneState),
     buildCharacterVoiceSection(extras.characterVoiceCards),
     buildAuthorEditLessonsSection(extras.editLessons),
+    buildAuthorInstructionSection(
+      extras.authorInstruction,
+      "この工程でも作者の生成指示として維持する。正史・接続・視点規則への違反は避ける。",
+    ),
     extras.styleFingerprint
       ? buildStyleFingerprintSection(extras.styleFingerprint)
       : "",
@@ -1073,6 +1095,7 @@ export function buildDraftSelectionPrompt(
   settingsContext?: string,
   plan?: string,
   scaffold?: PromptScaffoldLevel,
+  authorInstruction?: string,
 ): string {
   const referenceSection = buildStoryReferenceSection(settingsContext);
   const planSection = plan?.trim()
@@ -1088,6 +1111,10 @@ ${limitPromptText(plan.trim(), 2000, "tail")}
       formatPromptDataBlock(`draft_candidate_${index + 1}`, draft),
     )
     .join("\n\n");
+  const authorInstructionSection = buildAuthorInstructionSection(
+    authorInstruction,
+    "候補を比較する最優先基準として使う。正史・直前本文・視点規則への違反は採用しない。",
+  );
   return `【依頼】
 <reference_data name="text_immediately_before_continuation"> の続きとして生成された${drafts.length}案のドラフトを比較し、続きとして採用すべき1案を選ぶ。本文の書き直し、混合、抜粋はしない。選ぶだけである。
 
@@ -1097,6 +1124,8 @@ ${limitPromptText(plan.trim(), 2000, "tail")}
 3. 文体(語彙、文の長短、句読点の呼吸)の直前本文との一致。
 4. 場面の前進と描写の具体性。安易・紋切り型でないこと。
 どの案にも欠点がある前提で、相対的に優れた1案を選ぶ。完璧な案を待たない。同点なら基準1で勝る案を選ぶ。
+
+${authorInstructionSection}
 
 【出力形式 — 厳守】
 1行目: 【採用】案N (Nは1〜${drafts.length}の数字1つ)
@@ -1128,6 +1157,44 @@ export function parseDraftSelection(
     return undefined;
   }
   return selected - 1;
+}
+
+/**
+ * リライトや置換案など、続き生成以外の複数候補を判断系モデルに選定させる。
+ * 候補の混合・書き直しを禁止し、parseDraftSelection と同じ出力形式を使う。
+ */
+export function buildCandidateSelectionPrompt(
+  candidates: string[],
+  task: string,
+  originalText: string,
+  context: string,
+  settingsContext?: string,
+  scaffold?: PromptScaffoldLevel,
+): string {
+  const referenceSection = buildStoryReferenceSection(settingsContext);
+  const candidateBlocks = candidates
+    .map((candidate, index) => formatPromptDataBlock(`candidate_${index + 1}`, candidate))
+    .join("\n\n");
+  return `【依頼】
+${task}として生成された${candidates.length}案を比較し、完成稿として最も優れた1案を選ぶ。候補を混合、抜粋、書き直しせず、選定だけを行う。
+
+【選定基準 — 番号が小さいほど優先】
+1. 作者の指示、元の意味・事実・因果関係、正史との一致。
+2. 周囲本文との接続、視点、時制、人物の声の一貫性。
+3. 文体、語彙、リズムの自然さ。
+4. 表現の具体性と文学的な効果。安易・紋切り型でないこと。
+
+【出力形式 — 厳守】
+1行目: 【採用】案N (Nは1〜${candidates.length}の数字1つ)
+【理由】(1〜3行。採用案の決め手と、不採用案の主な欠点)
+
+${povRulesFor(scaffold)}
+
+${referenceSection ? `${referenceSection}\n\n` : ""}${formatPromptDataBlock("surrounding_context", context)}
+
+${formatPromptDataBlock("original_text", originalText)}
+
+${candidateBlocks}`;
 }
 
 /**

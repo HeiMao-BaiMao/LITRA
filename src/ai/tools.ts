@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { checkConsistency } from "./consistency.ts";
-import { runLineEditReview, runLineEditRevision, streamRewrite } from "./service.ts";
+import { runLineEditReview, runLineEditRevision, streamContinuation, streamRewrite } from "./service.ts";
 import { limitPromptText, parseTargetedRevision, reviewRequiresRevision } from "./prompts.ts";
 import type { AiSettings } from "../settings.ts";
 import type { CustomField } from "../project/schema.ts";
@@ -720,6 +720,8 @@ export interface RewritePassageToolDependencies {
    * 語りの型規則)を、チャットからの依頼でもそのまま使うためのもの。
    */
   resolveSettings: () => AiSettings;
+  /** 候補コンペティションの選定に使う判断系設定。 */
+  resolveJudgmentSettings: () => AiSettings;
   /** 現在エディタで開いている本文。対象文の前後文脈の特定に使う。 */
   getEditorText?: () => string;
   /** 設定資料コンテキスト(世界観・キャラクター等)を構築する関数。 */
@@ -776,6 +778,7 @@ export function createRewritePassageTool(deps: RewritePassageToolDependencies) {
         let rewrittenText = "";
         await streamRewrite({
           settings,
+          judgmentSettings: deps.resolveJudgmentSettings(),
           selection: targetText,
           context,
           settingsContext: deps.getSettingsContext?.(),
@@ -914,6 +917,8 @@ export function createLineEditPassageTool(deps: LineEditPassageToolDependencies)
           settingsContext,
           instruction,
           revisionExtras,
+          undefined,
+          judgmentSettings,
         );
         if (!revisionOutput) {
           return {
@@ -954,6 +959,70 @@ export function createLineEditPassageTool(deps: LineEditPassageToolDependencies)
           usedJudgmentModel: judgmentSettings.model,
           usedWritingModel: writingSettings.model,
           contextFound,
+        };
+      },
+    ),
+  });
+}
+
+export interface ContinuePassageToolDependencies {
+  resolveWritingSettings: () => AiSettings;
+  resolveJudgmentSettings: () => AiSettings;
+  prepareContext: () => Promise<{
+    context: string;
+    settingsContext?: string;
+    relatedScenes?: string;
+    styleFingerprint?: import("./prompts.ts").StyleFingerprint;
+    episodeId?: string;
+    characterVoiceInput?: { names: string[]; excerpts: string };
+  }>;
+}
+
+const continuePassageInputSchema = z.object({
+  instruction: z.string().min(1).describe(
+    "The author's concrete instruction for the new continuation or scene, in Japanese. Include desired events, mood, length, and constraints without inventing established facts.",
+  ),
+});
+
+/**
+ * チャットからの新規本文生成を、通常の続き生成と同じ執筆パイプラインへ送る。
+ * 複数候補、判断系選定、査読、機械検査、役割別設定をすべて再利用し、本文は変更しない。
+ */
+export function createContinuePassageTool(deps: ContinuePassageToolDependencies) {
+  return tool({
+    description:
+      "Generates a new Japanese-fiction continuation or scene through the dedicated writing pipeline. It applies writing-role settings, optional candidate competition, judgment-model selection, review, and deterministic checks. Use for requests to write new manuscript prose. Returns a proposal and does NOT modify the episode.",
+    inputSchema: continuePassageInputSchema,
+    execute: wrapToolExecute(
+      "continuePassage",
+      async ({ instruction }: z.infer<typeof continuePassageInputSchema>) => {
+        const prepared = await deps.prepareContext();
+        const writingSettings = deps.resolveWritingSettings();
+        const judgmentSettings = deps.resolveJudgmentSettings();
+        let generatedText = "";
+        await streamContinuation({
+          settings: writingSettings,
+          context: prepared.context,
+          settingsContext: prepared.settingsContext,
+          relatedScenes: prepared.relatedScenes,
+          episodeId: prepared.episodeId,
+          characterVoiceInput: prepared.characterVoiceInput,
+          styleFingerprint: prepared.styleFingerprint,
+          authorInstruction: instruction,
+          getJudgmentSettings: () => judgmentSettings,
+          onChunk: (chunk) => { generatedText += chunk; },
+        });
+        generatedText = generatedText.trim();
+        if (!generatedText) {
+          return { success: false, message: "執筆系パイプラインの生成結果が空でした。" };
+        }
+        return {
+          success: true,
+          message: "執筆系パイプラインで本文案を生成しました。本文はまだ変更していません。",
+          generatedText,
+          usedWritingModel: writingSettings.model,
+          usedJudgmentModel: judgmentSettings.model,
+          competitionEnabled: writingSettings.continuationBestOfTwo === true,
         };
       },
     ),

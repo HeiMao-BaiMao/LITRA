@@ -27,12 +27,44 @@ describe("resolveForcedToolChoice", () => {
 
 import {
   buildAuthorInstructionSection,
+  buildCandidateSelectionPrompt,
+  buildContinuationPlanPrompt,
+  buildContinuationPrompt,
+  buildDraftSelectionPrompt,
   buildLineEditReviewPrompt,
   buildLineEditRevisionPrompt,
   buildRewritePrompt,
+  buildToolGuidancePrompt,
   reviewRequiresRevision,
   parseTargetedRevision,
 } from "../prompts.ts";
+
+describe("chat writing pipeline prompts", () => {
+  it("routes new fiction requests through continuePassage", () => {
+    const guidance = buildToolGuidancePrompt(["continuePassage", "editEpisode"]);
+    expect(guidance).toContain("MUST call continuePassage");
+    expect(guidance).toContain("Do NOT compose the prose in the chat model");
+  });
+
+  it("propagates author instructions through planning, drafting, and selection", () => {
+    const instruction = "会話を中心に、決着はつけず800字程度で進める";
+    expect(buildContinuationPlanPrompt("本文", undefined, undefined, instruction)).toContain(instruction);
+    expect(buildContinuationPrompt("本文", undefined, undefined, undefined, { authorInstruction: instruction })).toContain(instruction);
+    expect(buildDraftSelectionPrompt(["案A", "案B"], "本文", undefined, undefined, "full", instruction)).toContain(instruction);
+  });
+
+  it("keeps generic competition candidates inside reference-data boundaries", () => {
+    const prompt = buildCandidateSelectionPrompt(
+      ["候補A", "候補B"],
+      "書き直し案",
+      "原文",
+      "前後文脈",
+    );
+    expect(prompt).toContain('<reference_data name="candidate_1">');
+    expect(prompt).toContain('<reference_data name="candidate_2">');
+    expect(prompt).toContain("【採用】案N");
+  });
+});
 
 describe("buildAuthorInstructionSection", () => {
   it("returns empty string for undefined instruction", () => {
