@@ -49,7 +49,7 @@ function scheduleStreamRender(el: HTMLElement, message: ChatMessage): void {
     if (!target || !target.el.isConnected) return;
     const container = getElements().chatMessages;
     const followScroll = isNearBottom(container);
-    renderChatMessageHtml(target.el, target.message.content, target.message.thinking);
+    renderChatMessageHtml(target.el, target.message.content, target.message.thinking, target.message.transport);
     if (followScroll) scrollToBottom();
   });
 }
@@ -123,7 +123,7 @@ export function updateMessageContent(index: number, content: string): boolean {
   const followScroll = isNearBottom(container);
   const messageEl = container.querySelectorAll<HTMLElement>(".chat-message")[index];
   if (messageEl) {
-    renderChatMessageHtml(messageEl, content, message.thinking);
+    renderChatMessageHtml(messageEl, content, message.thinking, message.transport);
     if (followScroll) scrollToBottom();
   }
   sync();
@@ -166,7 +166,7 @@ export function renderMessages(messages: ChatMessage[]): void {
   for (const message of messages) {
     const messageEl = document.createElement("div");
     messageEl.className = `chat-message ${message.role}`;
-    renderChatMessageHtml(messageEl, message.content, message.thinking);
+    renderChatMessageHtml(messageEl, message.content, message.thinking, message.transport);
     container.appendChild(messageEl);
     state.chatMessages.push(message);
   }

@@ -321,6 +321,7 @@ export async function refreshCodexToken(
  * Bearer 認証・ChatGPT-Account-Id ヘッダーを付与し、期限切れ時は自動リフレッシュする。
  */
 export function createCodexFetch(): typeof tauriFetch {
+  const sessionId = `ses_${crypto.randomUUID().replace(/-/g, "")}`;
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const credential = await readCodexCredential();
     if (!credential) {
@@ -349,6 +350,17 @@ export function createCodexFetch(): typeof tauriFetch {
     headers.set("authorization", `Bearer ${token}`);
     if (accountId) {
       headers.set("ChatGPT-Account-Id", accountId);
+    }
+
+    // sample/opencode 準拠のヘッダを付与（既存の同名ヘッダは上書きしない）
+    if (!headers.has("originator")) {
+      headers.set("originator", "opencode");
+    }
+    if (!headers.has("User-Agent")) {
+      headers.set("User-Agent", "opencode/1.17.18");
+    }
+    if (!headers.has("session-id")) {
+      headers.set("session-id", sessionId);
     }
 
     return tauriFetch(input, { ...init, headers });

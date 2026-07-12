@@ -1,7 +1,10 @@
-import { tool } from "ai";
+import { tool, type ToolExecutionOptions } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { checkConsistency } from "./consistency.ts";
+import { runLineEditReview, runLineEditRevision, streamContinuation, streamRewrite } from "./service.ts";
+import type { StreamToolEvent } from "./service.ts";
+import { limitPromptText, parseTargetedRevision, reviewRequiresRevision } from "./prompts.ts";
 import type { AiSettings } from "../settings.ts";
 import type { CustomField } from "../project/schema.ts";
 import {
@@ -34,6 +37,12 @@ import {
 } from "../genres/sources.ts";
 import { extractSegmentContent } from "../genres/segmentation.ts";
 import { genreKnowledgeCategorySchema } from "../genres/schema.ts";
+import {
+  getPassageProposal,
+  listPassageProposals,
+  markPassageProposalApplied,
+  type PassageProposal,
+} from "../project/passage-proposals.ts";
 
 interface ValidationResult<T> {
   success: true;
@@ -320,11 +329,11 @@ async function rebuildSearchIndexQuietly(projectId: string): Promise<boolean> {
 
 function wrapToolExecute<TInput, TOutput>(
   name: string,
-  execute: (input: TInput) => Promise<TOutput>,
-): (input: TInput) => Promise<TOutput | { error: string }> {
-  return async (input) => {
+  execute: (input: TInput, options: ToolExecutionOptions) => Promise<TOutput>,
+): (input: TInput, options: ToolExecutionOptions) => Promise<TOutput | { error: string }> {
+  return async (input, options) => {
     try {
-      return await execute(input);
+      return await execute(input, options);
     } catch (error) {
       console.error(`[litra] tool ${name} error:`, error);
       return { error: error instanceof Error ? error.message : String(error) };
@@ -708,6 +717,452 @@ export function createCheckConsistencyTool(
         };
       },
     ),
+  });
+}
+
+export interface RewritePassageToolDependencies {
+  /**
+   * 実行時に執筆系(writing)ロールの解決済み設定を返す関数。
+   * リライトボタンと同じ品質経路(役割プロファイル・オーバーライド・足場レベル・
+   * 語りの型規則)を、チャットからの依頼でもそのまま使うためのもの。
+   */
+  resolveSettings: () => AiSettings;
+  /** 候補コンペティションの選定に使う判断系設定。 */
+  resolveJudgmentSettings: () => AiSettings;
+  /** 現在エディタで開いている本文。対象文の前後文脈の特定に使う。 */
+  getEditorText?: () => string;
+  /** 設定資料コンテキスト(世界観・キャラクター等)を構築する関数。 */
+  getSettingsContext?: () => string | undefined;
+  /** 前後文脈の片側あたり文字数上限(リライトボタンと同じ予算を渡す)。 */
+  getContextSideBudget?: () => number;
+}
+
+const rewritePassageInputSchema = z.object({
+  targetText: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact Japanese passage to rewrite, copied verbatim from the manuscript or from the user's message. Never paraphrase or trim it.",
+    ),
+  instruction: z
+    .string()
+    .optional()
+    .describe(
+      "The author's stylistic direction for the rewrite, in Japanese (e.g. 「もっと静かな怒りがにじむ表現に」). Omit when the user gave no specific direction.",
+    ),
+});
+
+/**
+ * チャットから執筆系パイプラインを呼び出すリライトツール。
+ * チャットモデル自身に書き直させる代わりに、エディタのリライトボタンと同じ
+ * 品質経路(執筆系モデル + 語りの型規則 + 文体継承 + 設定資料)で差し替え案を
+ * 生成して返す。本文は変更しない(反映は editEpisode をユーザーが依頼したときのみ)。
+ */
+export function createRewritePassageTool(deps: RewritePassageToolDependencies) {
+  return tool({
+    description:
+      "Rewrites a manuscript passage using the dedicated writing model with the full Japanese-fiction ruleset (viewpoint rules, style continuity, canon, the author's writing-role parameters). Use when the user asks in chat for better phrasing, a rewrite, or a stylistic variant. Returns the rewritten passage as a proposal; it does NOT modify the episode.",
+    inputSchema: rewritePassageInputSchema,
+    execute: wrapToolExecute(
+      "rewritePassage",
+      async ({ targetText, instruction }: z.infer<typeof rewritePassageInputSchema>) => {
+        // 対象文が原稿内で一意に見つかる場合だけ、前後を文脈として添える
+        // (エディタのリライトと同じ「before\n[選択部分]\nafter」形式)。
+        // 見つからない・複数一致の場合は文脈なしで書き直す(会話内で提示された文章など)。
+        const editorText = deps.getEditorText?.() ?? "";
+        const sideBudget = deps.getContextSideBudget?.() ?? 5000;
+        let context = "\n[選択部分]\n";
+        let contextFound = false;
+        const firstIndex = editorText.indexOf(targetText);
+        if (firstIndex !== -1 && editorText.indexOf(targetText, firstIndex + 1) === -1) {
+          const before = limitPromptText(editorText.slice(0, firstIndex), sideBudget, "tail");
+          const after = limitPromptText(editorText.slice(firstIndex + targetText.length), sideBudget, "head");
+          context = `${before}\n[選択部分]\n${after}`;
+          contextFound = true;
+        }
+
+        const settings = deps.resolveSettings();
+        let rewrittenText = "";
+        await streamRewrite({
+          settings,
+          judgmentSettings: deps.resolveJudgmentSettings(),
+          selection: targetText,
+          context,
+          settingsContext: deps.getSettingsContext?.(),
+          instruction,
+          onChunk: (chunk) => {
+            rewrittenText += chunk;
+          },
+        });
+        rewrittenText = rewrittenText.trim();
+        if (!rewrittenText) {
+          return {
+            success: false,
+            message: "書き直し案の生成結果が空でした。",
+          };
+        }
+        return {
+          success: true,
+          message: contextFound
+            ? "執筆系モデルによる書き直し案を生成しました(原稿内の前後文脈を参照)。本文はまだ変更していません。"
+            : "執筆系モデルによる書き直し案を生成しました(対象文が現在の原稿内で一意に特定できなかったため、前後文脈なし)。本文はまだ変更していません。",
+          rewrittenText,
+          usedModel: settings.model,
+          contextFound,
+        };
+      },
+    ),
+  });
+}
+
+export interface LineEditPassageToolDependencies {
+  /** 判断系(査読用)設定を解決する関数。 */
+  resolveJudgmentSettings: () => AiSettings;
+  /** 執筆系(置換案用)設定を解決する関数。 */
+  resolveWritingSettings: () => AiSettings;
+  /** 現在エディタで開いている本文。対象文の前後文脈の特定に使う。 */
+  getEditorText?: () => string;
+  /** 設定資料コンテキストを構築する関数。 */
+  getSettingsContext?: () => string | undefined;
+  /** 前後文脈の片側あたり文字数上限。 */
+  getContextSideBudget?: () => number;
+  /** 複数段階ツールの進捗を共通Toolカードへ通知する。 */
+  onProgress?: (event: Extract<StreamToolEvent, { type: "progress" }>) => void;
+}
+
+const lineEditPassageInputSchema = z.object({
+  passageText: z
+    .string()
+    .min(1)
+    .describe(
+      "Exact Japanese passage to edit, copied verbatim from the manuscript. Never paraphrase or trim it.",
+    ),
+  instruction: z
+    .string()
+    .optional()
+    .describe(
+      "The author's editorial focus for the line editing, in Japanese (e.g. 「会話のリズムを整えて」「説明過多を削って」). Omit when the user gave no specific direction.",
+    ),
+});
+
+/**
+ * チャットから判断系→執筆系のペン入れパイプラインを呼び出すツール。
+ * チャットモデル自身に批評と書き直しをさせる代わりに、
+ * 判断系モデル(編集者)の査読→必要時のみ執筆系モデルの置換案生成という
+ * 二段階プロセスで質の高い編集提案を返す。本文は変更しない。
+ */
+export function createLineEditPassageTool(deps: LineEditPassageToolDependencies) {
+  return tool({
+    description:
+      "Professionally edits a manuscript passage in two stages: judgment-model review followed by writing-model revision proposals. Use when the user asks for professional editing, ペン入れ, 推敲, 校閲, 添削, or 編集者として直して. Returns the review findings and concrete revision proposals (対象/修正 pairs); it does NOT modify the episode.",
+    inputSchema: lineEditPassageInputSchema,
+    execute: wrapToolExecute(
+      "lineEditPassage",
+      async ({ passageText, instruction }: z.infer<typeof lineEditPassageInputSchema>, execution) => {
+        const reportProgress = (
+          phase: string,
+          label: string,
+          step: number,
+          totalSteps: number,
+          model?: string,
+        ): void => deps.onProgress?.({
+          type: "progress",
+          toolCallId: execution.toolCallId,
+          toolName: "lineEditPassage",
+          phase,
+          label,
+          step,
+          totalSteps,
+          model,
+        });
+
+        // 前後文脈の構築(rewritePassage と同一方式)
+        const editorText = deps.getEditorText?.() ?? "";
+        const sideBudget = deps.getContextSideBudget?.() ?? 5000;
+        let context = "\n[選択部分]\n";
+        let contextFound = false;
+        const firstIndex = editorText.indexOf(passageText);
+        if (firstIndex !== -1 && editorText.indexOf(passageText, firstIndex + 1) === -1) {
+          const before = limitPromptText(editorText.slice(0, firstIndex), sideBudget, "tail");
+          const after = limitPromptText(editorText.slice(firstIndex + passageText.length), sideBudget, "head");
+          context = `${before}\n[選択部分]\n${after}`;
+          contextFound = true;
+        }
+        const settingsContext = deps.getSettingsContext?.();
+
+        // 第1工程: 判断系モデルによる査読
+        const judgmentSettings = deps.resolveJudgmentSettings();
+        const writingSettings = deps.resolveWritingSettings();
+        const competitionEnabled = writingSettings.continuationBestOfTwo === true;
+        const totalSteps = competitionEnabled ? 5 : 3;
+        reportProgress("review", "判断モデルで査読中", 1, totalSteps, judgmentSettings.model);
+        const reviewExtras =
+          judgmentSettings.promptScaffold != null
+            ? { promptScaffold: judgmentSettings.promptScaffold }
+            : undefined;
+        const review = await runLineEditReview(
+          judgmentSettings,
+          passageText,
+          context,
+          settingsContext,
+          instruction,
+          reviewExtras,
+        );
+        if (!review) {
+          return {
+            success: false,
+            message: "査読結果の生成に失敗しました。",
+            usedJudgmentModel: judgmentSettings.model,
+            usedWritingModel: writingSettings.model,
+            contextFound,
+          };
+        }
+
+        // 査読から修正工程の要否を判定
+        if (!reviewRequiresRevision(review)) {
+          reportProgress("finalize", "査読結果を整理中", totalSteps, totalSteps);
+          return {
+            success: true,
+            message: "編集者による査読の結果、修正は不要と判断されました。",
+            review,
+            requiresRevision: false,
+            usedJudgmentModel: judgmentSettings.model,
+            usedWritingModel: writingSettings.model,
+            contextFound,
+          };
+        }
+
+        // 第2工程: 執筆系モデルによる置換案生成
+        const revisionExtras =
+          writingSettings.promptScaffold != null
+            ? { promptScaffold: writingSettings.promptScaffold }
+            : undefined;
+        const revisionOutput = await runLineEditRevision(
+          writingSettings,
+          passageText,
+          review,
+          context,
+          settingsContext,
+          instruction,
+          revisionExtras,
+          execution.abortSignal,
+          judgmentSettings,
+          (stage) => {
+            if (stage === "candidate-1") {
+              reportProgress("revision-1", "執筆モデルで修正案を生成中", 2, totalSteps, writingSettings.model);
+            } else if (stage === "candidate-2") {
+              reportProgress("revision-2", "執筆モデルで修正案2を生成中", 3, totalSteps, writingSettings.model);
+            } else {
+              reportProgress("selection", "判断モデルで候補を比較中", 4, totalSteps, judgmentSettings.model);
+            }
+          },
+        );
+        if (!revisionOutput) {
+          return {
+            success: true,
+            message: "査読は完了しましたが、修正案の生成に失敗しました。査読結果のみ表示します。",
+            review,
+            requiresRevision: true,
+            revisions: [],
+            usedJudgmentModel: judgmentSettings.model,
+            usedWritingModel: writingSettings.model,
+            contextFound,
+          };
+        }
+
+        reportProgress("finalize", "修正案を整理中", totalSteps, totalSteps);
+        const revisions = parseTargetedRevision(revisionOutput);
+        if (revisions === undefined) {
+          return {
+            success: true,
+            message: "査読は完了しましたが、修正案の形式が正しくありませんでした。査読結果のみ表示します。",
+            review,
+            requiresRevision: true,
+            revisions: [],
+            usedJudgmentModel: judgmentSettings.model,
+            usedWritingModel: writingSettings.model,
+            contextFound,
+          };
+        }
+
+        return {
+          success: true,
+          message: contextFound
+            ? "編集者による査読と修正案を生成しました(原稿内の前後文脈を参照)。本文はまだ変更していません。"
+            : "編集者による査読と修正案を生成しました(対象文が現在の原稿内で一意に特定できなかったため、前後文脈なし)。本文はまだ変更していません。",
+          review,
+          requiresRevision: true,
+          revisionOutput,
+          revisions: revisions.map((r) => ({ target: r.target, replacement: r.replacement })),
+          usedJudgmentModel: judgmentSettings.model,
+          usedWritingModel: writingSettings.model,
+          contextFound,
+        };
+      },
+    ),
+  });
+}
+
+export interface ContinuePassageToolDependencies {
+  resolveWritingSettings: () => AiSettings;
+  resolveJudgmentSettings: () => AiSettings;
+  prepareContext: () => Promise<{
+    context: string;
+    settingsContext?: string;
+    relatedScenes?: string;
+    styleFingerprint?: import("./prompts.ts").StyleFingerprint;
+    episodeId?: string;
+    characterVoiceInput?: { names: string[]; excerpts: string };
+  }>;
+  onProgress?: (event: Extract<StreamToolEvent, { type: "progress" }>) => void;
+  cacheProposal?: (input: Pick<PassageProposal, "episodeId" | "instruction" | "generatedText">) => Promise<PassageProposal>;
+}
+
+const continuePassageInputSchema = z.object({
+  instruction: z.string().min(1).describe(
+    "The author's concrete instruction for the new continuation or scene, in Japanese. Include desired events, mood, length, and constraints without inventing established facts.",
+  ),
+});
+
+/**
+ * チャットからの新規本文生成を、通常の続き生成と同じ執筆パイプラインへ送る。
+ * 複数候補、判断系選定、査読、機械検査、役割別設定をすべて再利用し、本文は変更しない。
+ */
+export function createContinuePassageTool(deps: ContinuePassageToolDependencies) {
+  return tool({
+    description:
+      "Generates a new Japanese-fiction continuation or scene through the dedicated writing pipeline. It applies writing-role settings, optional candidate competition, judgment-model selection, review, and deterministic checks. Use for requests to write new manuscript prose. Returns a proposal and does NOT modify the episode.",
+    inputSchema: continuePassageInputSchema,
+    execute: wrapToolExecute(
+      "continuePassage",
+      async ({ instruction }: z.infer<typeof continuePassageInputSchema>, execution) => {
+        const prepared = await deps.prepareContext();
+        const writingSettings = deps.resolveWritingSettings();
+        const judgmentSettings = deps.resolveJudgmentSettings();
+        let generatedText = "";
+        const stageLabels = {
+          plan: "構想を作成中",
+          draft: "本文を生成中",
+          review: "生成稿を査読中",
+          revise: "指摘箇所を修正中",
+          regression: "修正稿の非劣化を検査中",
+        } as const;
+        await streamContinuation({
+          settings: writingSettings,
+          context: prepared.context,
+          settingsContext: prepared.settingsContext,
+          relatedScenes: prepared.relatedScenes,
+          episodeId: prepared.episodeId,
+          characterVoiceInput: prepared.characterVoiceInput,
+          styleFingerprint: prepared.styleFingerprint,
+          authorInstruction: instruction,
+          getJudgmentSettings: () => judgmentSettings,
+          onChunk: (chunk) => { generatedText += chunk; },
+          abortSignal: execution.abortSignal,
+          onStage: (stage) => {
+            const usesJudgmentModel = stage === "plan" || stage === "review" || stage === "regression";
+            deps.onProgress?.({
+              type: "progress",
+              toolCallId: execution.toolCallId,
+              toolName: "continuePassage",
+              phase: stage,
+              label: stageLabels[stage],
+              model: usesJudgmentModel ? judgmentSettings.model : writingSettings.model,
+            });
+          },
+        });
+        generatedText = generatedText.trim();
+        if (!generatedText) {
+          return { success: false, message: "執筆系パイプラインの生成結果が空でした。" };
+        }
+        const proposal = prepared.episodeId && deps.cacheProposal
+          ? await deps.cacheProposal({ episodeId: prepared.episodeId, instruction, generatedText })
+          : undefined;
+        return {
+          success: true,
+          message: proposal
+            ? "執筆系パイプラインで本文案を生成し、提案キャッシュへ保存しました。本文はまだ変更していません。"
+            : "執筆系パイプラインで本文案を生成しました。対象エピソードが無いためキャッシュしていません。",
+          proposalId: proposal?.id,
+          generatedText,
+          usedWritingModel: writingSettings.model,
+          usedJudgmentModel: judgmentSettings.model,
+          competitionEnabled: writingSettings.continuationBestOfTwo === true,
+        };
+      },
+    ),
+  });
+}
+
+export interface PassageProposalToolDependencies {
+  projectId: string;
+  currentEpisodeId: () => string | undefined;
+  applyText: (text: string) => Promise<void>;
+}
+
+export function createListPassageProposalsTool(deps: PassageProposalToolDependencies) {
+  return tool({
+    description: "Lists cached continuation proposals for the current episode. Use when the user asks about a previously generated passage or when a prior continuePassage result was not applied.",
+    inputSchema: z.object({
+      includeApplied: z.boolean().optional().describe("Include proposals already applied to the manuscript. Defaults to false."),
+    }),
+    execute: wrapToolExecute("listPassageProposals", async ({ includeApplied }) => {
+      const episodeId = deps.currentEpisodeId();
+      if (!episodeId) return { success: false, message: "現在のエピソードがありません。" };
+      const proposals = await listPassageProposals(deps.projectId, episodeId, includeApplied === true);
+      return {
+        success: true,
+        proposals: proposals.map(({ id, instruction, createdAt, appliedAt, generatedText }) => ({
+          id,
+          instruction,
+          createdAt,
+          appliedAt,
+          preview: generatedText.slice(0, 240),
+          characterCount: generatedText.length,
+        })),
+      };
+    }),
+  });
+}
+
+export function createGetPassageProposalTool(deps: PassageProposalToolDependencies) {
+  return tool({
+    description: "Retrieves the exact full text of a cached continuation proposal by proposal ID.",
+    inputSchema: z.object({ proposalId: z.string().min(1) }),
+    execute: wrapToolExecute("getPassageProposal", async ({ proposalId }) => {
+      const proposal = await getPassageProposal(deps.projectId, proposalId);
+      if (!proposal) return { success: false, message: "指定された生成案はキャッシュにありません。" };
+      if (proposal.episodeId !== deps.currentEpisodeId()) {
+        return { success: false, message: "生成案は現在とは別のエピソードに属しています。" };
+      }
+      return { success: true, proposal };
+    }),
+  });
+}
+
+export function createApplyPassageProposalTool(deps: PassageProposalToolDependencies) {
+  return tool({
+    description: "Inserts the exact cached continuation proposal at the current editor cursor and saves the episode. Use this instead of copying generatedText into editEpisode.",
+    inputSchema: z.object({ proposalId: z.string().min(1) }),
+    execute: wrapToolExecute("applyPassageProposal", async ({ proposalId }) => {
+      const proposal = await getPassageProposal(deps.projectId, proposalId);
+      if (!proposal) return { success: false, message: "指定された生成案はキャッシュにありません。" };
+      if (proposal.episodeId !== deps.currentEpisodeId()) {
+        return { success: false, message: "生成案は現在とは別のエピソードに属しているため反映できません。" };
+      }
+      if (proposal.appliedAt) {
+        return { success: false, message: "この生成案は既に本文へ反映済みです。", appliedAt: proposal.appliedAt };
+      }
+      await deps.applyText(proposal.generatedText);
+      const applied = await markPassageProposalApplied(deps.projectId, proposal.id);
+      return {
+        success: true,
+        message: "キャッシュ済み生成案を現在のカーソル位置へ挿入し、本文を保存しました。",
+        proposalId: proposal.id,
+        appliedAt: applied?.appliedAt,
+        characterCount: proposal.generatedText.length,
+      };
+    }),
   });
 }
 

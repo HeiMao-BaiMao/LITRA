@@ -23,6 +23,7 @@ const FLOAT_PARAMETER_KEYS = new Set([
 const PLAMO_API_HOST = "api.platform.preferredai.jp";
 const SAKURA_API_HOST = "api.ai.sakura.ad.jp";
 const OPENCODE_API_HOST = "opencode.ai";
+const DEEPSEEK_API_HOST = "api.deepseek.com";
 // OpenCode Go の Anthropic Messages 互換モデル(公式ドキュメント準拠)。
 // それ以外は OpenAI Chat Completions 互換。
 export const OPENCODE_GO_ANTHROPIC_MODELS = new Set([
@@ -162,6 +163,25 @@ function isOpenCodeUrl(url: string): boolean {
   }
 }
 
+function isDeepSeekUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === DEEPSEEK_API_HOST;
+  } catch {
+    return url.includes(DEEPSEEK_API_HOST);
+  }
+}
+
+export function resolveProviderBaseUrl(provider: AiSettings["provider"], configuredBaseUrl: string): string {
+  const baseUrl = configuredBaseUrl.trim();
+  if (provider === "deepseek" && isOpenCodeUrl(baseUrl)) {
+    return `https://${DEEPSEEK_API_HOST}`;
+  }
+  if (provider === "opencode" && isDeepSeekUrl(baseUrl)) {
+    return `https://${OPENCODE_API_HOST}/zen/go/v1`;
+  }
+  return baseUrl;
+}
+
 function isResponsesUrl(url: string): boolean {
   try {
     return new URL(url).pathname.endsWith("/responses");
@@ -216,6 +236,16 @@ function normalizePlamoRequestBody(bodyJson: string): string {
 
 function normalizeSakuraResponsesTool(toolValue: unknown): unknown {
   if (!isPlainObject(toolValue)) return toolValue;
+  // Chat Completions 形式({type:"function", function:{parameters}})にも対応する
+  if (isPlainObject(toolValue.function) && isPlainObject(toolValue.function.parameters)) {
+    return {
+      ...toolValue,
+      function: {
+        ...toolValue.function,
+        parameters: normalizePlamoJsonSchema(toolValue.function.parameters),
+      },
+    };
+  }
   if (!isPlainObject(toolValue.parameters)) return toolValue;
 
   return {
@@ -564,93 +594,68 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * OpenCode Go の OpenAI Chat Completions 互換モデル（DeepSeek 等）は、思考内容を
- * reasoning-delta ではなく delta.reasoning_content という独自フィールドで返す。
- * @ai-sdk/openai の chat completions クライアントはこのフィールドを認識せず
- * 読み捨ててしまうため、SSE の JSON をその場で書き換え、reasoning_content を
- * delta.content 側の <think>...</think> タグへ変換する。これにより
- * service.ts 側の既存の think タグルーター（他プロバイダーと共通の思考表示経路）
- * にそのまま乗る。choices を持たない Anthropic Messages 互換のイベント
- * （MiniMax/Qwen 系）は判定に失敗して素通しされるため安全。
- */
-function rewriteOpenCodeReasoningLine(line: string, state: { reasoningOpen: boolean }): string {
-  if (!line.startsWith("data:")) return line;
-  const payload = line.slice(5).trim();
-  if (!payload || payload === "[DONE]") return line;
-  if (!state.reasoningOpen && !payload.includes("reasoning_content")) return line;
+// (旧 reasoning_content → <think> タグ SSE 書き換えは削除した。
+//  OpenCode Go の OpenAI 互換経路は @ai-sdk/deepseek クライアントで呼ぶことで
+//  reasoning_content のパースと返送(DeepSeek V4 の必須要件)をネイティブに行う。)
 
-  let json: unknown;
+// OpenCode Go はクライアント識別ヘッダが無いリクエストを匿名扱いにして
+// 厳格なレート制限をかけるため、本家クライアント(sample/opencode の
+// session/llm/request.ts)と同じヘッダを付与する。
+const OPENCODE_CLIENT_VERSION = "1.17.18";
+const OPENCODE_USER_AGENT = `opencode/${OPENCODE_CLIENT_VERSION}`;
+const opencodeSessionId = `ses_${crypto.randomUUID().replace(/-/g, "")}`;
+const OPENCODE_PROJECT_ID_STORAGE_KEY = "litra.opencode.projectId";
+let opencodeProjectIdCache: string | undefined;
+
+function opencodeProjectId(): string {
+  if (opencodeProjectIdCache) return opencodeProjectIdCache;
+  const generated = `prj_${crypto.randomUUID().replace(/-/g, "")}`;
   try {
-    json = JSON.parse(payload);
+    const existing = localStorage.getItem(OPENCODE_PROJECT_ID_STORAGE_KEY);
+    if (existing) {
+      opencodeProjectIdCache = existing;
+      return existing;
+    }
+    localStorage.setItem(OPENCODE_PROJECT_ID_STORAGE_KEY, generated);
   } catch {
-    return line;
+    // localStorage が使えない環境ではセッション内固定にフォールバック
   }
-  if (!isRecord(json)) return line;
-  const choices = json.choices;
-  if (!Array.isArray(choices) || choices.length === 0 || !isRecord(choices[0])) return line;
-  const delta = choices[0].delta;
-  if (!isRecord(delta)) return line;
+  opencodeProjectIdCache = generated;
+  return generated;
+}
 
-  const reasoning = typeof delta.reasoning_content === "string" ? delta.reasoning_content : "";
-  const content = typeof delta.content === "string" ? delta.content : "";
-
-  let combined = "";
-  if (reasoning) {
-    if (!state.reasoningOpen) {
-      combined += "<think>";
-      state.reasoningOpen = true;
-    }
-    combined += reasoning;
+function withOpenCodeHeaders(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("x-opencode-client")) headers.set("x-opencode-client", "cli");
+  if (!headers.has("x-opencode-session")) headers.set("x-opencode-session", opencodeSessionId);
+  if (!headers.has("x-opencode-request")) {
+    headers.set("x-opencode-request", `msg_${crypto.randomUUID().replace(/-/g, "")}`);
   }
-  if (content) {
-    if (state.reasoningOpen) {
-      combined += "</think>";
-      state.reasoningOpen = false;
-    }
-    combined += content;
-  }
-  if (!combined && !("reasoning_content" in delta)) return line;
-
-  delete delta.reasoning_content;
-  delta.content = combined;
-  return `data: ${JSON.stringify(json)}`;
+  if (!headers.has("x-opencode-project")) headers.set("x-opencode-project", opencodeProjectId());
+  if (!headers.has("user-agent")) headers.set("User-Agent", OPENCODE_USER_AGENT);
+  return { ...init, headers };
 }
 
 /**
- * OpenCode Go 応答の SSE をチャンク境界に関係なく行単位で書き換える。
- * 1行の data: イベントがネットワーク上のチャンク境界で分割される場合に
- * 備え、完全な行が揃うまでバッファに保持してから処理する。
+ * OpenCode Go(OpenAI 互換経路)のリクエスト正規化。
+ * GLM-5 系は content が空文字の assistant + tool_calls メッセージを拒否するため、
+ * OpenAI 標準で許される content: null に置き換える。
  */
-function createOpenCodeReasoningTagStream(): TransformStream<Uint8Array, Uint8Array> {
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  const state = { reasoningOpen: false };
-  let buffer = "";
-
-  return new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true });
-      const lastNewline = buffer.lastIndexOf("\n");
-      if (lastNewline === -1) return;
-      const completeText = buffer.slice(0, lastNewline);
-      buffer = buffer.slice(lastNewline + 1);
-      const rewritten = completeText
-        .split("\n")
-        .map((line) => rewriteOpenCodeReasoningLine(line, state))
-        .join("\n");
-      controller.enqueue(encoder.encode(`${rewritten}\n`));
-    },
-    flush(controller) {
-      buffer += decoder.decode();
-      if (!buffer) return;
-      const rewritten = buffer
-        .split("\n")
-        .map((line) => rewriteOpenCodeReasoningLine(line, state))
-        .join("\n");
-      controller.enqueue(encoder.encode(rewritten));
-    },
-  });
+function normalizeOpenCodeRequestBody(bodyJson: string): string {
+  const parsed: unknown = JSON.parse(bodyJson);
+  if (isRecord(parsed) && Array.isArray(parsed.messages)) {
+    for (const message of parsed.messages) {
+      if (
+        isRecord(message) &&
+        message.role === "assistant" &&
+        Array.isArray(message.tool_calls) &&
+        message.content === ""
+      ) {
+        message.content = null;
+      }
+    }
+  }
+  return preserveNumberTypes(JSON.stringify(parsed));
 }
 
 async function debugFetch(
@@ -669,11 +674,17 @@ async function debugFetch(
         ? normalizePlamoRequestBody(body)
         : isSakuraRequest
           ? normalizeSakuraRequestBody(body, url)
-          : preserveNumberTypes(JSON.stringify(JSON.parse(body)));
+          : isOpenCodeRequest
+            ? normalizeOpenCodeRequestBody(body)
+            : preserveNumberTypes(JSON.stringify(JSON.parse(body)));
       init = { ...init, body };
     } catch {
       // ignore parse error
     }
+  }
+
+  if (isOpenCodeRequest) {
+    init = withOpenCodeHeaders(init);
   }
 
   for (let attempt = 0; ; attempt++) {
@@ -726,18 +737,7 @@ async function debugFetch(
         }
       }
 
-      const finalResponse = replayedResponse(res, peeked);
-      if (isOpenCodeRequest && finalResponse.body) {
-        return new Response(
-          finalResponse.body.pipeThrough(createOpenCodeReasoningTagStream()),
-          {
-            status: finalResponse.status,
-            statusText: finalResponse.statusText,
-            headers: finalResponse.headers,
-          },
-        );
-      }
-      return finalResponse;
+      return replayedResponse(res, peeked);
     }
 
     const clone = res.clone ? res.clone() : res;
@@ -828,7 +828,13 @@ async function debugFetch(
 }
 
 export function createModel(settings: AiSettings) {
-  const baseURL = typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "";
+  const configuredBaseUrl = typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "";
+  const baseURL = resolveProviderBaseUrl(settings.provider, configuredBaseUrl);
+  if (baseURL !== configuredBaseUrl && settings.provider === "deepseek") {
+    console.error("[litra] rejected OpenCode Go URL for DeepSeek provider; using official DeepSeek API");
+  } else if (baseURL !== configuredBaseUrl && settings.provider === "opencode") {
+    console.error("[litra] rejected DeepSeek URL for OpenCode Go provider; using official OpenCode Go API");
+  }
   const trimmedApiKey = typeof settings.apiKey === "string" ? settings.apiKey.trim() : "";
   const apiKey =
     trimmedApiKey || (settings.provider === "llamacpp" ? "sk-no-key-required" : trimmedApiKey);
@@ -857,8 +863,14 @@ export function createModel(settings: AiSettings) {
       if (settings.provider === "plamo") {
         return openai.chat(settings.model);
       }
+      // Sakura の /v1/responses はマルチターン会話非対応と公式明記のため Chat Completions を使う。
       if (settings.provider === "sakura") {
-        return openai.responses(settings.model);
+        return openai.chat(settings.model);
+      }
+      // llama-server の /v1/responses は最近入った変換シムで、無いビルドも多い。
+      // 素の openai(model) は Responses API に POST するため Chat Completions を明示する。
+      if (settings.provider === "llamacpp") {
+        return openai.chat(settings.model);
       }
       return openai(settings.model);
     }
@@ -866,7 +878,12 @@ export function createModel(settings: AiSettings) {
       if (OPENCODE_GO_ANTHROPIC_MODELS.has(settings.model)) {
         return createAnthropic(common)(settings.model);
       }
-      return createOpenAI(common).chat(settings.model);
+      // OpenAI 互換経路(DeepSeek V4 / GLM / MiMo)は思考内容が delta.reasoning_content で
+      // 届き、DeepSeek V4 ではマルチターンのツール呼び出し時に reasoning_content を
+      // 「専用フィールドのまま」返送する必要がある(<think> タグ変換では 400)。
+      // @ai-sdk/deepseek はこのパースと返送(V4 判定含む)をネイティブに行うため、
+      // OpenAI 互換クライアントではなく DeepSeek クライアントで呼ぶ。
+      return createDeepSeek(common)(settings.model);
     case "codex": {
       // Codex は OpenAI Responses API 互換。OAuth トークンは fetch ラッパーが処理する。
       const codexCommon = {

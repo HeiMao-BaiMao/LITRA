@@ -4,12 +4,15 @@ import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provid
 import {
   buildAssistantSystemPrompt,
   buildCharacterVoiceCardsPrompt,
+  buildCandidateSelectionPrompt,
   buildContinuationPlanPrompt,
   buildContinuationPrompt,
   buildContinuationRevisionPrompt,
   buildContinuationReviewPrompt,
   buildDraftSelectionPrompt,
   buildFeedbackPrompt,
+  buildLineEditReviewPrompt,
+  buildLineEditRevisionPrompt,
   buildRewritePrompt,
   buildSceneStateCardPrompt,
   buildTargetedRevisionPrompt,
@@ -29,27 +32,92 @@ import type { AiSettings } from "../settings.ts";
 
 // ビート分割生成で前ビートの生成分を文脈に継ぎ足す際、無制限に伸びないための上限
 const BEAT_CONTEXT_CHAR_BUDGET = 12000;
+const CONTINUATION_LENGTH_RETRY_LIMIT = 2;
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
+// 非ストリーミング(generateText)の背景ステップ用の出力上限。
+// 16K 超の非ストリーミング要求は HTTP タイムアウト域に入るため、
+// thinking トークンの余裕を残しつつ 32K に制限する
+// (従来は settings.maxTokens をそのまま使っており、DeepSeek の既定 384000 等が渡っていた)。
+const NONSTREAMING_MAX_OUTPUT_TOKENS = 32768;
 const TOOL_LOOP_MAX_STEPS = 16;
 const DUPLICATE_TOOL_CALL_INPUT_LIMIT = 4;
+let aiStepSequence = 0;
 
-function isDeepSeekThinkingEnabled(settings: AiSettings, toolsEnabled: boolean): boolean {
-  // DeepSeek の thinking モードはツール呼び出しと両立しない。
-  // ツールを使う場合、または役割プロファイル等で明示的に無効化されている場合は
-  // thinking を無効にし、代わりに温度・top_p・ペナルティ類のサンプリングパラメータを有効にする。
-  return settings.provider === "deepseek" && !toolsEnabled && settings.deepseekThinkingEnabled !== false;
+interface AiStepLog {
+  id: number;
+  name: string;
+  startedAt: number;
+}
+
+function beginAiStep(name: string, settings: AiSettings): AiStepLog {
+  const step = { id: ++aiStepSequence, name, startedAt: performance.now() };
+  console.log(`[litra:ai-step:${step.id}] START ${name}`, {
+    provider: settings.provider,
+    model: settings.model,
+  });
+  return step;
+}
+
+function completeAiStep(step: AiStepLog, output: unknown, finishReason?: string): void {
+  console.log(`[litra:ai-step:${step.id}] COMPLETE ${step.name}`, {
+    durationMs: Math.round(performance.now() - step.startedAt),
+    finishReason: finishReason ?? "unknown",
+  });
+  console.log(`[litra:ai-step:${step.id}] OUTPUT ${step.name}`, output);
+}
+
+function failAiStep(step: AiStepLog, error: unknown): void {
+  console.error(`[litra:ai-step:${step.id}] FAILED ${step.name}`, {
+    durationMs: Math.round(performance.now() - step.startedAt),
+    error,
+  });
+}
+
+async function generateLoggedText(
+  name: string,
+  settings: AiSettings,
+  options: Parameters<typeof generateText>[0],
+) {
+  const step = beginAiStep(name, settings);
+  try {
+    const result = await generateText(options);
+    if (result.reasoningText) {
+      console.log(`[litra:ai-step:${step.id}] REASONING ${step.name}`, result.reasoningText);
+    }
+    completeAiStep(step, result.text, result.finishReason);
+    return result;
+  } catch (error) {
+    failAiStep(step, error);
+    throw error;
+  }
+}
+
+function isDeepSeekThinkingEnabled(settings: AiSettings): boolean {
+  // DeepSeek V3.2 以降、thinking モードはツール呼び出しと両立する
+  // (ツール有効時の強制 OFF は V3 時代の制約なので廃止)。
+  // thinking 中は温度・top_p・ペナルティ類のサンプリングパラメータが無視される。
+  return settings.provider === "deepseek" && settings.deepseekThinkingEnabled !== false;
 }
 
 function isGoogleGemini3(settings: AiSettings): boolean {
   return settings.provider === "google" && isGemini3Model(settings.model);
 }
 
-function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
+// Anthropic Messages 系(直接 / Copilot 経由 Claude)かどうか。
+// Claude 4 以降は temperature と top_p の併送が 400 になるため temperature のみ送る。
+function isAnthropicMessagesModel(settings: AiSettings): boolean {
+  return (
+    settings.provider === "anthropic" ||
+    (settings.provider === "github-copilot" && settings.model.startsWith("claude-"))
+  );
+}
+
+function buildTemperatureOption(settings: AiSettings) {
   // DeepSeek の thinking モードでは temperature は無視される。
   // OpenCode Go プロバイダでは OpenCode クライアントに合わせて temperature を送らない
   // (OpenCode の transform.ts:481-498 で DeepSeek/GLM/MiniMax/MiMo 等は undefined を返す)。
-  if (isDeepSeekThinkingEnabled(settings, toolsEnabled)) return {};
+  if (isDeepSeekThinkingEnabled(settings)) return {};
   if (settings.provider === "opencode") return {};
   // Gemini 3 系は「temperature は既定値 1.0 のまま変更しない」ことが公式に強く
   // 推奨されており、変更するとループや推論品質の劣化を招き得るため送らない。
@@ -57,17 +125,20 @@ function buildTemperatureOption(settings: AiSettings, toolsEnabled = false) {
   return { temperature: settings.temperature };
 }
 
-function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
-  const providerOptions = buildProviderOptions(settings, toolsEnabled);
+function buildAdvancedOptions(settings: AiSettings) {
+  const providerOptions = buildProviderOptions(settings);
   // OpenCode Go プロバイダでは OpenCode クライアントに合わせるため、
   // topP / topK / frequencyPenalty / presencePenalty をすべて送らない
   // (transform.ts:500-507 と native-request.ts:135-143 で populate されない)。
   // Gemini 3 系も同様に、topP/topK 等の sampling params は公式に非推奨となり
   // thinkingConfig.thinkingLevel（buildProviderOptions 経由）に置き換わっている。
+  // Anthropic Messages 系は temperature と top_p の併送が Claude 4+ で 400 になり、
+  // ペナルティ類も API に存在しないため、これらを送らない(temperature のみ)。
   const ignoreSampling =
-    isDeepSeekThinkingEnabled(settings, toolsEnabled) ||
+    isDeepSeekThinkingEnabled(settings) ||
     settings.provider === "opencode" ||
-    isGoogleGemini3(settings);
+    isGoogleGemini3(settings) ||
+    isAnthropicMessagesModel(settings);
   const ignorePenalty = settings.provider === "sakura" || settings.provider === "opencode";
   return {
     ...(!ignoreSampling && settings.topP !== undefined && { topP: settings.topP }),
@@ -80,6 +151,31 @@ function buildAdvancedOptions(settings: AiSettings, toolsEnabled = false) {
     }),
     ...(providerOptions && { providerOptions }),
   };
+}
+
+/**
+ * ツール呼び出しを強制したい局面で使う tool_choice を解決する。
+ * - OpenCode Go: OpenCode クライアントに合わせて送らない
+ * - DeepSeek thinking 有効時: "required"/特定関数指定は 400 になるため "auto"
+ * - Anthropic 系で thinking が有効(Fable 5 は常時有効)な場合: "required"
+ *   (= {type:"any"}) は thinking と両立しないため "auto"
+ * - それ以外: "required"
+ */
+export function resolveForcedToolChoice(settings: AiSettings): "required" | "auto" | undefined {
+  if (settings.provider === "opencode") return undefined;
+  if (settings.provider === "deepseek") {
+    return isDeepSeekThinkingEnabled(settings) ? "auto" : "required";
+  }
+  if (isAnthropicMessagesModel(settings)) {
+    if (settings.model.includes("fable") || settings.model.includes("mythos")) return "auto";
+    const thinking = buildProviderOptions(settings)?.anthropic?.thinking;
+    const thinkingType =
+      thinking && typeof thinking === "object" && !Array.isArray(thinking)
+        ? (thinking as { type?: unknown }).type
+        : undefined;
+    if (thinkingType === "adaptive" || thinkingType === "enabled") return "auto";
+  }
+  return "required";
 }
 
 function hasTools(tools: ToolSet | undefined): tools is ToolSet {
@@ -139,6 +235,24 @@ function toolLoopStopConditions(
   ];
 }
 
+/**
+ * continuePassage はチャットから専用執筆パイプラインへ入るための入口であり、
+ * パイプライン内部で再公開すると自己呼び出しになる。呼び出し側の指定にかかわらず除外する。
+ */
+export function scopeContinuationTools(tools?: ToolSet): ToolSet | undefined {
+  if (!tools) return tools;
+  // 生成パイプライン自身から、生成入口と提案キャッシュの変更系ツールを隔離する。
+  // これらは外側のチャットエージェントだけが呼び、執筆モデルには公開しない。
+  const {
+    continuePassage: _continuePassage,
+    listPassageProposals: _listPassageProposals,
+    getPassageProposal: _getPassageProposal,
+    applyPassageProposal: _applyPassageProposal,
+    ...scoped
+  } = tools;
+  return Object.keys(scoped).length > 0 ? scoped : undefined;
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -177,6 +291,16 @@ export interface StreamRunResult {
 }
 
 export type StreamToolEvent =
+  | {
+      type: "progress";
+      toolCallId: string;
+      toolName: string;
+      phase: string;
+      label: string;
+      step?: number;
+      totalSteps?: number;
+      model?: string;
+    }
   | {
       type: "input-start";
       toolCallId: string;
@@ -515,7 +639,7 @@ export interface StreamContinuationOptions {
   relatedScenes?: string;
   tools?: ToolSet;
   onToolEvent?: (event: StreamToolEvent) => void;
-  onStage?: (stage: "plan" | "draft" | "review" | "revise") => void;
+  onStage?: (stage: "plan" | "draft" | "review" | "revise" | "regression") => void;
   // 判断系工程(構想・査読・選定・カード)で使う設定を解決する。
   // 呼び出し側(main.ts)が役割プロファイル・オーバーライドの解決を担う。
   getJudgmentSettings?: () => AiSettings;
@@ -525,6 +649,8 @@ export interface StreamContinuationOptions {
   episodeId?: string;
   // 話し方カード(提案7)の対象人物名と、その根拠となる原稿抜粋(文字列照合+検索のみで生成。LLM呼び出しなし)
   characterVoiceInput?: { names: string[]; excerpts: string };
+  /** チャットから渡された、この続き生成に固有の作者指示。 */
+  authorInstruction?: string;
 }
 
 export interface StreamRewriteOptions {
@@ -535,6 +661,11 @@ export interface StreamRewriteOptions {
   onReasoning?: (chunk: string) => void;
   abortSignal?: AbortSignal;
   settingsContext?: string;
+  // 作者からの書き直し指示(チャット経由の rewritePassage ツールで使用)。
+  // 省略時は従来どおりの無指示リライト。
+  instruction?: string;
+  /** 複数候補の選定に使う判断系設定。未指定なら単一生成。 */
+  judgmentSettings?: AiSettings;
 }
 
 export interface StreamFeedbackOptions {
@@ -570,7 +701,7 @@ async function verifyToolCallNeed(
     // そのため generateText で通常チャットを行い、レスポンスをクライアント側で Zod 検証する。
     const basePrompt = buildToolCallNeedPrompt(userRequest, assistantResponse, availableToolNames);
     const jsonPrompt = `${basePrompt}\n\nReturn ONLY a valid JSON object with this exact shape. No markdown, no code fence, no explanation:\n{"needsTools": boolean, "missingTools": string[], "reason": string}\nIf missingTools is unnecessary, omit it or use an empty array.`;
-    const result = await generateText({
+    const result = await generateLoggedText("tool-call-need-verification", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       system:
@@ -578,6 +709,12 @@ async function verifyToolCallNeed(
       prompt: jsonPrompt,
       maxOutputTokens: 1024,
       temperature: 0.1,
+      // DeepSeek はサーバ既定で thinking ON のため、そのままだと推論時間で
+      // 15 秒タイムアウトに達し検証が常に失敗する。この判定は軽量で良いので
+      // thinking を明示的に無効化する(非 thinking なら temperature 0.1 も効く)。
+      ...(settings.provider === "deepseek" && {
+        providerOptions: { deepseek: { thinking: { type: "disabled" } } },
+      }),
       abortSignal: controller.signal,
     });
 
@@ -650,6 +787,13 @@ function normalizeSettings(settings: AiSettings): AiSettings {
   if (normalized.anthropicThinkingEnabled && normalized.anthropicThinkingBudget === undefined) {
     normalized.anthropicThinkingBudget = DEFAULT_ANTHROPIC_THINKING_BUDGET;
   }
+  // Anthropic API は budget_tokens < max_tokens かつ 1024 以上を要求する
+  if (
+    normalized.anthropicThinkingBudget !== undefined &&
+    normalized.anthropicThinkingBudget >= normalized.maxTokens
+  ) {
+    normalized.anthropicThinkingBudget = Math.max(1024, normalized.maxTokens - 1024);
+  }
 
   return normalized;
 }
@@ -681,13 +825,13 @@ export async function streamChat({
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
       messages,
-      ...buildTemperatureOption(s, toolsEnabled),
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
       tools,
       toolChoice: toolsEnabled ? toolChoice : undefined,
       stopWhen: toolsEnabled ? toolLoopStopConditions(stopWhen) : stopWhen,
-      ...buildAdvancedOptions(s, toolsEnabled),
+      ...buildAdvancedOptions(s),
     });
 
     const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent, onReasoning);
@@ -718,13 +862,13 @@ export async function streamChat({
           ...buildRetryOption(s),
           system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames }),
           messages: retryMessages,
-          ...buildTemperatureOption(s, toolsEnabled),
+          ...buildTemperatureOption(s),
           maxOutputTokens: s.maxTokens,
           abortSignal,
           tools,
-          toolChoice: s.provider === "opencode" ? undefined : "required",
+          toolChoice: resolveForcedToolChoice(s),
           stopWhen: toolLoopStopConditions(isLoopFinished() as StopCondition<ToolSet>),
-          ...buildAdvancedOptions(s, toolsEnabled),
+          ...buildAdvancedOptions(s),
         });
         return await consumeStream(retryResult, onChunk, onToolEvent, onReasoning);
       }
@@ -750,18 +894,19 @@ async function runContinuationPlanStep(
   settingsContext: string | undefined,
   relatedScenes: string | undefined,
   abortSignal?: AbortSignal,
+  authorInstruction?: string,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("continuation-plan", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
-      prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes),
-      ...buildTemperatureOption(settings, false),
+      prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes, authorInstruction),
+      ...buildTemperatureOption(settings),
       // thinking 系モデルでは推論トークンもこの上限を消費するため、
       // 構想の深さを絞らないよう本体生成と同じ上限を使う。
-      maxOutputTokens: settings.maxTokens,
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const planText = result.text.trim();
@@ -792,16 +937,16 @@ async function runContinuationReviewStep(
   extras?: FictionPromptExtras,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("continuation-review", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildContinuationReviewPrompt(draft, context, settingsContext, plan, relatedScenes, extras),
-      ...buildTemperatureOption(settings, false),
+      ...buildTemperatureOption(settings),
       // thinking 系モデルでは推論トークンもこの上限を消費するため、
       // 査読の深さを絞らないよう本体生成と同じ上限を使う。
-      maxOutputTokens: settings.maxTokens,
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const reviewText = result.text.trim();
@@ -847,17 +992,20 @@ async function runSceneStateCardStep(
 ): Promise<string | undefined> {
   const hash = hashText(context.slice(-2000));
   const cached = sceneStateCardCache.get(cacheKey);
-  if (cached && cached.hash === hash) return cached.card;
+  if (cached && cached.hash === hash) {
+    console.log("[litra:ai-step] CACHE HIT scene-state-card", cached.card);
+    return cached.card;
+  }
 
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("scene-state-card", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildSceneStateCardPrompt(context, settingsContext),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
     const card = result.text.trim();
     if (!card) return undefined;
@@ -885,17 +1033,20 @@ async function runCharacterVoiceCardsStep(
 ): Promise<string | undefined> {
   const hash = hashText(`${names.join(",")}\n${excerpts}`);
   const cached = characterVoiceCardCache.get(cacheKey);
-  if (cached && cached.hash === hash) return cached.card;
+  if (cached && cached.hash === hash) {
+    console.log("[litra:ai-step] CACHE HIT character-voice-cards", cached.card);
+    return cached.card;
+  }
 
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("character-voice-cards", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildCharacterVoiceCardsPrompt(names, excerpts, settingsContext),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
     const card = result.text.trim();
     if (!card) return undefined;
@@ -921,16 +1072,17 @@ async function runDraftSelectionStep(
   plan: string | undefined,
   abortSignal?: AbortSignal,
   scaffold?: PromptScaffoldLevel,
+  authorInstruction?: string,
 ): Promise<number | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("draft-selection", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
-      prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold, authorInstruction),
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const text = result.text.trim();
@@ -940,6 +1092,41 @@ async function runDraftSelectionStep(
   } catch (error) {
     if (abortSignal?.aborted) throw error;
     console.warn("[litra] draft selection step failed; using first draft", error);
+    return undefined;
+  }
+}
+
+async function runCandidateSelectionStep(
+  settings: AiSettings,
+  candidates: string[],
+  task: string,
+  originalText: string,
+  context: string,
+  settingsContext?: string,
+  abortSignal?: AbortSignal,
+  scaffold?: PromptScaffoldLevel,
+): Promise<number | undefined> {
+  try {
+    const result = await generateLoggedText("candidate-selection", settings, {
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildCandidateSelectionPrompt(
+        candidates,
+        task,
+        originalText,
+        context,
+        settingsContext,
+        scaffold,
+      ),
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+      abortSignal,
+      ...buildAdvancedOptions(settings),
+    });
+    return parseDraftSelection(result.text.trim(), candidates.length);
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] candidate selection failed; using first candidate", error);
     return undefined;
   }
 }
@@ -995,14 +1182,14 @@ async function runTargetedRevisionStep(
   abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("targeted-revision", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildTargetedRevisionPrompt(draft, review, context, settingsContext, extras),
-      ...buildTemperatureOption(settings, false),
-      maxOutputTokens: settings.maxTokens,
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
       abortSignal,
-      ...buildAdvancedOptions(settings, false),
+      ...buildAdvancedOptions(settings),
     });
 
     const text = result.text.trim();
@@ -1025,6 +1212,139 @@ async function runTargetedRevisionStep(
   }
 }
 
+/**
+ * 修正稿の回帰検査。新しい機械的 hard error が残る稿は拒否し、次に判断系モデルで
+ * 元稿と修正稿を比較する。選定失敗時は parse の既定位置である元稿を維持する。
+ */
+async function revisionPassesRegressionGate(
+  judgmentSettings: AiSettings,
+  original: string,
+  revised: string,
+  context: string,
+  settingsContext: string | undefined,
+  abortSignal?: AbortSignal,
+): Promise<boolean> {
+  const sanitized = sanitizeDraftText(revised);
+  if (!sanitized.trim()) return false;
+
+  const revisedChecks = checkDraft(sanitized, context);
+  if (revisedChecks.hard.length > 0) {
+    console.warn("[litra] revision regression gate rejected hard violations", revisedChecks.hard);
+    return false;
+  }
+
+  const selected = await runCandidateSelectionStep(
+    judgmentSettings,
+    [original, sanitized],
+    "同じ査読を踏まえた完成稿の回帰比較。欠陥の解消だけでなく、元稿の長所、文体、リズム、含意が失われていない案",
+    original,
+    context,
+    settingsContext,
+    abortSignal,
+    judgmentSettings.promptScaffold,
+  );
+  if (selected !== 1) {
+    console.warn("[litra] revision regression gate kept original draft");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * ペン入れ第1工程 — 編集者の査読(判断系モデル)。
+ * プロンプトは buildLineEditReviewPrompt で、出力形式は続き生成のレビューと同じ。
+ * 失敗時は undefined を返す。
+ */
+export async function runLineEditReview(
+  settings: AiSettings,
+  passage: string,
+  context: string,
+  settingsContext?: string,
+  instruction?: string,
+  extras?: FictionPromptExtras,
+  abortSignal?: AbortSignal,
+): Promise<string | undefined> {
+  try {
+    const result = await generateLoggedText("line-edit-review", settings, {
+      model: createModel(settings),
+      ...buildRetryOption(settings),
+      prompt: buildLineEditReviewPrompt(passage, context, settingsContext, instruction, extras),
+      ...buildTemperatureOption(settings),
+      maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+      abortSignal,
+      ...buildAdvancedOptions(settings),
+    });
+    const reviewText = result.text.trim();
+    if (!reviewText) return undefined;
+    return reviewText;
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] line edit review step failed", error);
+    return undefined;
+  }
+}
+
+/**
+ * ペン入れ第2工程 — 査読に基づく置換案生成(執筆系モデル)。
+ * プロンプトは buildLineEditRevisionPrompt で、出力形式は続き生成のスパン限定修正と同一。
+ * buildLineEditRevisionPrompt から parseTargetedRevision で読める置換案を生成する。
+ * 失敗時は undefined を返す。
+ */
+export async function runLineEditRevision(
+  settings: AiSettings,
+  passage: string,
+  review: string,
+  context: string,
+  settingsContext?: string,
+  instruction?: string,
+  extras?: FictionPromptExtras,
+  abortSignal?: AbortSignal,
+  judgmentSettings?: AiSettings,
+  onProgress?: (stage: "candidate-1" | "candidate-2" | "selection") => void,
+): Promise<string | undefined> {
+  try {
+    const generateCandidate = async (stage: "candidate-1" | "candidate-2"): Promise<string> => {
+      onProgress?.(stage);
+      const result = await generateLoggedText(`line-edit-${stage}`, settings, {
+        model: createModel(settings),
+        ...buildRetryOption(settings),
+        prompt: buildLineEditRevisionPrompt(passage, review, context, settingsContext, instruction, extras),
+        ...buildTemperatureOption(settings),
+        maxOutputTokens: Math.min(settings.maxTokens, NONSTREAMING_MAX_OUTPUT_TOKENS),
+        abortSignal,
+        ...buildAdvancedOptions(settings),
+      });
+      return result.text.trim();
+    };
+    const first = await generateCandidate("candidate-1");
+    if (!first) return undefined;
+    if (!settings.continuationBestOfTwo || !judgmentSettings) return first;
+    const second = await generateCandidate("candidate-2");
+    if (!second) return first;
+    const validCandidates = [first, second].filter(
+      (candidate) => parseTargetedRevision(candidate) !== undefined,
+    );
+    if (validCandidates.length === 0) return first;
+    if (validCandidates.length === 1) return validCandidates[0];
+    onProgress?.("selection");
+    const selected = await runCandidateSelectionStep(
+      judgmentSettings,
+      validCandidates,
+      "査読に基づく局所的な修正案",
+      passage,
+      context,
+      settingsContext,
+      abortSignal,
+      judgmentSettings.promptScaffold,
+    );
+    return validCandidates[selected ?? 0] ?? validCandidates[0];
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    console.warn("[litra] line edit revision step failed", error);
+    return undefined;
+  }
+}
+
 export async function streamContinuation({
   settings,
   context,
@@ -1040,20 +1360,33 @@ export async function streamContinuation({
   styleFingerprint,
   episodeId,
   characterVoiceInput,
+  authorInstruction,
 }: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const toolsEnabled = hasTools(tools);
-    const toolNames = toolsEnabled ? Object.keys(tools) : [];
+    const scopedTools = scopeContinuationTools(tools);
+    const toolsEnabled = hasTools(scopedTools);
+    const toolNames = toolsEnabled ? Object.keys(scopedTools) : [];
     // 執筆系の足場レベルを extras 経由でドラフト・修正系プロンプトへ伝える。
     let extras: FictionPromptExtras | undefined = s.promptScaffold
       ? { promptScaffold: s.promptScaffold }
       : undefined;
     if (styleFingerprint) extras = { ...extras, styleFingerprint };
+    if (authorInstruction?.trim()) extras = { ...extras, authorInstruction };
 
     // 構想・レビューは出力が短く「判断」寄りの工程のため、判断系モデルに振る。
     // source の判定(本文/バックグラウンド/カスタム)は main.ts 側が担う。
     const judgmentSettings = getJudgmentSettings ? normalizeSettings(getJudgmentSettings()) : s;
+    const reportStage = (stage: "plan" | "draft" | "review" | "revise" | "regression"): void => {
+      const stageSettings = stage === "plan" || stage === "review" || stage === "regression"
+        ? judgmentSettings
+        : s;
+      console.log(`[litra:pipeline] STAGE ${stage}`, {
+        provider: stageSettings.provider,
+        model: stageSettings.model,
+      });
+      onStage?.(stage);
+    };
 
     const cacheKeyBase = episodeId ?? "__no_episode__";
 
@@ -1074,52 +1407,95 @@ export async function streamContinuation({
       if (characterVoiceCards) extras = { ...extras, characterVoiceCards };
     }
 
-    if (s.twoStageContinuation) onStage?.("plan");
+    if (s.twoStageContinuation) reportStage("plan");
     const plan = s.twoStageContinuation
-      ? await runContinuationPlanStep(judgmentSettings, context, settingsContext, relatedScenes, abortSignal)
+      ? await runContinuationPlanStep(
+          judgmentSettings,
+          context,
+          settingsContext,
+          relatedScenes,
+          abortSignal,
+          authorInstruction,
+        )
       : undefined;
 
-    onStage?.("draft");
+    reportStage("draft");
     const reviewEnabled = s.continuationReviewEnabled === true;
     const bestOfTwo = s.continuationBestOfTwo === true;
 
     // 設定資料は system ではなく本文プロンプト側に注入する(弱いモデルの recency 対策)
+    let draftGenerationSequence = 0;
     const runDraftGeneration = async (
       draftContext: string,
       draftExtras: FictionPromptExtras | undefined,
       onDraftChunk: (chunk: string) => void,
     ): Promise<{ text: string; run: StreamRunResult }> => {
-      const draftResult = streamText<ToolSet>({
-        model: createModel(s),
-        ...buildRetryOption(s),
-        system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
-        prompt: buildContinuationPrompt(draftContext, settingsContext, plan, relatedScenes, draftExtras),
-        ...buildTemperatureOption(s, toolsEnabled),
-        maxOutputTokens: s.maxTokens,
-        abortSignal,
-        tools,
-        stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
-        ...buildAdvancedOptions(s, toolsEnabled),
-      });
+      const generationId = ++draftGenerationSequence;
+      let cumulativeContext = draftContext;
       let text = "";
-      const run = await consumeStream(
-        draftResult,
-        (chunk) => {
-          text += chunk;
-          onDraftChunk(chunk);
-        },
-        onToolEvent,
-        onReasoning,
-      );
-      return { text, run };
+      let combinedRun: StreamRunResult | undefined;
+
+      for (let attempt = 0; attempt <= CONTINUATION_LENGTH_RETRY_LIMIT; attempt++) {
+        const draftStep = beginAiStep(`continuation-draft-${generationId}-segment-${attempt + 1}`, s);
+        const draftResult = streamText<ToolSet>({
+          model: createModel(s),
+          ...buildRetryOption(s),
+          system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
+          prompt: buildContinuationPrompt(cumulativeContext, settingsContext, plan, relatedScenes, draftExtras),
+          ...buildTemperatureOption(s),
+          maxOutputTokens: s.maxTokens,
+          abortSignal,
+          tools: scopedTools,
+          stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
+          ...buildAdvancedOptions(s),
+        });
+        let segmentText = "";
+        const segmentRun = await consumeStream(
+          draftResult,
+          (chunk) => {
+            segmentText += chunk;
+            onDraftChunk(chunk);
+          },
+          onToolEvent,
+          onReasoning,
+        );
+        completeAiStep(draftStep, segmentText, segmentRun.finishReason);
+        text += segmentText;
+        combinedRun = combinedRun ? mergeToolStats(combinedRun, segmentRun) : segmentRun;
+
+        if (segmentRun.finishReason !== "length" || !segmentText.trim()) break;
+        if (attempt === CONTINUATION_LENGTH_RETRY_LIMIT) {
+          console.warn("[litra] continuation length retry limit reached");
+          break;
+        }
+        console.warn("[litra] continuation hit maxOutputTokens; auto-continuing", { attempt: attempt + 1 });
+        const continuationContextBudget = Math.max(
+          BEAT_CONTEXT_CHAR_BUDGET,
+          Math.floor(Math.max(4096, s.maxContextTokens - s.maxTokens - 2048) * 2.5),
+        );
+        cumulativeContext = limitPromptText(
+          `${draftContext}${text}`,
+          continuationContextBudget,
+          "tail",
+        );
+      }
+
+      return { text, run: combinedRun! };
     };
 
     const noop = (_chunk: string): void => {};
     const mergeToolStats = (a: StreamRunResult, b: StreamRunResult): StreamRunResult => ({
-      ...a,
+      // 終了理由・レスポンス情報は最後の区間を採用し、件数だけを累積する。
+      ...b,
+      textChunkCount: a.textChunkCount + b.textChunkCount,
+      textCharCount: a.textCharCount + b.textCharCount,
+      reasoningChunkCount: a.reasoningChunkCount + b.reasoningChunkCount,
+      reasoningCharCount: a.reasoningCharCount + b.reasoningCharCount,
       toolCallCount: a.toolCallCount + b.toolCallCount,
       toolResultCount: a.toolResultCount + b.toolResultCount,
       toolErrorCount: a.toolErrorCount + b.toolErrorCount,
+      pendingToolCallIds: [...new Set([...a.pendingToolCallIds, ...b.pendingToolCallIds])],
+      responseMessages: [...a.responseMessages, ...b.responseMessages],
     });
 
     let draftText: string;
@@ -1138,6 +1514,7 @@ export async function streamContinuation({
         plan,
         abortSignal,
         judgmentSettings.promptScaffold,
+        authorInstruction,
       );
       const chosen = candidates[selectedIndex ?? 0] ?? candidateA;
       draftText = chosen.text;
@@ -1205,7 +1582,7 @@ export async function streamContinuation({
     }
     const mechanicalFindings = [...checks.hard, ...checks.soft];
 
-    onStage?.("review");
+    reportStage("review");
     let review = await runContinuationReviewStep(
       judgmentSettings,
       draftText,
@@ -1226,38 +1603,61 @@ export async function streamContinuation({
       return draftRun;
     }
 
-    onStage?.("revise");
+    reportStage("revise");
 
     if (s.continuationTargetedRevision) {
       const targeted = await runTargetedRevisionStep(s, draftText, review, context, settingsContext, extras, abortSignal);
       if (targeted !== undefined) {
-        onChunk(targeted);
-        return draftRun;
+        reportStage("regression");
+        if (targeted === draftText || await revisionPassesRegressionGate(
+          judgmentSettings,
+          draftText,
+          targeted,
+          context,
+          settingsContext,
+          abortSignal,
+        )) {
+          onChunk(targeted);
+          return draftRun;
+        }
+        // 回帰検査で不合格なら、より広い修正が必要な可能性を考慮して全文修正を一度試す。
       }
       // undefined → 崩れた出力 or 全滅。以下の全文修正へフォールバックする。
     }
 
-    let emittedRevisionChunks = 0;
     try {
+      const revisionStep = beginAiStep("full-revision", s);
       const revisionResult = streamText<ToolSet>({
         model: createModel(s),
         ...buildRetryOption(s),
         system: buildAssistantSystemPrompt({ toolsEnabled: false }),
         prompt: buildContinuationRevisionPrompt(draftText, review, context, settingsContext, relatedScenes, extras),
-        ...buildTemperatureOption(s, false),
+        ...buildTemperatureOption(s),
         maxOutputTokens: s.maxTokens,
         abortSignal,
-        ...buildAdvancedOptions(s, false),
+        ...buildAdvancedOptions(s),
       });
+      let revisedText = "";
       const revisionRun = await consumeStream(
         revisionResult,
         (chunk) => {
-          emittedRevisionChunks += 1;
-          onChunk(chunk);
+          revisedText += chunk;
         },
         undefined,
         onReasoning,
       );
+      revisedText = sanitizeDraftText(revisedText);
+      completeAiStep(revisionStep, revisedText, revisionRun.finishReason);
+      reportStage("regression");
+      const accepted = await revisionPassesRegressionGate(
+        judgmentSettings,
+        draftText,
+        revisedText,
+        context,
+        settingsContext,
+        abortSignal,
+      );
+      onChunk(accepted ? revisedText : draftText);
       // main.ts の finalizeToolRun がツール実行数を表示に使うため、
       // ドラフト段のツール集計を最終 run に引き継ぐ
       return {
@@ -1268,13 +1668,10 @@ export async function streamContinuation({
       };
     } catch (error) {
       if (abortSignal?.aborted) throw error;
-      if (emittedRevisionChunks === 0) {
-        // 1文字も流れる前の失敗はドラフト採用にフォールバック
-        console.warn("[litra] continuation revision step failed; using draft as-is", error);
-        onChunk(draftText);
-        return draftRun;
-      }
-      throw error; // 途中まで流れた失敗は現行どおり伝播
+      // 修正稿は回帰検査が終わるまでバッファするため、失敗時に部分稿は露出しない。
+      console.warn("[litra] continuation revision step failed; using draft as-is", error);
+      onChunk(draftText);
+      return draftRun;
     }
   } catch (error) {
     console.error("streamContinuation error:", error);
@@ -1290,21 +1687,52 @@ export async function streamRewrite({
   abortSignal,
   settingsContext,
   onReasoning,
+  instruction,
+  judgmentSettings,
 }: StreamRewriteOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const result = streamText<ToolSet>({
-      model: createModel(s),
-      ...buildRetryOption(s),
-      system: buildAssistantSystemPrompt({ toolsEnabled: false }),
-      prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold),
-      ...buildTemperatureOption(s, false),
-      maxOutputTokens: s.maxTokens,
-      abortSignal,
-      ...buildAdvancedOptions(s, false),
-    });
+    const runCandidate = async (emit: (chunk: string) => void): Promise<{ text: string; run: StreamRunResult }> => {
+      const result = streamText<ToolSet>({
+        model: createModel(s),
+        ...buildRetryOption(s),
+        system: buildAssistantSystemPrompt({ toolsEnabled: false }),
+        prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold, instruction),
+        ...buildTemperatureOption(s),
+        maxOutputTokens: s.maxTokens,
+        abortSignal,
+        ...buildAdvancedOptions(s),
+      });
+      let text = "";
+      const run = await consumeStream(result, (chunk) => { text += chunk; emit(chunk); }, undefined, onReasoning);
+      return { text: sanitizeDraftText(text), run };
+    };
 
-    return await consumeStream(result, onChunk, undefined, onReasoning);
+    if (!s.continuationBestOfTwo || !judgmentSettings) {
+      const single = await runCandidate(onChunk);
+      return single.run;
+    }
+
+    const first = await runCandidate(() => {});
+    const second = await runCandidate(() => {});
+    const selected = await runCandidateSelectionStep(
+      normalizeSettings(judgmentSettings),
+      [first.text, second.text],
+      "指定範囲の書き直し案",
+      selection,
+      context,
+      settingsContext,
+      abortSignal,
+      judgmentSettings.promptScaffold,
+    );
+    const chosen = [first, second][selected ?? 0] ?? first;
+    onChunk(chosen.text);
+    return {
+      ...chosen.run,
+      toolCallCount: first.run.toolCallCount + second.run.toolCallCount,
+      toolResultCount: first.run.toolResultCount + second.run.toolResultCount,
+      toolErrorCount: first.run.toolErrorCount + second.run.toolErrorCount,
+    };
   } catch (error) {
     console.error("streamRewrite error:", error);
     throw error;
@@ -1326,10 +1754,10 @@ export async function streamFeedback({
       ...buildRetryOption(s),
       system: buildAssistantSystemPrompt({ toolsEnabled: false }),
       prompt: buildFeedbackPrompt(selection, settingsContext),
-      ...buildTemperatureOption(s, false),
+      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(s, false),
+      ...buildAdvancedOptions(s),
     });
 
     return await consumeStream(result, onChunk, undefined, onReasoning);

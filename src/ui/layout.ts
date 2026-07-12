@@ -76,6 +76,9 @@ export interface AppElements {
   settingGoogleThinkingLevel: HTMLSelectElement;
   settingTwoStageContinuation: HTMLInputElement;
   settingContinuationReview: HTMLInputElement;
+  settingWritingSource: HTMLSelectElement;
+  settingWritingProvider: HTMLSelectElement;
+  settingWritingModel: HTMLSelectElement;
   settingJudgmentSource: HTMLSelectElement;
   settingJudgmentProvider: HTMLSelectElement;
   settingJudgmentModel: HTMLSelectElement;
@@ -206,6 +209,9 @@ export function getElements(): AppElements {
   const settingGoogleThinkingLevel = document.querySelector<HTMLSelectElement>("#setting-google-thinking-level");
   const settingTwoStageContinuation = document.querySelector<HTMLInputElement>("#setting-two-stage-continuation");
   const settingContinuationReview = document.querySelector<HTMLInputElement>("#setting-continuation-review");
+  const settingWritingSource = document.querySelector<HTMLSelectElement>("#setting-writing-source");
+  const settingWritingProvider = document.querySelector<HTMLSelectElement>("#setting-writing-provider");
+  const settingWritingModel = document.querySelector<HTMLSelectElement>("#setting-writing-model");
   const settingJudgmentSource = document.querySelector<HTMLSelectElement>("#setting-judgment-source");
   const settingJudgmentProvider = document.querySelector<HTMLSelectElement>("#setting-judgment-provider");
   const settingJudgmentModel = document.querySelector<HTMLSelectElement>("#setting-judgment-model");
@@ -299,6 +305,9 @@ export function getElements(): AppElements {
     !settingGoogleThinkingLevel ||
     !settingTwoStageContinuation ||
     !settingContinuationReview ||
+    !settingWritingSource ||
+    !settingWritingProvider ||
+    !settingWritingModel ||
     !settingJudgmentSource ||
     !settingJudgmentProvider ||
     !settingJudgmentModel ||
@@ -455,6 +464,9 @@ export function getElements(): AppElements {
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
+    settingWritingSource,
+    settingWritingProvider,
+    settingWritingModel,
     settingJudgmentSource,
     settingJudgmentProvider,
     settingJudgmentModel,

@@ -21,7 +21,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -39,7 +39,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -57,7 +57,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -75,7 +75,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -93,7 +93,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -151,11 +151,10 @@
           "topP": 1.0,
           "anthropicThinkingEnabled": false,
           "reasoningCapability": {
-            "kind": "anthropic-budget",
-            "canDisable": true,
-            "supportsBudget": true,
-            "minBudget": 1000,
-            "maxBudget": 64000
+            "kind": "anthropic-adaptive",
+            "supportedEfforts": ["low","medium","high","xhigh","max"],
+            "display": "summarized",
+            "canDisable": true
           },
           "writing": {
             "promptScaffold": "light"
@@ -210,13 +209,13 @@
           "deepseekReasoningEffort": "high",
           "reasoningCapability": {
             "kind": "deepseek",
-            "supportedEfforts": ["low","medium","high","xhigh","max"],
-            "canDisable": true
+            "supportedEfforts": ["high","max"],
+            "canDisable": false
           },
           "writing": {
-            "deepseekThinkingEnabled": false,
-            "temperature": 1.5,
-            "topP": 0.95,
+            "deepseekThinkingEnabled": true,
+            "temperature": 0.8,
+            "topP": 1.0,
             "promptScaffold": "light"
           },
           "judgment": {
@@ -234,13 +233,13 @@
           "deepseekReasoningEffort": "high",
           "reasoningCapability": {
             "kind": "deepseek",
-            "supportedEfforts": ["low","medium","high","xhigh","max"],
-            "canDisable": true
+            "supportedEfforts": ["high","max"],
+            "canDisable": false
           },
           "writing": {
-            "deepseekThinkingEnabled": false,
-            "temperature": 1.5,
-            "topP": 0.95,
+            "deepseekThinkingEnabled": true,
+            "temperature": 0.8,
+            "topP": 1.0,
             "promptScaffold": "light"
           },
           "judgment": {
@@ -281,7 +280,7 @@
           "googleThinkingLevel": "high",
           "reasoningCapability": {
             "kind": "google",
-            "supportedEfforts": ["minimal","low","medium","high"]
+            "supportedEfforts": ["low","medium","high"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -377,7 +376,12 @@
           "maxContextTokens": 131072,
           "topP": 0.95,
           "frequencyPenalty": 0.1,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "none",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none"]
+          }
         },
         {
           "id": "preview/Kimi-K2.6",
@@ -441,7 +445,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -459,7 +463,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -477,7 +481,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -491,7 +495,11 @@
           "maxContextTokens": 400000,
           "topP": 1.0,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","low","medium","high","xhigh"]
+          }
         },
         {
           "id": "gpt-5.4",
@@ -501,7 +509,11 @@
           "maxContextTokens": 1048576,
           "topP": 1.0,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","low","medium","high","xhigh"]
+          }
         },
         {
           "id": "gpt-5.4-mini",
@@ -511,7 +523,12 @@
           "maxContextTokens": 400000,
           "topP": 1.0,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "none",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none"]
+          }
         },
         {
           "id": "gpt-5.3-codex-spark",
@@ -546,7 +563,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -564,7 +581,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -582,7 +599,7 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","minimal","low","medium","high","xhigh"]
+            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
           },
           "writing": {
             "promptScaffold": "light"
@@ -596,7 +613,11 @@
           "maxContextTokens": 200000,
           "topP": 1.0,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","low","medium","high","xhigh"]
+          }
         },
         {
           "id": "gpt-5.4",
@@ -606,7 +627,11 @@
           "maxContextTokens": 200000,
           "topP": 1.0,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none","low","medium","high","xhigh"]
+          }
         },
         {
           "id": "gpt-5.4-mini",
@@ -616,7 +641,12 @@
           "maxContextTokens": 200000,
           "topP": 1.0,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "openaiReasoningEffort": "none",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": ["none"]
+          }
         },
         {
           "id": "gpt-5.4-nano",
@@ -680,7 +710,12 @@
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "deepseek",
+            "supportedEfforts": ["high", "max"],
+            "canDisable": false
+          }
         },
         {
           "id": "deepseek-v4-pro",
@@ -691,6 +726,11 @@
           "topP": 0.95,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "deepseek",
+            "supportedEfforts": ["high", "max"],
+            "canDisable": false
+          },
           "writing": {
             "promptScaffold": "light"
           }

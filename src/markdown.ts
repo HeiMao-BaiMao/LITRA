@@ -19,6 +19,20 @@ interface ToolCallDisplay {
   state?: string;
   input?: string;
   output?: string;
+  progress?: ToolProgressDisplay;
+}
+
+interface ToolProgressItem {
+  phase: string;
+  label: string;
+  step?: number;
+  totalSteps?: number;
+  model?: string;
+}
+
+interface ToolProgressDisplay {
+  current: ToolProgressItem;
+  history: ToolProgressItem[];
 }
 
 function parseToolCallDisplay(content: string): ToolCallDisplay | null {
@@ -43,6 +57,16 @@ function parseToolCallDisplay(content: string): ToolCallDisplay | null {
     }
     if (line.startsWith("ID:")) {
       display.id = line.slice("ID:".length).trim();
+      section = null;
+      continue;
+    }
+    if (line.startsWith("進捗:")) {
+      const raw = line.slice("進捗:".length).trim();
+      try {
+        display.progress = JSON.parse(raw) as ToolProgressDisplay;
+      } catch {
+        // 古いログや壊れた進捗情報は、カード全体を壊さず無視する。
+      }
       section = null;
       continue;
     }
@@ -71,9 +95,12 @@ function parseToolCallDisplay(content: string): ToolCallDisplay | null {
 }
 
 function escapeHtml(value: string): string {
-  const div = document.createElement("div");
-  div.textContent = value;
-  return div.innerHTML;
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function parseJsonLoose(text: string): unknown | null {
@@ -247,7 +274,36 @@ function renderToolSection(title: string, raw: string | undefined): string {
   </div>`;
 }
 
-function renderToolCallHtml(content: string): string | null {
+export function renderToolProgress(progress: ToolProgressDisplay | undefined): string {
+  if (!progress?.current || !Array.isArray(progress.history)) return "";
+  const currentPhase = progress.current.phase;
+  const items = progress.history.map((item) => {
+    const isCurrent = item.phase === currentPhase;
+    const step = item.step != null && item.totalSteps != null ? `${item.step}/${item.totalSteps}` : "";
+    return `<li class="tool-progress-item${isCurrent ? " current" : " completed"}">
+      <span class="tool-progress-marker" aria-hidden="true"></span>
+      <span class="tool-progress-label">${escapeHtml(item.label)}</span>
+      ${step ? `<span class="tool-progress-step">${escapeHtml(step)}</span>` : ""}
+      ${item.model ? `<span class="tool-progress-model">${escapeHtml(item.model)}</span>` : ""}
+    </li>`;
+  }).join("");
+  return `<div class="tool-progress" aria-label="ツール実行の進捗"><ol>${items}</ol></div>`;
+}
+
+export interface MessageModelMetadata {
+  provider?: string;
+  model?: string;
+  responseModelId?: string;
+}
+
+export function renderModelMetadata(metadata?: MessageModelMetadata): string {
+  if (!metadata?.model && !metadata?.responseModelId) return "";
+  const model = metadata.responseModelId || metadata.model || "";
+  const label = metadata.provider ? `${metadata.provider} · ${model}` : model;
+  return `<div class="chat-model-metadata" title="使用モデル">${escapeHtml(label)}</div>`;
+}
+
+function renderToolCallHtml(content: string, metadata?: MessageModelMetadata): string | null {
   const tool = parseToolCallDisplay(content);
   if (!tool) return null;
 
@@ -267,9 +323,11 @@ function renderToolCallHtml(content: string): string | null {
       </div>
       ${tool.id ? `<div class="tool-call-id">${escapeHtml(tool.id)}</div>` : ""}
       ${renderChips(chips)}
+      ${renderToolProgress(tool.progress)}
     </summary>
     ${renderToolSection("入力", tool.input)}
     ${renderToolSection("結果", tool.output)}
+    ${renderModelMetadata(metadata)}
   </details>`;
 }
 
@@ -292,7 +350,12 @@ function renderThinkingHtml(thinking: string | undefined, streaming: boolean): s
   </details>`;
 }
 
-export function renderChatMessageHtml(element: HTMLElement, content: string, thinking?: string): void {
+export function renderChatMessageHtml(
+  element: HTMLElement,
+  content: string,
+  thinking?: string,
+  metadata?: MessageModelMetadata,
+): void {
   const prevThinking = element.querySelector<HTMLDetailsElement>("details.thinking-panel");
   const prevToolOpen = element.querySelector<HTMLDetailsElement>("details.tool-call-card")?.open ?? false;
   const hasThinking = Boolean(thinking && thinking.trim().length > 0);
@@ -316,7 +379,7 @@ export function renderChatMessageHtml(element: HTMLElement, content: string, thi
   }
 
   const thinkingHtml = renderThinkingHtml(thinking, streamingThinking);
-  const toolHtml = renderToolCallHtml(content);
+  const toolHtml = renderToolCallHtml(content, metadata);
   if (toolHtml != null) {
     element.innerHTML = DOMPurify.sanitize(`${thinkingHtml}${toolHtml}`);
     element.classList.toggle("tool-call-message", thinkingHtml.length === 0);
@@ -325,7 +388,7 @@ export function renderChatMessageHtml(element: HTMLElement, content: string, thi
     element.classList.remove("tool-call-message");
     // 本文も思考もまだ無い間は、待機中インジケーター(CSS の ::after)を表示する
     element.classList.toggle("chat-pending", contentEmpty && !hasThinking);
-    const html = `${thinkingHtml}${renderMarkdownOrFallback(content)}`;
+    const html = `${thinkingHtml}${renderMarkdownOrFallback(content)}${renderModelMetadata(metadata)}`;
     element.innerHTML = DOMPurify.sanitize(html);
   }
 

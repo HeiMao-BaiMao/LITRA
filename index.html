@@ -132,11 +132,31 @@
       </aside>
     </main>
 
-    <div id="settings-modal" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-dialog">
-        <h2>AI 設定</h2>
+    <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-backdrop" aria-hidden="true"></div>
+      <div class="modal-dialog settings-dialog">
+        <div class="settings-modal-header">
+          <div>
+            <h2 id="settings-title">設定</h2>
+            <p>モデル、生成方法、外部サービスを用途ごとに管理します。</p>
+          </div>
+        </div>
         <form id="settings-form" class="settings-form">
+          <nav class="settings-quick-nav" aria-label="設定カテゴリ">
+            <a href="#settings-model">モデル</a>
+            <a href="#settings-generation">生成</a>
+            <a href="#advanced-settings-toggle">執筆支援</a>
+            <a href="#settings-integrations">連携</a>
+            <a href="#settings-application">アプリ</a>
+          </nav>
+          <section id="settings-model" class="settings-card settings-card-primary" aria-labelledby="settings-model-title">
+            <div class="settings-card-heading">
+              <span class="settings-card-kicker">AI</span>
+              <div>
+                <h3 id="settings-model-title">接続とメインモデル</h3>
+                <p>チャットと本文生成の基準になる接続先です。</p>
+              </div>
+            </div>
           <label>
             <span>プロバイダー</span>
             <select id="setting-provider">
@@ -182,7 +202,19 @@
               <datalist id="setting-model-list"></datalist>
               <button id="btn-fetch-models" type="button">取得</button>
             </div>
+            <small>continuePassage のモデルは「生成・執筆支援の詳細」→「用途別モデル」→「執筆系モデル」で変更できます。</small>
           </label>
+          </section>
+
+          <section id="settings-generation" class="settings-card" aria-labelledby="settings-basics-title">
+            <div class="settings-card-heading">
+              <span class="settings-card-kicker">基本</span>
+              <div>
+                <h3 id="settings-basics-title">生成と操作</h3>
+                <p>普段の生成量とチャット操作を調整します。</p>
+              </div>
+            </div>
+            <div class="settings-field-grid">
           <label>
             <span>温度 (temperature)</span>
             <input id="setting-temperature" type="number" step="0.01" min="0" max="2" />
@@ -202,14 +234,25 @@
               <option value="enter">Enter で送信（Shift+Enter で改行）</option>
             </select>
           </label>
+            </div>
+          </section>
 
-          <button id="advanced-settings-toggle" type="button" class="advanced-settings-toggle" aria-expanded="false">
-            詳細設定を表示
+          <button id="advanced-settings-toggle" type="button" class="advanced-settings-toggle" aria-expanded="false" aria-controls="advanced-settings">
+            生成・執筆支援の詳細を表示（continuePassage のモデル設定）
           </button>
 
           <div id="advanced-settings" class="advanced-settings hidden">
-            <h3>詳細設定</h3>
+            <div class="settings-card-heading compact">
+              <span class="settings-card-kicker">詳細</span>
+              <div>
+                <h3>生成・執筆支援</h3>
+                <p>未指定項目はモデル推奨値を使用します。</p>
+              </div>
+            </div>
 
+            <div class="advanced-settings-group">
+              <h4>サンプリング</h4>
+              <div class="settings-field-grid">
             <label>
               <span>topP（ nucleus sampling ）</span>
               <input id="setting-top-p" type="number" step="0.01" min="0" max="1" placeholder="未指定" />
@@ -226,7 +269,12 @@
               <span>presence penalty</span>
               <input id="setting-presence-penalty" type="number" step="0.01" min="-2" max="2" placeholder="未指定" />
             </label>
+              </div>
+            </div>
 
+            <div class="advanced-settings-group">
+              <h4>推論・Thinking</h4>
+              <p class="settings-group-description">選択中のモデルで利用できる設定だけを表示します。</p>
             <div class="provider-field-openai hidden">
               <label>
                 <span>OpenAI reasoning effort</span>
@@ -297,7 +345,12 @@
                 </select>
               </label>
             </div>
+            </div>
 
+            <div class="advanced-settings-group">
+              <h4>生成フローと品質補助</h4>
+              <p class="settings-group-description">追加の工程を使って、構想・一貫性・文章品質を補助します。</p>
+              <div class="settings-option-list">
             <label class="checkbox-label">
               <input id="setting-two-stage-continuation" type="checkbox" />
               <span>続き生成の前に構想ステップを実行（2段生成。API呼び出しが1回増えます）</span>
@@ -306,6 +359,29 @@
             <label class="checkbox-label">
               <input id="setting-continuation-review" type="checkbox" />
               <span>続き生成の後にレビューと修正を実行（矛盾・表現・文体を点検して書き直します。API呼び出しが最大2回増えます）</span>
+            </label>
+              </div>
+
+            <div class="settings-subgroup">
+              <h5>用途別モデル</h5>
+            <p class="settings-group-description">continuePassage・続き生成・リライト・ペン入れ修正は「執筆系モデル」を使用します。</p>
+            <label>
+              <span>執筆系モデル（continuePassage・ドラフト・修正・リライト）</span>
+              <select id="setting-writing-source">
+                <option value="main">本文モデルと同じ</option>
+                <option value="background">バックグラウンドモデルと同じ</option>
+                <option value="custom">個別指定</option>
+              </select>
+            </label>
+
+            <label class="writing-provider-row hidden">
+              <span>執筆系プロバイダーとモデル（個別指定時のみ）</span>
+              <select id="setting-writing-provider">
+                <option value="">本文モデルと同じ</option>
+              </select>
+              <select id="setting-writing-model">
+                <option value="">プロバイダ既定</option>
+              </select>
             </label>
 
             <label>
@@ -327,6 +403,13 @@
               </select>
             </label>
 
+            <div class="model-resolution-preview">
+              <h3>現在の設定での解決結果</h3>
+              <div id="model-resolution-preview-body"></div>
+            </div>
+            </div>
+
+              <div class="settings-option-list">
             <label class="checkbox-label">
               <input id="setting-continuation-scene-state" type="checkbox" />
               <span>場面ステートカードを生成して注入（直前本文の場所・人物・未解決の緊張を整理。API呼び出しが1回増えます）</span>
@@ -339,7 +422,7 @@
 
             <label class="checkbox-label">
               <input id="setting-continuation-best-of-two" type="checkbox" />
-              <span>続きを2案生成して選定（両案を比較して1つ採用します。API呼び出しが2回増えます）</span>
+              <span>本文案を2案生成して選定（続き生成・チャット経由の生成・リライト・ペン入れで、判断系モデルが比較します。API呼び出しが増えます）</span>
             </label>
 
             <label class="checkbox-label">
@@ -351,7 +434,13 @@
               <input id="setting-continuation-beat-split" type="checkbox" />
               <span>構想メモのビートごとに分割して執筆（構想ステップが有効な場合のみ動作します。ビート数だけAPI呼び出しが増えます）</span>
             </label>
+              </div>
+            </div>
 
+            <div class="advanced-settings-group">
+              <h4>用途別パラメータ上書き</h4>
+              <p class="settings-group-description">空欄はメインモデルの設定を継承します。</p>
+              <div class="role-params-grid">
             <div class="role-params-group">
               <h3>執筆系パラメータ（ドラフト・修正・リライト）</h3>
               <label>
@@ -409,10 +498,14 @@
                 <small>DeepSeek 使用時のみ有効。OFF で温度等が効く</small>
               </label>
             </div>
+              </div>
+            </div>
           </div>
 
-          <div class="sync-settings">
+          <div id="settings-integrations" class="settings-integrations-grid">
+          <section class="settings-card sync-settings">
             <h3>WebDAV 同期</h3>
+            <p class="settings-group-description">プロジェクトを別端末と同期します。</p>
             <label class="checkbox-label">
               <input id="setting-webdav-enabled" type="checkbox" />
               <span>WebDAV 同期を有効にする</span>
@@ -433,31 +526,35 @@
               <span>パスワード</span>
               <input id="setting-webdav-password" type="password" autocomplete="current-password" />
             </label>
-          </div>
+          </section>
 
-          <div class="sync-settings">
+          <section class="settings-card sync-settings">
             <h3>Web検索 (Exa)</h3>
+            <p class="settings-group-description">調査ツールで利用する検索サービスです。</p>
             <label>
               <span>Exa API キー（任意・未入力なら無料枠で動作）</span>
               <input id="setting-exa-api-key" type="password" autocomplete="off" />
             </label>
+          </section>
           </div>
 
-          <div class="modal-actions">
-            <button id="btn-save-settings" type="submit">保存</button>
-            <button id="btn-cancel-settings" type="button">キャンセル</button>
-          </div>
-
-          <div class="product-info-section">
+          <div id="settings-application" class="settings-footer-grid">
+          <div class="product-info-section settings-utility-card">
             <h3>製品情報</h3>
             <button id="btn-show-licenses" type="button">ライセンスを表示</button>
           </div>
 
-          <div class="settings-initialize-section">
+          <div class="settings-initialize-section settings-utility-card">
             <p>保存されている AI 設定・レイアウト・ウィンドウ状態をすべて削除し、初期状態に戻します。</p>
             <button id="btn-initialize-settings" type="button" class="danger-button">
               設定を初期化
             </button>
+          </div>
+          </div>
+
+          <div class="modal-actions settings-modal-actions">
+            <button id="btn-save-settings" type="submit">保存</button>
+            <button id="btn-cancel-settings" type="button">キャンセル</button>
           </div>
         </form>
       </div>
