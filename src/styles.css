@@ -1469,6 +1469,56 @@ button#btn-cancel:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+.tool-progress {
+  padding: 0.55rem 0.7rem 0.65rem;
+}
+
+.tool-progress ol {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-progress-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.tool-progress-item.current {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tool-progress-marker {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.tool-progress-item.completed .tool-progress-marker,
+.tool-progress-item.current .tool-progress-marker {
+  background: currentColor;
+}
+
+.tool-progress-step {
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-progress-model {
+  grid-column: 2 / -1;
+  overflow-wrap: anywhere;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
 /* 設定モーダル: 長い単一フォームを用途別のカードへ整理する */
 .settings-dialog {
   width: min(900px, 94vw);

@@ -184,6 +184,16 @@ function toolLoopStopConditions(
   ];
 }
 
+/**
+ * continuePassage はチャットから専用執筆パイプラインへ入るための入口であり、
+ * パイプライン内部で再公開すると自己呼び出しになる。呼び出し側の指定にかかわらず除外する。
+ */
+export function scopeContinuationTools(tools?: ToolSet): ToolSet | undefined {
+  if (!tools || !("continuePassage" in tools)) return tools;
+  const { continuePassage: _continuePassage, ...scoped } = tools;
+  return Object.keys(scoped).length > 0 ? scoped : undefined;
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -222,6 +232,16 @@ export interface StreamRunResult {
 }
 
 export type StreamToolEvent =
+  | {
+      type: "progress";
+      toolCallId: string;
+      toolName: string;
+      phase: string;
+      label: string;
+      step?: number;
+      totalSteps?: number;
+      model?: string;
+    }
   | {
       type: "input-start";
       toolCallId: string;
@@ -1177,9 +1197,11 @@ export async function runLineEditRevision(
   extras?: FictionPromptExtras,
   abortSignal?: AbortSignal,
   judgmentSettings?: AiSettings,
+  onProgress?: (stage: "candidate-1" | "candidate-2" | "selection") => void,
 ): Promise<string | undefined> {
   try {
-    const generateCandidate = async (): Promise<string> => {
+    const generateCandidate = async (stage: "candidate-1" | "candidate-2"): Promise<string> => {
+      onProgress?.(stage);
       const result = await generateText({
         model: createModel(settings),
         ...buildRetryOption(settings),
@@ -1191,16 +1213,17 @@ export async function runLineEditRevision(
       });
       return result.text.trim();
     };
-    const first = await generateCandidate();
+    const first = await generateCandidate("candidate-1");
     if (!first) return undefined;
     if (!settings.continuationBestOfTwo || !judgmentSettings) return first;
-    const second = await generateCandidate();
+    const second = await generateCandidate("candidate-2");
     if (!second) return first;
     const validCandidates = [first, second].filter(
       (candidate) => parseTargetedRevision(candidate) !== undefined,
     );
     if (validCandidates.length === 0) return first;
     if (validCandidates.length === 1) return validCandidates[0];
+    onProgress?.("selection");
     const selected = await runCandidateSelectionStep(
       judgmentSettings,
       validCandidates,
@@ -1238,8 +1261,9 @@ export async function streamContinuation({
 }: StreamContinuationOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    const toolsEnabled = hasTools(tools);
-    const toolNames = toolsEnabled ? Object.keys(tools) : [];
+    const scopedTools = scopeContinuationTools(tools);
+    const toolsEnabled = hasTools(scopedTools);
+    const toolNames = toolsEnabled ? Object.keys(scopedTools) : [];
     // 執筆系の足場レベルを extras 経由でドラフト・修正系プロンプトへ伝える。
     let extras: FictionPromptExtras | undefined = s.promptScaffold
       ? { promptScaffold: s.promptScaffold }
@@ -1300,7 +1324,7 @@ export async function streamContinuation({
         ...buildTemperatureOption(s),
         maxOutputTokens: s.maxTokens,
         abortSignal,
-        tools,
+        tools: scopedTools,
         stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
         ...buildAdvancedOptions(s),
       });

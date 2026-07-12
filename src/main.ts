@@ -396,6 +396,16 @@ interface ToolLogState {
   status: ToolLogStatus;
   input?: unknown;
   output?: unknown;
+  progress?: ToolProgressState;
+  progressHistory?: ToolProgressState[];
+}
+
+interface ToolProgressState {
+  phase: string;
+  label: string;
+  step?: number;
+  totalSteps?: number;
+  model?: string;
 }
 
 const toolLogStates = new Map<string, ToolLogState>();
@@ -530,7 +540,10 @@ async function validateChatSettings(): Promise<boolean> {
   return true;
 }
 
-function createAiTools(): ToolSet | undefined {
+function createAiTools(options: {
+  includeContinuePassage?: boolean;
+  onToolProgress?: (event: Extract<StreamToolEvent, { type: "progress" }>) => void;
+} = {}): ToolSet | undefined {
   if (!currentProject) return undefined;
 
   const searchDeps = { projectId: currentProject.id };
@@ -654,8 +667,33 @@ function createAiTools(): ToolSet | undefined {
       resolveSettings: () => resolveBackgroundRunSettings(currentSettings),
       currentEpisodeId: state.currentEpisodeId ?? undefined,
     }),
-    // チャットからの新規本文生成も、続き生成ボタンと同じ執筆パイプラインへ送る。
-    continuePassage: createContinuePassageTool({
+    // チャットで「もっと良い表現にできない?」等と頼まれたときに、チャットモデルの
+    // 即興ではなく、リライトボタンと同じ執筆系パイプライン(役割解決・足場・語りの型
+    // 規則・設定資料)で差し替え案を生成させるためのツール。
+    rewritePassage: createRewritePassageTool({
+      resolveSettings: () => resolveWritingRunSettings(currentSettings),
+      resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
+      getEditorText: () => getElements().editor.value,
+      getSettingsContext: () => buildSettingsContext(state.currentEpisodeId ?? undefined),
+      getContextSideBudget: () => getPromptContextBudgets().rewriteContextSide,
+    }),
+    // チャットで「編集者として直して」「ペン入れして」等と頼まれたときに、
+    // チャットモデルの即興ではなく、判断系モデル(編集者)の査読→執筆系モデルの
+    // 置換案生成の二段階プロセスで編集提案を生成させるツール。
+    lineEditPassage: createLineEditPassageTool({
+      resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
+      resolveWritingSettings: () => resolveWritingRunSettings(currentSettings),
+      getEditorText: () => getElements().editor.value,
+      getSettingsContext: () => buildSettingsContext(state.currentEpisodeId ?? undefined),
+      getContextSideBudget: () => getPromptContextBudgets().rewriteContextSide,
+      onProgress: options.onToolProgress,
+    }),
+  };
+
+  if (options.includeContinuePassage !== false) {
+    // チャットからの新規本文生成だけを、続き生成ボタンと同じ執筆パイプラインへ送る。
+    // 専用パイプライン自身へこのツールを渡すと自己呼び出しになるため、呼び出し側で除外する。
+    tools.continuePassage = createContinuePassageTool({
       resolveWritingSettings: () => resolveWritingRunSettings(currentSettings),
       resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
       prepareContext: async () => {
@@ -677,28 +715,8 @@ function createAiTools(): ToolSet | undefined {
           },
         };
       },
-    }),
-    // チャットで「もっと良い表現にできない?」等と頼まれたときに、チャットモデルの
-    // 即興ではなく、リライトボタンと同じ執筆系パイプライン(役割解決・足場・語りの型
-    // 規則・設定資料)で差し替え案を生成させるためのツール。
-    rewritePassage: createRewritePassageTool({
-      resolveSettings: () => resolveWritingRunSettings(currentSettings),
-      resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
-      getEditorText: () => getElements().editor.value,
-      getSettingsContext: () => buildSettingsContext(state.currentEpisodeId ?? undefined),
-      getContextSideBudget: () => getPromptContextBudgets().rewriteContextSide,
-    }),
-    // チャットで「編集者として直して」「ペン入れして」等と頼まれたときに、
-    // チャットモデルの即興ではなく、判断系モデル(編集者)の査読→執筆系モデルの
-    // 置換案生成の二段階プロセスで編集提案を生成させるツール。
-    lineEditPassage: createLineEditPassageTool({
-      resolveJudgmentSettings: () => resolveJudgmentRunSettings(currentSettings),
-      resolveWritingSettings: () => resolveWritingRunSettings(currentSettings),
-      getEditorText: () => getElements().editor.value,
-      getSettingsContext: () => buildSettingsContext(state.currentEpisodeId ?? undefined),
-      getContextSideBudget: () => getPromptContextBudgets().rewriteContextSide,
-    }),
-  };
+    });
+  }
 
   if (state.currentEpisodeId) {
     tools.editEpisode = createEditEpisodeTool({
@@ -866,6 +884,10 @@ function formatToolLog(state: ToolLogState): string {
   text += `状態: ${label}\n`;
   text += `ID: ${state.toolCallId}\n`;
 
+  if (state.progress) {
+    text += `進捗: ${JSON.stringify({ current: state.progress, history: state.progressHistory ?? [] })}\n`;
+  }
+
   if (state.input !== undefined) {
     text += `入力: ${stringifyForDisplay(state.input, TOOL_DISPLAY_INPUT_MAX_CHARS)}\n`;
   } else {
@@ -919,6 +941,29 @@ function upsertToolLog(next: Omit<ToolLogState, "messageIndex">, settings?: AiSe
 
 function handleToolEvent(event: StreamToolEvent, settings: AiSettings): void {
   switch (event.type) {
+    case "progress": {
+      const existing = toolLogStates.get(event.toolCallId);
+      const progress: ToolProgressState = {
+        phase: event.phase,
+        label: event.label,
+        step: event.step,
+        totalSteps: event.totalSteps,
+        model: event.model,
+      };
+      const history = [...(existing?.progressHistory ?? [])];
+      const previousIndex = history.findIndex((item) => item.phase === progress.phase);
+      if (previousIndex >= 0) history[previousIndex] = progress;
+      else history.push(progress);
+      upsertToolLog({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        status: "running",
+        input: existing?.input,
+        progress,
+        progressHistory: history,
+      }, settings);
+      break;
+    }
     case "input-start":
       upsertToolLog({
         toolCallId: event.toolCallId,
@@ -1020,7 +1065,9 @@ async function streamChatOnce(
     settings,
     messages,
     settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined, settings),
-    tools: allowTools ? createAiTools() : undefined,
+    tools: allowTools
+      ? createAiTools({ onToolProgress: (event) => handleToolEvent(event, settings) })
+      : undefined,
     onChunk: (chunk) => {
       appendAssistantChunk(chunk);
     },
@@ -2430,7 +2477,9 @@ async function handleContinue(): Promise<void> {
       context,
       settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined),
       relatedScenes,
-      tools: createAiTools(),
+      // continuePassage はチャットからこのパイプラインを起動するための入口。
+      // 本パイプライン自身には渡さず、生成チャンクを直接エディタへ流す。
+      tools: createAiTools({ includeContinuePassage: false }),
       episodeId: state.currentEpisodeId ?? undefined,
       characterVoiceInput,
       onChunk: (chunk) => {

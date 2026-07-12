@@ -1,8 +1,9 @@
-import { tool } from "ai";
+import { tool, type ToolExecutionOptions } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { checkConsistency } from "./consistency.ts";
 import { runLineEditReview, runLineEditRevision, streamContinuation, streamRewrite } from "./service.ts";
+import type { StreamToolEvent } from "./service.ts";
 import { limitPromptText, parseTargetedRevision, reviewRequiresRevision } from "./prompts.ts";
 import type { AiSettings } from "../settings.ts";
 import type { CustomField } from "../project/schema.ts";
@@ -322,11 +323,11 @@ async function rebuildSearchIndexQuietly(projectId: string): Promise<boolean> {
 
 function wrapToolExecute<TInput, TOutput>(
   name: string,
-  execute: (input: TInput) => Promise<TOutput>,
-): (input: TInput) => Promise<TOutput | { error: string }> {
-  return async (input) => {
+  execute: (input: TInput, options: ToolExecutionOptions) => Promise<TOutput>,
+): (input: TInput, options: ToolExecutionOptions) => Promise<TOutput | { error: string }> {
+  return async (input, options) => {
     try {
-      return await execute(input);
+      return await execute(input, options);
     } catch (error) {
       console.error(`[litra] tool ${name} error:`, error);
       return { error: error instanceof Error ? error.message : String(error) };
@@ -819,6 +820,8 @@ export interface LineEditPassageToolDependencies {
   getSettingsContext?: () => string | undefined;
   /** 前後文脈の片側あたり文字数上限。 */
   getContextSideBudget?: () => number;
+  /** 複数段階ツールの進捗を共通Toolカードへ通知する。 */
+  onProgress?: (event: Extract<StreamToolEvent, { type: "progress" }>) => void;
 }
 
 const lineEditPassageInputSchema = z.object({
@@ -849,7 +852,24 @@ export function createLineEditPassageTool(deps: LineEditPassageToolDependencies)
     inputSchema: lineEditPassageInputSchema,
     execute: wrapToolExecute(
       "lineEditPassage",
-      async ({ passageText, instruction }: z.infer<typeof lineEditPassageInputSchema>) => {
+      async ({ passageText, instruction }: z.infer<typeof lineEditPassageInputSchema>, execution) => {
+        const reportProgress = (
+          phase: string,
+          label: string,
+          step: number,
+          totalSteps: number,
+          model?: string,
+        ): void => deps.onProgress?.({
+          type: "progress",
+          toolCallId: execution.toolCallId,
+          toolName: "lineEditPassage",
+          phase,
+          label,
+          step,
+          totalSteps,
+          model,
+        });
+
         // 前後文脈の構築(rewritePassage と同一方式)
         const editorText = deps.getEditorText?.() ?? "";
         const sideBudget = deps.getContextSideBudget?.() ?? 5000;
@@ -866,6 +886,10 @@ export function createLineEditPassageTool(deps: LineEditPassageToolDependencies)
 
         // 第1工程: 判断系モデルによる査読
         const judgmentSettings = deps.resolveJudgmentSettings();
+        const writingSettings = deps.resolveWritingSettings();
+        const competitionEnabled = writingSettings.continuationBestOfTwo === true;
+        const totalSteps = competitionEnabled ? 5 : 3;
+        reportProgress("review", "判断モデルで査読中", 1, totalSteps, judgmentSettings.model);
         const reviewExtras =
           judgmentSettings.promptScaffold != null
             ? { promptScaffold: judgmentSettings.promptScaffold }
@@ -879,32 +903,30 @@ export function createLineEditPassageTool(deps: LineEditPassageToolDependencies)
           reviewExtras,
         );
         if (!review) {
-          const writingModel = deps.resolveWritingSettings().model;
           return {
             success: false,
             message: "査読結果の生成に失敗しました。",
             usedJudgmentModel: judgmentSettings.model,
-            usedWritingModel: writingModel,
+            usedWritingModel: writingSettings.model,
             contextFound,
           };
         }
 
         // 査読から修正工程の要否を判定
         if (!reviewRequiresRevision(review)) {
-          const writingModel = deps.resolveWritingSettings().model;
+          reportProgress("finalize", "査読結果を整理中", totalSteps, totalSteps);
           return {
             success: true,
             message: "編集者による査読の結果、修正は不要と判断されました。",
             review,
             requiresRevision: false,
             usedJudgmentModel: judgmentSettings.model,
-            usedWritingModel: writingModel,
+            usedWritingModel: writingSettings.model,
             contextFound,
           };
         }
 
         // 第2工程: 執筆系モデルによる置換案生成
-        const writingSettings = deps.resolveWritingSettings();
         const revisionExtras =
           writingSettings.promptScaffold != null
             ? { promptScaffold: writingSettings.promptScaffold }
@@ -917,8 +939,17 @@ export function createLineEditPassageTool(deps: LineEditPassageToolDependencies)
           settingsContext,
           instruction,
           revisionExtras,
-          undefined,
+          execution.abortSignal,
           judgmentSettings,
+          (stage) => {
+            if (stage === "candidate-1") {
+              reportProgress("revision-1", "執筆モデルで修正案を生成中", 2, totalSteps, writingSettings.model);
+            } else if (stage === "candidate-2") {
+              reportProgress("revision-2", "執筆モデルで修正案2を生成中", 3, totalSteps, writingSettings.model);
+            } else {
+              reportProgress("selection", "判断モデルで候補を比較中", 4, totalSteps, judgmentSettings.model);
+            }
+          },
         );
         if (!revisionOutput) {
           return {
@@ -933,6 +964,7 @@ export function createLineEditPassageTool(deps: LineEditPassageToolDependencies)
           };
         }
 
+        reportProgress("finalize", "修正案を整理中", totalSteps, totalSteps);
         const revisions = parseTargetedRevision(revisionOutput);
         if (revisions === undefined) {
           return {

@@ -438,6 +438,8 @@ function buildToolRecoveryMessages(
 
 function toolEventStatus(event: StreamToolEvent): string {
   switch (event.type) {
+    case "progress":
+      return `（${event.toolName}: ${event.label}）`;
     case "input-start":
       return `（ツール入力を準備中: ${event.toolName}）`;
     case "call":

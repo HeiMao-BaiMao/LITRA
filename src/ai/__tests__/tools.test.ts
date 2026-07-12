@@ -38,8 +38,20 @@ import {
   reviewRequiresRevision,
   parseTargetedRevision,
 } from "../prompts.ts";
+import { scopeContinuationTools } from "../service.ts";
 
 describe("chat writing pipeline prompts", () => {
+  it("does not expose continuePassage inside the continuation pipeline", () => {
+    const searchEpisodes = {} as never;
+    const scoped = scopeContinuationTools({
+      continuePassage: {} as never,
+      searchEpisodes,
+    });
+
+    expect(scoped).toEqual({ searchEpisodes });
+    expect(scopeContinuationTools({ continuePassage: {} as never })).toBeUndefined();
+  });
+
   it("routes new fiction requests through continuePassage", () => {
     const guidance = buildToolGuidancePrompt(["continuePassage", "editEpisode"]);
     expect(guidance).toContain("MUST call continuePassage");
@@ -251,7 +263,22 @@ describe("parseTargetedRevision", () => {
 
 // ─── markdown.ts: renderModelMetadata ──────────────────────────────────────
 
-import { renderModelMetadata } from "../../markdown.ts";
+import { renderModelMetadata, renderToolProgress } from "../../markdown.ts";
+
+describe("renderToolProgress", () => {
+  it("renders completed and current line-edit phases with model metadata", () => {
+    const review = { phase: "review", label: "判断モデルで査読中", step: 1, totalSteps: 3, model: "judge" };
+    const revision = { phase: "revision-1", label: "執筆モデルで修正案を生成中", step: 2, totalSteps: 3, model: "writer" };
+    const html = renderToolProgress({ current: revision, history: [review, revision] });
+
+    expect(html).toContain("tool-progress-item completed");
+    expect(html).toContain("tool-progress-item current");
+    expect(html).toContain("判断モデルで査読中");
+    expect(html).toContain("執筆モデルで修正案を生成中");
+    expect(html).toContain("writer");
+    expect(html).toContain("2/3");
+  });
+});
 
 describe("renderModelMetadata", () => {
   it("returns empty string when no metadata", () => {
