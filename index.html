@@ -202,6 +202,7 @@
               <datalist id="setting-model-list"></datalist>
               <button id="btn-fetch-models" type="button">取得</button>
             </div>
+            <small>continuePassage のモデルは「生成・執筆支援の詳細」→「用途別モデル」→「執筆系モデル」で変更できます。</small>
           </label>
           </section>
 
@@ -237,7 +238,7 @@
           </section>
 
           <button id="advanced-settings-toggle" type="button" class="advanced-settings-toggle" aria-expanded="false" aria-controls="advanced-settings">
-            生成・執筆支援の詳細を表示
+            生成・執筆支援の詳細を表示（continuePassage のモデル設定）
           </button>
 
           <div id="advanced-settings" class="advanced-settings hidden">
@@ -363,6 +364,26 @@
 
             <div class="settings-subgroup">
               <h5>用途別モデル</h5>
+            <p class="settings-group-description">continuePassage・続き生成・リライト・ペン入れ修正は「執筆系モデル」を使用します。</p>
+            <label>
+              <span>執筆系モデル（continuePassage・ドラフト・修正・リライト）</span>
+              <select id="setting-writing-source">
+                <option value="main">本文モデルと同じ</option>
+                <option value="background">バックグラウンドモデルと同じ</option>
+                <option value="custom">個別指定</option>
+              </select>
+            </label>
+
+            <label class="writing-provider-row hidden">
+              <span>執筆系プロバイダーとモデル（個別指定時のみ）</span>
+              <select id="setting-writing-provider">
+                <option value="">本文モデルと同じ</option>
+              </select>
+              <select id="setting-writing-model">
+                <option value="">プロバイダ既定</option>
+              </select>
+            </label>
+
             <label>
               <span>判断系モデル（構想・査読・選定・カード）</span>
               <select id="setting-judgment-source">

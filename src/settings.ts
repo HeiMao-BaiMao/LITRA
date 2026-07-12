@@ -39,6 +39,7 @@ export type ChatSubmitShortcut = "ctrlEnter" | "enter";
 // 判断系工程(構想・査読・選定・カード生成・講評)に使うモデルの出所。
 // "main": 本文モデルと同じ / "background": バックグラウンドモデル / "custom": 判断系専用の指定
 export type JudgmentModelSource = "main" | "background" | "custom";
+export type WritingModelSource = "main" | "background" | "custom";
 // ユーザーが役割(執筆系/判断系)ごとに保存するパラメータ上書き。形は providers.json の役割プロファイルと同一。
 export type RoleParamOverrides = ModelRoleProfile;
 
@@ -58,6 +59,9 @@ export interface AiSettings {
   chatModel?: string;
   backgroundProvider?: Provider;
   backgroundModel?: string;
+  writingModelSource?: WritingModelSource;
+  writingProvider?: Provider;
+  writingModel?: string;
   judgmentModelSource?: JudgmentModelSource;
   judgmentProvider?: Provider;
   judgmentModel?: string;
@@ -124,6 +128,9 @@ const SETTINGS_STORE_KEYS = [
   "chatModel",
   "backgroundProvider",
   "backgroundModel",
+  "writingModelSource",
+  "writingProvider",
+  "writingModel",
   "judgmentModelSource",
   "judgmentProvider",
   "judgmentModel",
@@ -248,6 +255,10 @@ function isJudgmentModelSource(value: unknown): value is JudgmentModelSource {
   return value === "main" || value === "background" || value === "custom";
 }
 
+function isWritingModelSource(value: unknown): value is WritingModelSource {
+  return value === "main" || value === "background" || value === "custom";
+}
+
 function isPromptScaffold(value: unknown): value is PromptScaffold {
   return value === "full" || value === "light";
 }
@@ -347,6 +358,37 @@ function normalizeProviderModel(
   return model;
 }
 
+function canonicalHost(url: string): string | undefined {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/** 別の組み込みプロバイダーの公式URLが保存された明白な混線だけを修復する。 */
+function repairCrossProviderBaseUrl(
+  config: Awaited<ReturnType<typeof loadProviderConfig>>,
+  provider: Provider,
+  baseUrl: string,
+): { baseUrl: string; repaired: boolean } {
+  const entry = getProviderEntry(config, provider);
+  const ownDefault = entry?.defaultBaseUrl ?? "";
+  const host = canonicalHost(baseUrl);
+  if (!host || !ownDefault || host === canonicalHost(ownDefault)) {
+    return { baseUrl, repaired: false };
+  }
+  const belongsToOtherProvider = config.providers.some(
+    (candidate) => candidate.id !== provider && canonicalHost(candidate.defaultBaseUrl ?? "") === host,
+  );
+  if (!belongsToOtherProvider) return { baseUrl, repaired: false };
+  console.warn(`[litra:settings] repairing ${provider} base URL mixed with another provider`, {
+    from: baseUrl,
+    to: ownDefault,
+  });
+  return { baseUrl: ownDefault, repaired: true };
+}
+
 /**
  * OpenCode Go は利用枠が強く効くため output はモデル既定で上限を守る。
  * context は保存済み設定が小さい場合でも、モデルの公称上限まで引き上げる。
@@ -388,6 +430,7 @@ export async function loadSettings(): Promise<AiSettings> {
 
   const providerConfigs = {} as Record<Provider, ProviderSpecificSettings>;
   let needsScrub = false;
+  let needsConfigRepair = false;
 
   for (const p of ALL_PROVIDERS) {
     const entry = getProviderEntry(config, p);
@@ -421,13 +464,17 @@ export async function loadSettings(): Promise<AiSettings> {
     if (!model) model = defaultModel;
     if (!baseUrl) baseUrl = entry?.defaultBaseUrl ?? "";
 
+    const repairedBaseUrl = repairCrossProviderBaseUrl(config, p, baseUrl);
+    baseUrl = repairedBaseUrl.baseUrl;
+    needsConfigRepair ||= repairedBaseUrl.repaired;
+
     model = migrateLegacyModel(p, model);
     model = normalizeProviderModel(isFixedModelSelection(entry), model, defaultModel, configuredModels);
 
     providerConfigs[p] = { apiKey, baseUrl, model };
   }
 
-  if (needsScrub || legacyApiKey) {
+  if (needsScrub || needsConfigRepair || legacyApiKey) {
     const scrubbed = {} as Record<Provider, ProviderSpecificSettings>;
     for (const p of ALL_PROVIDERS) {
       scrubbed[p] = { ...providerConfigs[p], apiKey: "" };
@@ -447,6 +494,11 @@ export async function loadSettings(): Promise<AiSettings> {
   const backgroundProviderRaw = await store.get("backgroundProvider");
   const backgroundProvider = isProvider(backgroundProviderRaw) ? backgroundProviderRaw : undefined;
   const backgroundModel = trimmedString(await store.get("backgroundModel"));
+  const writingModelSourceRaw = await store.get("writingModelSource");
+  const writingModelSource = isWritingModelSource(writingModelSourceRaw) ? writingModelSourceRaw : undefined;
+  const writingProviderRaw = await store.get("writingProvider");
+  const writingProvider = isProvider(writingProviderRaw) ? writingProviderRaw : undefined;
+  const writingModel = trimmedString(await store.get("writingModel"));
 
   const judgmentModelSourceRaw = await store.get("judgmentModelSource");
   const judgmentModelSource = isJudgmentModelSource(judgmentModelSourceRaw) ? judgmentModelSourceRaw : undefined;
@@ -466,6 +518,9 @@ export async function loadSettings(): Promise<AiSettings> {
     chatModel: chatModel || undefined,
     backgroundProvider,
     backgroundModel: backgroundModel || undefined,
+    writingModelSource,
+    writingProvider,
+    writingModel: writingModel || undefined,
     judgmentModelSource,
     judgmentProvider,
     judgmentModel: judgmentModel || undefined,
@@ -564,6 +619,9 @@ export async function saveSettings(settings: AiSettings): Promise<void> {
   await store.set("chatModel", settings.chatModel ?? null);
   await store.set("backgroundProvider", settings.backgroundProvider ?? null);
   await store.set("backgroundModel", settings.backgroundModel ?? null);
+  await store.set("writingModelSource", settings.writingModelSource ?? null);
+  await store.set("writingProvider", settings.writingProvider ?? null);
+  await store.set("writingModel", settings.writingModel ?? null);
   await store.set("judgmentModelSource", settings.judgmentModelSource ?? null);
   await store.set("judgmentProvider", settings.judgmentProvider ?? null);
   await store.set("judgmentModel", settings.judgmentModel ?? null);
@@ -637,6 +695,25 @@ export function resolveBackgroundSettings(settings: AiSettings): AiSettings {
     baseUrl: specific.baseUrl,
     model: backgroundModel || fallbackModel || specific.model,
   };
+}
+
+/** 執筆系工程用のモデル設定を、選択元に従って解決する。 */
+export function resolveWritingSettings(settings: AiSettings): AiSettings {
+  const source = settings.writingModelSource ?? "main";
+  if (source === "background") return resolveBackgroundSettings(settings);
+  if (source === "custom") {
+    const provider = settings.writingProvider ?? settings.provider;
+    const specific = getProviderSpecificSettings(settings, provider);
+    const model = trimmedString(settings.writingModel);
+    return {
+      ...settings,
+      provider,
+      apiKey: specific.apiKey,
+      baseUrl: specific.baseUrl,
+      model: model || specific.model,
+    };
+  }
+  return settings;
 }
 
 /**

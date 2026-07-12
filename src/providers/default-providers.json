@@ -210,12 +210,12 @@
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": ["high","max"],
-            "canDisable": true
+            "canDisable": false
           },
           "writing": {
-            "deepseekThinkingEnabled": false,
-            "temperature": 1.5,
-            "topP": 0.95,
+            "deepseekThinkingEnabled": true,
+            "temperature": 0.8,
+            "topP": 1.0,
             "promptScaffold": "light"
           },
           "judgment": {
@@ -234,12 +234,12 @@
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": ["high","max"],
-            "canDisable": true
+            "canDisable": false
           },
           "writing": {
-            "deepseekThinkingEnabled": false,
-            "temperature": 1.5,
-            "topP": 0.95,
+            "deepseekThinkingEnabled": true,
+            "temperature": 0.8,
+            "topP": 1.0,
             "promptScaffold": "light"
           },
           "judgment": {
@@ -710,7 +710,12 @@
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
-          "presencePenalty": 0
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "deepseek",
+            "supportedEfforts": ["high", "max"],
+            "canDisable": false
+          }
         },
         {
           "id": "deepseek-v4-pro",
@@ -721,6 +726,11 @@
           "topP": 0.95,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "deepseek",
+            "supportedEfforts": ["high", "max"],
+            "canDisable": false
+          },
           "writing": {
             "promptScaffold": "light"
           }

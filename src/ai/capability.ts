@@ -17,6 +17,11 @@ export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
 /// アプリ全体で使う thinking/reasoning の抽象設定値。
 export type ThinkingEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+/** DeepSeek V4 は非 Thinking 出力で日本語が破損するため、接続先によらず Thinking 固定。 */
+export function isDeepSeekV4Model(modelId: string): boolean {
+  return /^deepseek-v4(?:-|$)/i.test(modelId.trim());
+}
+
 /**
  * モデルの capability メタデータを取得する。
  * ProviderModelDefaults の reasoningCapability が存在すればそれを返す。
@@ -90,8 +95,8 @@ export function getModelCapability(
   }
 
   if (provider === "opencode") {
-    if (modelId === "deepseek-v4-flash" || modelId === "deepseek-v4-pro") {
-      return undefined;
+    if (isDeepSeekV4Model(modelId)) {
+      return { kind: "deepseek", supportedEfforts: ["high", "max"], canDisable: false };
     }
     if (modelId === "minimax-m3" || modelId.startsWith("qwen3.")) {
       return undefined;

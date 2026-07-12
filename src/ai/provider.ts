@@ -23,6 +23,7 @@ const FLOAT_PARAMETER_KEYS = new Set([
 const PLAMO_API_HOST = "api.platform.preferredai.jp";
 const SAKURA_API_HOST = "api.ai.sakura.ad.jp";
 const OPENCODE_API_HOST = "opencode.ai";
+const DEEPSEEK_API_HOST = "api.deepseek.com";
 // OpenCode Go の Anthropic Messages 互換モデル(公式ドキュメント準拠)。
 // それ以外は OpenAI Chat Completions 互換。
 export const OPENCODE_GO_ANTHROPIC_MODELS = new Set([
@@ -160,6 +161,25 @@ function isOpenCodeUrl(url: string): boolean {
   } catch {
     return url.includes(OPENCODE_API_HOST);
   }
+}
+
+function isDeepSeekUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === DEEPSEEK_API_HOST;
+  } catch {
+    return url.includes(DEEPSEEK_API_HOST);
+  }
+}
+
+export function resolveProviderBaseUrl(provider: AiSettings["provider"], configuredBaseUrl: string): string {
+  const baseUrl = configuredBaseUrl.trim();
+  if (provider === "deepseek" && isOpenCodeUrl(baseUrl)) {
+    return `https://${DEEPSEEK_API_HOST}`;
+  }
+  if (provider === "opencode" && isDeepSeekUrl(baseUrl)) {
+    return `https://${OPENCODE_API_HOST}/zen/go/v1`;
+  }
+  return baseUrl;
 }
 
 function isResponsesUrl(url: string): boolean {
@@ -808,7 +828,13 @@ async function debugFetch(
 }
 
 export function createModel(settings: AiSettings) {
-  const baseURL = typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "";
+  const configuredBaseUrl = typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "";
+  const baseURL = resolveProviderBaseUrl(settings.provider, configuredBaseUrl);
+  if (baseURL !== configuredBaseUrl && settings.provider === "deepseek") {
+    console.error("[litra] rejected OpenCode Go URL for DeepSeek provider; using official DeepSeek API");
+  } else if (baseURL !== configuredBaseUrl && settings.provider === "opencode") {
+    console.error("[litra] rejected DeepSeek URL for OpenCode Go provider; using official OpenCode Go API");
+  }
   const trimmedApiKey = typeof settings.apiKey === "string" ? settings.apiKey.trim() : "";
   const apiKey =
     trimmedApiKey || (settings.provider === "llamacpp" ? "sk-no-key-required" : trimmedApiKey);

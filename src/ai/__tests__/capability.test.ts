@@ -406,6 +406,17 @@ describe("buildProviderOptions", () => {
     });
   });
 
+  it("ignores an OFF setting for DeepSeek V4", () => {
+    const opts = buildProviderOptions({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      deepseekThinkingEnabled: false,
+    } as any);
+    expect(opts).toEqual({
+      deepseek: { thinking: { type: "enabled" } },
+    });
+  });
+
   it("returns Google Gemini thinking options", () => {
     const opts = buildProviderOptions({
       provider: "google",

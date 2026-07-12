@@ -5,6 +5,7 @@ import type {
   DeepSeekReasoningEffort,
   GoogleThinkingLevel,
   JudgmentModelSource,
+  WritingModelSource,
   OpenAIReasoningEffort,
   Provider,
   ProviderSpecificSettings,
@@ -208,6 +209,42 @@ function renderJudgmentProviderOptions(config: ProviderConfig): void {
   }
 }
 
+function renderWritingProviderOptions(config: ProviderConfig): void {
+  const { settingWritingProvider } = getElements();
+  settingWritingProvider.innerHTML = "";
+  for (const provider of config.providers) {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.name;
+    settingWritingProvider.appendChild(option);
+  }
+}
+
+function renderWritingModelOptions(
+  config: ProviderConfig | null,
+  provider: Provider | "",
+  currentModel?: string,
+): void {
+  const { settingWritingModel } = getElements();
+  settingWritingModel.innerHTML = "";
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "そのプロバイダーで設定済みのモデル";
+  settingWritingModel.appendChild(emptyOption);
+  if (provider !== "" && config) {
+    const entry = getProviderEntry(config, provider);
+    for (const model of entry?.models ?? []) {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.label ?? model.id;
+      settingWritingModel.appendChild(option);
+    }
+  }
+  settingWritingModel.value = currentModel && Array.from(settingWritingModel.options).some((opt) => opt.value === currentModel)
+    ? currentModel
+    : "";
+}
+
 function renderJudgmentModelOptions(
   config: ProviderConfig | null,
   provider: Provider | "",
@@ -242,6 +279,11 @@ function renderJudgmentModelOptions(
 function updateJudgmentCustomRowVisibility(source: string): void {
   const { settingJudgmentProvider } = getElements();
   settingJudgmentProvider.parentElement?.classList.toggle("hidden", source !== "custom");
+}
+
+function updateWritingCustomRowVisibility(source: string): void {
+  const { settingWritingProvider } = getElements();
+  settingWritingProvider.parentElement?.classList.toggle("hidden", source !== "custom");
 }
 
 function optionalNumberInput(value: number | undefined): string {
@@ -293,6 +335,10 @@ function parseGoogleThinkingLevel(value: string): GoogleThinkingLevel | undefine
 function parseJudgmentModelSource(value: string): JudgmentModelSource {
   if (value === "background" || value === "custom") return value;
   return "main";
+}
+
+function parseWritingModelSource(value: string): WritingModelSource {
+  return value === "background" || value === "custom" ? value : "main";
 }
 
 // 役割別オーバーライドの deepseekThinkingEnabled を UI のセレクト値へ変換する。
@@ -855,6 +901,7 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
+    settingWritingSource,
     settingJudgmentSource,
     settingWritingTemperature,
     settingWritingTopP,
@@ -891,6 +938,10 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
   settingGoogleThinkingLevel.value = settings.googleThinkingLevel ?? "";
   settingTwoStageContinuation.checked = settings.twoStageContinuation ?? false;
   settingContinuationReview.checked = settings.continuationReviewEnabled ?? false;
+
+  const writingSource: WritingModelSource = settings.writingModelSource ?? "main";
+  settingWritingSource.value = writingSource;
+  updateWritingCustomRowVisibility(writingSource);
 
   // 判断系モデルの選択元。source 未保存の旧設定は continuationUseBackgroundModel から
   // 後方互換で初期表示を導出する(resolveJudgmentSettings と同じ規則)。
@@ -935,6 +986,10 @@ export function renderSettings(settings: AiSettings, config: ProviderConfig): vo
 
   renderBackgroundProviderOptions(config);
   renderBackgroundModelOptions(config, settings.backgroundProvider ?? "", settings.backgroundModel);
+
+  renderWritingProviderOptions(config);
+  getElements().settingWritingProvider.value = settings.writingProvider ?? settings.provider;
+  renderWritingModelOptions(config, settings.writingProvider ?? settings.provider, settings.writingModel);
 
   renderJudgmentProviderOptions(config);
   getElements().settingJudgmentProvider.value = settings.judgmentProvider ?? "";
@@ -990,6 +1045,9 @@ export function readSettingsFromModal(): AiSettings {
     settingGoogleThinkingLevel,
     settingTwoStageContinuation,
     settingContinuationReview,
+    settingWritingSource,
+    settingWritingProvider,
+    settingWritingModel,
     settingJudgmentSource,
     settingJudgmentProvider,
     settingJudgmentModel,
@@ -1020,6 +1078,10 @@ export function readSettingsFromModal(): AiSettings {
   const backgroundProviderValue = settingBackgroundProvider.value;
   const backgroundModelValue = settingBackgroundModel.value.trim();
 
+  const writingSource = parseWritingModelSource(settingWritingSource.value);
+  const writingProviderValue = settingWritingProvider.value;
+  const writingModelValue = settingWritingModel.value.trim();
+
   // 判断系モデル。provider/model は「個別指定」のときだけ保存する。
   const judgmentSource = parseJudgmentModelSource(settingJudgmentSource.value);
   const judgmentProviderValue = settingJudgmentProvider.value;
@@ -1033,6 +1095,10 @@ export function readSettingsFromModal(): AiSettings {
     providerConfigs: modalProviderConfigs,
     backgroundProvider: backgroundProviderValue === "" ? undefined : (backgroundProviderValue as Provider),
     backgroundModel: backgroundModelValue === "" ? undefined : backgroundModelValue,
+    writingModelSource: writingSource,
+    writingProvider:
+      writingSource === "custom" && writingProviderValue !== "" ? (writingProviderValue as Provider) : undefined,
+    writingModel: writingSource === "custom" && writingModelValue !== "" ? writingModelValue : undefined,
     judgmentModelSource: judgmentSource,
     judgmentProvider:
       judgmentSource === "custom" && judgmentProviderValue !== "" ? (judgmentProviderValue as Provider) : undefined,
@@ -1087,6 +1153,11 @@ export function describePreviewModel(config: ProviderConfig, resolved: AiSetting
   const entry = getProviderEntry(config, resolved.provider);
   const modelLabel = getProviderModelDefaults(entry, resolved.model)?.label ?? resolved.model;
   return `${entry?.name ?? resolved.provider} / ${modelLabel}`;
+}
+
+export function describePreviewEndpoint(config: ProviderConfig, resolved: AiSettings): string {
+  const entry = getProviderEntry(config, resolved.provider);
+  return resolved.baseUrl?.trim() || entry?.defaultBaseUrl || "SDK既定";
 }
 
 /// 温度列: 実際に API へ送られない構成では理由付きの「—」を出す
@@ -1156,7 +1227,7 @@ export function computeModelResolutionPreviewRows(
   if (!config) return undefined;
   return [
     { role: "チャット", resolved: resolveChatRunSettings(config, settings), showScaffold: false },
-    { role: "執筆系（ドラフト・修正・リライト）", resolved: resolveWritingRunSettings(config, settings), showScaffold: true },
+    { role: "執筆系（continuePassage・ドラフト・修正・リライト）", resolved: resolveWritingRunSettings(config, settings), showScaffold: true },
     { role: "判断系（構想・査読・選定・カード・講評）", resolved: resolveJudgmentRunSettings(config, settings), showScaffold: true },
     { role: "バックグラウンド（要約・整合性チェック）", resolved: resolveBackgroundRunSettings(config, settings), showScaffold: false },
   ];
@@ -1191,7 +1262,7 @@ export function renderModelResolutionPreview(): void {
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  for (const heading of ["工程", "モデル", "温度", "思考", "足場"]) {
+  for (const heading of ["工程", "モデル", "接続先", "出力上限", "温度", "思考", "足場"]) {
     const th = document.createElement("th");
     th.textContent = heading;
     headRow.appendChild(th);
@@ -1205,6 +1276,8 @@ export function renderModelResolutionPreview(): void {
     const cells = [
       row.role,
       describePreviewModel(config!, row.resolved),
+      describePreviewEndpoint(config!, row.resolved),
+      `${row.resolved.maxTokens} tokens`,
       describePreviewTemperature(row.resolved),
       describePreviewThinking(row.resolved),
       row.showScaffold ? row.resolved.promptScaffold ?? "full" : "—",
@@ -1424,8 +1497,8 @@ export function bindAdvancedSettingsToggle(): void {
   advancedSettingsToggle.addEventListener("click", () => {
     const isHidden = advancedSettings.classList.toggle("hidden");
     advancedSettingsToggle.textContent = isHidden
-      ? "生成・執筆支援の詳細を表示"
-      : "生成・執筆支援の詳細を隠す";
+      ? "生成・執筆支援の詳細を表示（continuePassage のモデル設定）"
+      : "生成・執筆支援の詳細を隠す（continuePassage のモデル設定）";
     advancedSettingsToggle.setAttribute("aria-expanded", String(!isHidden));
   });
 }
@@ -1449,7 +1522,21 @@ export function bindBackgroundProviderChangeAction(): void {
 }
 
 export function bindJudgmentModelControls(): void {
-  const { settingJudgmentSource, settingJudgmentProvider } = getElements();
+  const {
+    settingWritingSource,
+    settingWritingProvider,
+    settingJudgmentSource,
+    settingJudgmentProvider,
+  } = getElements();
+
+  settingWritingSource.addEventListener("change", () => {
+    updateWritingCustomRowVisibility(settingWritingSource.value);
+  });
+
+  settingWritingProvider.addEventListener("change", () => {
+    const value = settingWritingProvider.value;
+    renderWritingModelOptions(modalProviderConfig, value === "" ? "" : (value as Provider));
+  });
 
   // 「個別指定」を選んだときだけプロバイダ・モデル行を表示する
   settingJudgmentSource.addEventListener("change", () => {

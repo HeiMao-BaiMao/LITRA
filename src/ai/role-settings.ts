@@ -8,6 +8,7 @@
 import {
   resolveChatSettings,
   resolveBackgroundSettings,
+  resolveWritingSettings,
   resolveJudgmentSettings,
   type AiSettings,
   type AnthropicThinkingEffort,
@@ -20,8 +21,35 @@ import {
   type ProviderConfig,
   type ProviderModelDefaults,
 } from "../providers/config.ts";
-import { getEffectiveCapability } from "./capability.ts";
+import { getEffectiveCapability, isDeepSeekV4Model } from "./capability.ts";
 import { getCopilotModelCacheEntry } from "../providers/copilot-auth.ts";
+
+export const NON_THINKING_WRITING_MAX_TOKENS = 8192;
+
+export function enforceRequiredThinking(settings: AiSettings): AiSettings {
+  return isDeepSeekV4Model(settings.model)
+    ? { ...settings, deepseekThinkingEnabled: true }
+    : settings;
+}
+
+export function isThinkingEnabledForRun(settings: AiSettings): boolean {
+  if (isDeepSeekV4Model(settings.model)) return true;
+  const capability = settings.reasoningCapability;
+  if (capability?.kind === "deepseek" || (!capability && settings.provider === "deepseek")) {
+    return settings.deepseekThinkingEnabled !== false;
+  }
+  if (capability?.kind === "anthropic-adaptive") return true;
+  if (capability?.kind === "anthropic-budget" || (!capability && settings.provider === "anthropic")) {
+    return settings.anthropicThinkingEnabled === true;
+  }
+  if (capability?.kind === "openai" || (!capability && (settings.provider === "openai" || settings.provider === "codex"))) {
+    return Boolean(settings.openaiReasoningEffort && settings.openaiReasoningEffort !== "none");
+  }
+  if (capability?.kind === "google") return true;
+  // OpenCode GoのV4系は明示的なThinking OFFを現在提供しておらず、既定挙動を維持する。
+  if (settings.provider === "opencode") return true;
+  return false;
+}
 
 export function applyRuntimeModelDefaults(
   settings: AiSettings,
@@ -127,7 +155,9 @@ export function resolveChatRunSettings(config: ProviderConfig, settings: AiSetti
   const resolved = resolveChatSettings(settings);
   const entry = getProviderEntry(config, resolved.provider);
   const usesChatOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
-  return applyRuntimeModelDefaults(resolved, getProviderModelDefaults(entry, resolved.model), usesChatOverride);
+  return enforceRequiredThinking(
+    applyRuntimeModelDefaults(resolved, getProviderModelDefaults(entry, resolved.model), usesChatOverride),
+  );
 }
 
 export function resolveBackgroundRunSettings(config: ProviderConfig, settings: AiSettings): AiSettings {
@@ -135,20 +165,30 @@ export function resolveBackgroundRunSettings(config: ProviderConfig, settings: A
   const entry = getProviderEntry(config, resolved.provider);
   const usesBackgroundOverride =
     resolved.provider !== settings.provider || resolved.model !== settings.model;
-  return applyRuntimeModelDefaults(
+  return enforceRequiredThinking(applyRuntimeModelDefaults(
     resolved,
     getProviderModelDefaults(entry, resolved.model),
     usesBackgroundOverride,
-  );
+  ));
 }
 
 export function resolveWritingRunSettings(config: ProviderConfig, settings: AiSettings): AiSettings {
-  // 本文モデルをそのまま執筆系として使う。判断系と同じく
+  // 執筆系の選択元を解決してから、モデル既定値と役割上書きを適用する。
   // モデル既定値 → 役割プロファイル → ユーザーの役割別オーバーライド の順で重ねる
   // (トークン上限だけは保存済みのグローバル値を維持する)。
-  const defaults = getProviderModelDefaults(getProviderEntry(config, settings.provider), settings.model);
-  const base = applyRuntimeModelDefaults(settings, defaults, false);
-  return applyRoleProfile(base, defaults?.writing, settings.writingOverrides);
+  const resolved = resolveWritingSettings(settings);
+  const defaults = getProviderModelDefaults(getProviderEntry(config, resolved.provider), resolved.model);
+  const usesOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
+  const base = applyRuntimeModelDefaults(resolved, defaults, usesOverride);
+  const withWritingProfile = enforceRequiredThinking(
+    applyRoleProfile(base, defaults?.writing, settings.writingOverrides),
+  );
+  return isThinkingEnabledForRun(withWritingProfile)
+    ? withWritingProfile
+    : {
+        ...withWritingProfile,
+        maxTokens: Math.min(withWritingProfile.maxTokens, NON_THINKING_WRITING_MAX_TOKENS),
+      };
 }
 
 export function resolveJudgmentRunSettings(config: ProviderConfig, settings: AiSettings): AiSettings {
@@ -157,5 +197,7 @@ export function resolveJudgmentRunSettings(config: ProviderConfig, settings: AiS
   const defaults = getProviderModelDefaults(entry, resolved.model);
   const usesOverride = resolved.provider !== settings.provider || resolved.model !== settings.model;
   const base = applyRuntimeModelDefaults(resolved, defaults, usesOverride);
-  return applyRoleProfile(base, defaults?.judgment, settings.judgmentOverrides);
+  return enforceRequiredThinking(
+    applyRoleProfile(base, defaults?.judgment, settings.judgmentOverrides),
+  );
 }

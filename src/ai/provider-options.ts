@@ -1,5 +1,5 @@
 import type { AiSettings } from "../settings.ts";
-import { getModelCapability } from "./capability.ts";
+import { getModelCapability, isDeepSeekV4Model } from "./capability.ts";
 import type { ProviderModelDefaults } from "../providers/config.ts";
 
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
@@ -97,7 +97,7 @@ export function buildProviderOptions(
     case "deepseek": {
       // DeepSeek V3.2 以降、thinking モードはツール呼び出しと両立する。
       // ON/OFF は設定のみで決める(ツール有効時の強制 OFF は V3 時代の制約)。
-      if (settings.deepseekThinkingEnabled === false) {
+      if (settings.deepseekThinkingEnabled === false && !isDeepSeekV4Model(modelId)) {
         return { deepseek: { thinking: { type: "disabled" } } };
       }
       const options: Record<string, JSONValue> = {
