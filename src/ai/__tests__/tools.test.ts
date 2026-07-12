@@ -4,6 +4,21 @@
  */
 import { describe, it, expect } from "bun:test";
 import { resolveForcedToolChoice } from "../service.ts";
+import { resolveProviderBaseUrl } from "../provider.ts";
+
+describe("resolveProviderBaseUrl", () => {
+  it("prevents DeepSeek from using the OpenCode Go endpoint", () => {
+    expect(resolveProviderBaseUrl("deepseek", "https://opencode.ai/zen/go/v1")).toBe("https://api.deepseek.com");
+  });
+
+  it("prevents OpenCode Go from using the DeepSeek endpoint", () => {
+    expect(resolveProviderBaseUrl("opencode", "https://api.deepseek.com")).toBe("https://opencode.ai/zen/go/v1");
+  });
+
+  it("preserves user-defined proxy endpoints", () => {
+    expect(resolveProviderBaseUrl("deepseek", "https://proxy.example/v1")).toBe("https://proxy.example/v1");
+  });
+});
 
 describe("resolveForcedToolChoice", () => {
   it("uses auto for DeepSeek thinking", () => {
@@ -30,15 +45,18 @@ import {
   buildCandidateSelectionPrompt,
   buildContinuationPlanPrompt,
   buildContinuationPrompt,
+  buildContinuationRevisionPrompt,
   buildDraftSelectionPrompt,
   buildLineEditReviewPrompt,
   buildLineEditRevisionPrompt,
   buildRewritePrompt,
+  buildTargetedRevisionPrompt,
   buildToolGuidancePrompt,
   reviewRequiresRevision,
   parseTargetedRevision,
 } from "../prompts.ts";
 import { scopeContinuationTools } from "../service.ts";
+import { resolveConsistencyBudgets } from "../consistency.ts";
 
 describe("chat writing pipeline prompts", () => {
   it("does not expose continuePassage inside the continuation pipeline", () => {
@@ -52,10 +70,35 @@ describe("chat writing pipeline prompts", () => {
     expect(scopeContinuationTools({ continuePassage: {} as never })).toBeUndefined();
   });
 
+  it("does not expose proposal-cache tools to the writing model", () => {
+    const scoped = scopeContinuationTools({
+      listPassageProposals: {} as any,
+      getPassageProposal: {} as any,
+      applyPassageProposal: {} as any,
+      getEpisodeLines: {} as any,
+    });
+    expect(scoped).toEqual({ getEpisodeLines: {} });
+  });
+
   it("routes new fiction requests through continuePassage", () => {
     const guidance = buildToolGuidancePrompt(["continuePassage", "editEpisode"]);
     expect(guidance).toContain("MUST call continuePassage");
     expect(guidance).toContain("Do NOT compose the prose in the chat model");
+  });
+
+  it("routes immediate and later application through the proposal cache", () => {
+    const prompt = buildToolGuidancePrompt([
+      "continuePassage",
+      "listPassageProposals",
+      "getPassageProposal",
+      "applyPassageProposal",
+      "editEpisode",
+    ]);
+    expect(prompt).toContain("proposalId");
+    expect(prompt).toContain("applyPassageProposal");
+    expect(prompt).toContain("listPassageProposals");
+    expect(prompt).toContain("persist outside chat history");
+    expect(prompt).toContain("Do not copy generatedText into editEpisode");
   });
 
   it("propagates author instructions through planning, drafting, and selection", () => {
@@ -369,6 +412,106 @@ describe("resolveWritingRunSettings", () => {
   it("applies writing role promptScaffold", () => {
     const resolved = resolveWritingRunSettings(mockConfig, baseSettings as AiSettings);
     expect(resolved.promptScaffold).toBe("light");
+  });
+
+  it("uses an explicitly selected writing model", () => {
+    const config: ProviderConfig = {
+      providers: [
+        ...mockConfig.providers,
+        {
+          id: "openai",
+          name: "OpenAI",
+          sdkType: "openai",
+          defaultBaseUrl: "https://api.openai.com",
+          defaultModel: "gpt-writing",
+          models: [{ id: "gpt-writing", label: "GPT Writing", temperature: 0.4 }],
+        },
+      ],
+    };
+    const resolved = resolveWritingRunSettings(config, {
+      ...baseSettings,
+      providerConfigs: {
+        openai: { apiKey: "", baseUrl: "https://api.openai.com", model: "gpt-writing" },
+      },
+      writingModelSource: "custom",
+      writingProvider: "openai",
+      writingModel: "gpt-writing",
+    } as AiSettings);
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-writing");
+    expect(resolved.temperature).toBe(0.4);
+  });
+
+  it("forces Thinking for DeepSeek V4 writing even when a profile disables it", () => {
+    const config: ProviderConfig = {
+      providers: [{
+        id: "deepseek",
+        name: "DeepSeek",
+        sdkType: "deepseek",
+        defaultBaseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-pro",
+        models: [{
+          id: "deepseek-v4-pro",
+          maxTokens: 384000,
+          reasoningCapability: { kind: "deepseek" },
+          writing: { deepseekThinkingEnabled: false },
+        }],
+      }],
+    };
+    const resolved = resolveWritingRunSettings(config, {
+      ...baseSettings,
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      maxTokens: 384000,
+    } as AiSettings);
+    expect(resolved.deepseekThinkingEnabled).toBe(true);
+    expect(resolved.maxTokens).toBe(384000);
+  });
+
+  it("forces Thinking for DeepSeek V4 through OpenCode Go", () => {
+    const config: ProviderConfig = {
+      providers: [{
+        id: "opencode",
+        name: "OpenCode Go",
+        sdkType: "openai",
+        defaultBaseUrl: "https://opencode.ai/zen/go/v1",
+        defaultModel: "deepseek-v4-pro",
+        models: [{ id: "deepseek-v4-pro", maxTokens: 32000 }],
+      }],
+    };
+    const resolved = resolveWritingRunSettings(config, {
+      ...baseSettings,
+      provider: "opencode",
+      model: "deepseek-v4-pro",
+      maxTokens: 32000,
+      deepseekThinkingEnabled: false,
+    } as AiSettings);
+    expect(resolved.deepseekThinkingEnabled).toBe(true);
+    expect(resolved.maxTokens).toBe(32000);
+  });
+
+  it("keeps the configured output limit for thinking writing runs", () => {
+    const config: ProviderConfig = {
+      providers: [{
+        id: "deepseek",
+        name: "DeepSeek",
+        sdkType: "deepseek",
+        defaultBaseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-pro",
+        models: [{
+          id: "deepseek-v4-pro",
+          reasoningCapability: { kind: "deepseek" },
+          writing: { deepseekThinkingEnabled: true },
+        }],
+      }],
+    };
+    const resolved = resolveWritingRunSettings(config, {
+      ...baseSettings,
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      maxTokens: 32000,
+    } as AiSettings);
+    expect(resolved.maxTokens).toBe(32000);
   });
 });
 
@@ -706,5 +849,56 @@ describe("buildLineEditRevisionPrompt with promptScaffold extras", () => {
     const fullPrompt = buildLineEditRevisionPrompt(passage, review, context, undefined, undefined, { promptScaffold: "full" });
     const lightPrompt = buildLineEditRevisionPrompt(passage, review, context, undefined, undefined, { promptScaffold: "light" });
     expect(lightPrompt.length).toBeLessThan(fullPrompt.length);
+  });
+});
+
+describe("operation-specific light metacognition", () => {
+  const extras = { promptScaffold: "light" as const };
+
+  it("keeps creative pressure in creation prompts", () => {
+    const prompt = buildContinuationPrompt("直前本文", undefined, "構想", undefined, extras);
+    expect(prompt).toContain("才能の自己監視");
+    expect(prompt).not.toContain("最小修正の監視");
+  });
+
+  it("uses minimum-change guidance for targeted repairs", () => {
+    const prompt = buildTargetedRevisionPrompt(
+      "ドラフト",
+      "【総合判定】要修正",
+      "直前本文",
+      undefined,
+      extras,
+    );
+    expect(prompt).toContain("最小修正の監視");
+    expect(prompt).not.toContain("才能の自己監視");
+  });
+
+  it("protects untouched prose in full-repair prompts", () => {
+    const prompt = buildContinuationRevisionPrompt(
+      "ドラフト",
+      "【総合判定】要修正",
+      "直前本文",
+      undefined,
+      undefined,
+      extras,
+    );
+    expect(prompt).toContain("全文出力時の局所編集監視");
+    expect(prompt).toContain("未指摘部分を再創作せず");
+    expect(prompt).not.toContain("才能の自己監視");
+  });
+});
+
+describe("resolveConsistencyBudgets", () => {
+  it("shrinks consistency material for a small context window", () => {
+    const budgets = resolveConsistencyBudgets({ maxContextTokens: 8192 } as any);
+    const total = Object.values(budgets).reduce((sum, value) => sum + value, 0);
+    expect(total).toBeLessThanOrEqual((8192 - 6144) * 3);
+    expect(budgets.fullText).toBeLessThan(120000);
+  });
+
+  it("keeps the established caps for a large context window", () => {
+    const budgets = resolveConsistencyBudgets({ maxContextTokens: 1_000_000 } as any);
+    expect(budgets.fullText).toBe(120000);
+    expect(budgets.otherSummaries).toBe(20000);
   });
 });
