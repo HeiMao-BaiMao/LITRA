@@ -626,6 +626,7 @@ export interface StreamChatOptions {
   toolChoice?: "auto" | "none" | "required";
   stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
   onToolEvent?: (event: StreamToolEvent) => void;
+  directCreativeEdit?: boolean;
 }
 
 export interface StreamContinuationOptions {
@@ -809,6 +810,7 @@ export async function streamChat({
   stopWhen,
   onToolEvent,
   onReasoning,
+  directCreativeEdit = false,
 }: StreamChatOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
@@ -823,7 +825,7 @@ export async function streamChat({
     const result = streamText<ToolSet>({
       model: createModel(s),
       ...buildRetryOption(s),
-      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames }),
+      system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames, directCreativeEdit }),
       messages,
       ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
@@ -860,7 +862,7 @@ export async function streamChat({
         const retryResult = streamText<ToolSet>({
           model: createModel(s),
           ...buildRetryOption(s),
-          system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames }),
+          system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames, directCreativeEdit }),
           messages: retryMessages,
           ...buildTemperatureOption(s),
           maxOutputTokens: s.maxTokens,

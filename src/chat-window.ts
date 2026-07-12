@@ -10,6 +10,7 @@ import {
   queryChatMessagesContainer,
   queryChatWindowControls,
   renderChatMessageList,
+  renderDirectWritingToggle,
   setChatGeneratingState,
   takeChatInputValue,
 } from "./ui/chat-window-common.ts";
@@ -19,6 +20,7 @@ import type { ProviderConfig } from "./providers/config.ts";
 interface ChatSyncPayload {
   messages: ChatMessage[];
   isGenerating: boolean;
+  directWritingEnabled: boolean;
 }
 
 interface ChatSettingsSyncPayload {
@@ -52,6 +54,7 @@ async function init(): Promise<void> {
   listen<ChatSyncPayload>("chat-sync", (event) => {
     renderChatMessageList(messagesContainer, event.payload.messages);
     setChatGeneratingState(controls, event.payload.isGenerating);
+    renderDirectWritingToggle(controls.btnDirectWriting, event.payload.directWritingEnabled);
   });
 
   listen("chat-clear-display", () => {
@@ -100,6 +103,11 @@ async function init(): Promise<void> {
 
   btnCancel.addEventListener("click", () => {
     emit("chat-stop", {});
+  });
+
+  controls.btnDirectWriting?.addEventListener("click", () => {
+    if (controls.btnDirectWriting?.disabled) return;
+    void emit("chat-direct-writing-toggle", {});
   });
 
   emit("chat-ready", {});

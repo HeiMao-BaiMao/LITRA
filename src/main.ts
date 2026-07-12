@@ -114,6 +114,7 @@ import {
   bindChatSubmitShortcut,
   populateChatModelOptions,
   populateChatProviderOptions,
+  renderDirectWritingToggle,
 } from "./ui/chat-window-common.ts";
 import { renderChatMessageHtml } from "./markdown.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
@@ -425,6 +426,7 @@ function setGenerating(generating: boolean): void {
     btnSettings,
     chatForm,
     chatInput,
+    btnDirectWriting,
   } = getElements();
 
   const disabled = generating;
@@ -434,6 +436,7 @@ function setGenerating(generating: boolean): void {
   btnFeedback.disabled = disabled;
   btnSettings.disabled = disabled;
   chatInput.disabled = disabled;
+  btnDirectWriting.disabled = disabled;
   chatForm.classList.toggle("is-generating", generating);
 
   if (generating) {
@@ -546,6 +549,7 @@ async function validateChatSettings(): Promise<boolean> {
 
 function createAiTools(options: {
   includeContinuePassage?: boolean;
+  directCreativeEdit?: boolean;
   onToolProgress?: (event: Extract<StreamToolEvent, { type: "progress" }>) => void;
 } = {}): ToolSet | undefined {
   if (!currentProject) return undefined;
@@ -705,6 +709,11 @@ function createAiTools(options: {
   tools.listPassageProposals = createListPassageProposalsTool(proposalDeps);
   tools.getPassageProposal = createGetPassageProposalTool(proposalDeps);
   tools.applyPassageProposal = createApplyPassageProposalTool(proposalDeps);
+
+  if (options.directCreativeEdit) {
+    delete tools.rewritePassage;
+    delete tools.lineEditPassage;
+  }
 
   if (options.includeContinuePassage !== false) {
     // チャットからの新規本文生成だけを、続き生成ボタンと同じ執筆パイプラインへ送る。
@@ -1078,14 +1087,20 @@ async function streamChatOnce(
   controller: AbortController,
   allowTools: boolean,
   settings: AiSettings,
+  directCreativeEdit: boolean,
 ) {
   return await streamChat({
     settings,
     messages,
     settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined, settings),
     tools: allowTools
-      ? createAiTools({ onToolProgress: (event) => handleToolEvent(event, settings) })
+      ? createAiTools({
+          includeContinuePassage: !directCreativeEdit,
+          directCreativeEdit,
+          onToolProgress: (event) => handleToolEvent(event, settings),
+        })
       : undefined,
+    directCreativeEdit,
     onChunk: (chunk) => {
       appendAssistantChunk(chunk);
     },
@@ -1101,11 +1116,12 @@ async function streamChatWithAutoContinuation(
   initialMessages: ModelMessage[],
   controller: AbortController,
   settings: AiSettings,
+  directCreativeEdit: boolean,
 ) {
   let messages = initialMessages;
   let toolCallRetryCount = 0;
   let toolResultContinuationCount = 0;
-  let run = await streamChatOnce(messages, controller, true, settings);
+  let run = await streamChatOnce(messages, controller, true, settings, directCreativeEdit);
   finalizeToolRun(run);
 
   while (!controller.signal.aborted) {
@@ -1129,7 +1145,7 @@ async function streamChatWithAutoContinuation(
           content: `${CHAT_TOOL_CALL_RETRY_PROMPT}\n\n【直前に生成された未実行の説明文】\n${limitPromptText(missedText, 4000, "head")}`,
         },
       ];
-      run = await streamChatOnce(messages, controller, true, settings);
+      run = await streamChatOnce(messages, controller, true, settings, directCreativeEdit);
       finalizeToolRun(run);
       continue;
     }
@@ -1145,7 +1161,7 @@ async function streamChatWithAutoContinuation(
         retry: toolResultContinuationCount,
       });
       messages = buildToolResultContinuationMessages(messages, run);
-      run = await streamChatOnce(messages, controller, false, settings);
+      run = await streamChatOnce(messages, controller, false, settings, directCreativeEdit);
       finalizeToolRun(run);
       continue;
     }
@@ -1159,7 +1175,7 @@ async function streamChatWithAutoContinuation(
       ...buildChatMessagesForModel(settings),
       { role: "user", content: CHAT_LENGTH_CONTINUATION_PROMPT },
     ];
-    run = await streamChatOnce(messages, controller, false, settings);
+    run = await streamChatOnce(messages, controller, false, settings, directCreativeEdit);
     finalizeToolRun(run);
   }
 
@@ -1250,7 +1266,22 @@ function syncMemoToWindow(): void {
 }
 
 function syncChatToWindow(): void {
-  emit("chat-sync", { messages: state.chatMessages, isGenerating: state.isGenerating });
+  emit("chat-sync", {
+    messages: state.chatMessages,
+    isGenerating: state.isGenerating,
+    directWritingEnabled: state.directWritingEnabled,
+  });
+}
+
+function renderDirectWritingMode(): void {
+  renderDirectWritingToggle(getElements().btnDirectWriting, state.directWritingEnabled);
+}
+
+function toggleDirectWritingMode(): void {
+  if (state.isGenerating) return;
+  state.directWritingEnabled = !state.directWritingEnabled;
+  renderDirectWritingMode();
+  syncChatToWindow();
 }
 
 function syncSummaryToWindow(): void {
@@ -2627,7 +2658,12 @@ async function handleChatMessage(): Promise<void> {
     const messages = buildChatMessagesForModel(chatSettings);
     console.log("[litra] streaming chat with messages:", messages.length);
 
-    const run = await streamChatWithAutoContinuation(messages, controller, chatSettings);
+    const run = await streamChatWithAutoContinuation(
+      messages,
+      controller,
+      chatSettings,
+      state.directWritingEnabled,
+    );
     if (run.stoppedAfterToolActivity) {
       appendToolInterruptedFallback();
     }
@@ -3083,6 +3119,8 @@ function bindUiEvents(): void {
   bindChatSubmitShortcut(getElements().chatInput, getElements().chatForm, () => currentSettings.chatSubmitShortcut);
 
   getElements().btnCancel.addEventListener("click", stopGeneration);
+  getElements().btnDirectWriting.addEventListener("click", toggleDirectWritingMode);
+  renderDirectWritingMode();
 
   bindSettingsActions({
     onSave: (settings) => void saveAndCloseSettings(settings),
@@ -3245,6 +3283,10 @@ async function init(): Promise<void> {
 
   listen("chat-stop", () => {
     stopGeneration();
+  });
+
+  listen("chat-direct-writing-toggle", () => {
+    toggleDirectWritingMode();
   });
 
   listen("chat-ready", () => {

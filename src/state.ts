@@ -30,6 +30,7 @@ export interface AppState {
   selectionEnd: number;
   chatMessages: ChatMessage[];
   isGenerating: boolean;
+  directWritingEnabled: boolean;
   abortController: AbortController | null;
   currentProject: { id: string; title: string } | null;
   currentView: ProjectView;
@@ -51,6 +52,7 @@ export const state: AppState = {
   selectionEnd: 0,
   chatMessages: [],
   isGenerating: false,
+  directWritingEnabled: false,
   abortController: null,
   currentProject: null,
   currentView: "episode",

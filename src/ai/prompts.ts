@@ -211,7 +211,10 @@ function hasAnyTool(toolNames: Set<string>, names: string[]): boolean {
   return names.some((name) => toolNames.has(name));
 }
 
-export function buildToolGuidancePrompt(toolNames: string[] = []): string {
+export function buildToolGuidancePrompt(
+  toolNames: string[] = [],
+  options: { directCreativeEdit?: boolean } = {},
+): string {
   const available = new Set(toolNames);
   const sections = [baseToolGuidancePrompt];
 
@@ -241,6 +244,15 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
 - The tool uses the dedicated writing settings and, when enabled, multiple candidates, judgment-model selection, review, and deterministic checks.
 - The result is saved in the proposal cache and does NOT modify the manuscript by itself. If the user explicitly requested writing/application now, immediately call applyPassageProposal with the returned proposalId. Do not copy generatedText into editEpisode.
 - IF the tool fails → report the failure honestly. Do not silently replace it with chat-model prose.`);
+  }
+
+  if (options.directCreativeEdit && hasTool(available, "editEpisode")) {
+    sections.push(`DIRECT CREATIVE EDITING MODE — ACTIVE:
+- This mode replaces the multi-stage continuePassage pipeline. For a request to write new fiction, you MUST write the final Japanese prose yourself and apply it with editEpisode in this same turn. Do not call continuePassage, rewritePassage, lineEditPassage, or any proposal-selection/review pipeline.
+- Read the exact target with getEpisodeLines or findEpisodeLines first. For a continuation at the end, replace the final line with that exact line followed by the newly written continuation in replacementText. Preserve the original final line character-for-character.
+- Do not merely print or propose the prose in chat. The requested result is complete only after editEpisode returns success.
+- Keep canon, viewpoint, tense, voice, and the user's requested length, but perform no separate planning, candidate generation, literary review, or regression comparison.
+- If editEpisode rejects an exact-text mismatch, re-read the affected range and retry once. If it still fails, report the failure without claiming that the manuscript changed.`);
   }
 
   if (hasAnyTool(available, ["listPassageProposals", "getPassageProposal", "applyPassageProposal"])) {
@@ -437,10 +449,12 @@ export function buildAssistantSystemPrompt({
   settingsContext,
   toolsEnabled = false,
   toolNames = [],
+  directCreativeEdit = false,
 }: {
   settingsContext?: string;
   toolsEnabled?: boolean;
   toolNames?: string[];
+  directCreativeEdit?: boolean;
 }): string {
   const parts = [systemPrompt];
   const trimmedContext = settingsContext?.trim();
@@ -457,7 +471,7 @@ export function buildAssistantSystemPrompt({
 ${formatPromptDataBlock("story_reference", trimmedContext)}`,
     );
   }
-  if (toolsEnabled) parts.push(buildToolGuidancePrompt(toolNames));
+  if (toolsEnabled) parts.push(buildToolGuidancePrompt(toolNames, { directCreativeEdit }));
   return parts.join("\n\n");
 }
 

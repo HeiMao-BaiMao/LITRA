@@ -5,6 +5,7 @@ export interface AppElements {
   chatMessages: HTMLElement;
   btnSend: HTMLButtonElement;
   btnCancel: HTMLButtonElement;
+  btnDirectWriting: HTMLButtonElement;
   btnContinue: HTMLButtonElement;
   btnRewrite: HTMLButtonElement;
   btnFeedback: HTMLButtonElement;
@@ -138,6 +139,7 @@ export function getElements(): AppElements {
   const chatMessages = document.querySelector<HTMLElement>("#chat-messages");
   const btnSend = document.querySelector<HTMLButtonElement>("#btn-send");
   const btnCancel = document.querySelector<HTMLButtonElement>("#btn-cancel");
+  const btnDirectWriting = document.querySelector<HTMLButtonElement>("#btn-direct-writing");
   const btnContinue = document.querySelector<HTMLButtonElement>("#btn-continue");
   const btnRewrite = document.querySelector<HTMLButtonElement>("#btn-rewrite");
   const btnFeedback = document.querySelector<HTMLButtonElement>("#btn-feedback");
@@ -264,6 +266,7 @@ export function getElements(): AppElements {
     !chatMessages ||
     !btnSend ||
     !btnCancel ||
+    !btnDirectWriting ||
     !btnContinue ||
     !btnRewrite ||
     !btnFeedback ||
@@ -393,6 +396,7 @@ export function getElements(): AppElements {
     chatMessages,
     btnSend,
     btnCancel,
+    btnDirectWriting,
     btnContinue,
     btnRewrite,
     btnFeedback,

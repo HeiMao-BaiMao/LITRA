@@ -7,6 +7,7 @@ export interface ChatWindowControls {
   input: HTMLTextAreaElement;
   btnSend: HTMLButtonElement;
   btnCancel: HTMLButtonElement;
+  btnDirectWriting?: HTMLButtonElement;
   providerSelect: HTMLSelectElement;
   modelSelect: HTMLSelectElement;
 }
@@ -26,6 +27,7 @@ export function queryChatWindowControls(): ChatWindowControls | undefined {
   const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
   const btnSend = document.querySelector<HTMLButtonElement>("#btn-send");
   const btnCancel = document.querySelector<HTMLButtonElement>("#btn-cancel");
+  const btnDirectWriting = document.querySelector<HTMLButtonElement>("#btn-direct-writing") ?? undefined;
   const providerSelect = document.querySelector<HTMLSelectElement>("#chat-provider");
   const modelSelect = document.querySelector<HTMLSelectElement>("#chat-model");
 
@@ -38,6 +40,7 @@ export function queryChatWindowControls(): ChatWindowControls | undefined {
     input,
     btnSend,
     btnCancel,
+    btnDirectWriting,
     providerSelect,
     modelSelect,
   };
@@ -48,7 +51,7 @@ export function queryChatMessagesContainer(): HTMLElement | undefined {
 }
 
 export function setChatGeneratingState(
-  controls: Pick<ChatWindowControls, "form" | "input" | "btnSend" | "btnCancel">,
+  controls: Pick<ChatWindowControls, "form" | "input" | "btnSend" | "btnCancel" | "btnDirectWriting">,
   isGenerating: boolean,
 ): void {
   controls.form.classList.toggle("is-generating", isGenerating);
@@ -57,6 +60,16 @@ export function setChatGeneratingState(
   controls.btnCancel.disabled = !isGenerating;
   controls.btnCancel.classList.toggle("hidden", !isGenerating);
   controls.btnCancel.classList.toggle("is-active", isGenerating);
+  if (controls.btnDirectWriting) {
+    controls.btnDirectWriting.disabled = isGenerating;
+  }
+}
+
+export function renderDirectWritingToggle(button: HTMLButtonElement | undefined, enabled: boolean): void {
+  if (!button) return;
+  button.textContent = enabled ? "⚡ 直接執筆 ON" : "⚡ 直接執筆 OFF";
+  button.classList.toggle("is-active", enabled);
+  button.setAttribute("aria-pressed", String(enabled));
 }
 
 export function populateChatProviderOptions(
