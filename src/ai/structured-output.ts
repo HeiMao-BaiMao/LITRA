@@ -41,6 +41,11 @@ const STRUCTURED_OUTPUT_TOOL_NAME = "submit_structured_output";
 export async function generateStructuredObject<T>(
   options: GenerateStructuredObjectOptions<T>,
 ): Promise<GenerateStructuredObjectResult<T>> {
+  const startedAt = performance.now();
+  console.log("[litra:structured-output] START", {
+    provider: options.settings.provider,
+    model: options.settings.model,
+  });
   const isOpenCodeOpenAiCompatible =
     options.settings.provider === "opencode" &&
     !OPENCODE_GO_ANTHROPIC_MODELS.has(options.settings.model);
@@ -55,7 +60,14 @@ export async function generateStructuredObject<T>(
       schema,
       ...(providerOptions ? { providerOptions } : {}),
     });
-    return { object: result.object as T };
+    const object = result.object as T;
+    console.log("[litra:structured-output] COMPLETE", {
+      provider: options.settings.provider,
+      model: options.settings.model,
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    console.log("[litra:structured-output] OUTPUT", object);
+    return { object };
   }
 
   // OpenCode Go (OpenAI 互換経路) は response_format を送らない。
@@ -85,5 +97,12 @@ export async function generateStructuredObject<T>(
   // tool({ inputSchema: zodSchema }) で作られたツールの input は
   // Zod パース済みオブジェクト（DynamicToolCall ではない通常の TypedToolCall）。
   // Dynamic 経路になるのは MCP などの実行時ツールのみで、ここでは該当しない。
-  return { object: (call as { input: T }).input };
+  const object = (call as { input: T }).input;
+  console.log("[litra:structured-output] COMPLETE", {
+    provider: options.settings.provider,
+    model: options.settings.model,
+    durationMs: Math.round(performance.now() - startedAt),
+  });
+  console.log("[litra:structured-output] OUTPUT", object);
+  return { object };
 }

@@ -32,6 +32,7 @@ import type { AiSettings } from "../settings.ts";
 
 // ビート分割生成で前ビートの生成分を文脈に継ぎ足す際、無制限に伸びないための上限
 const BEAT_CONTEXT_CHAR_BUDGET = 12000;
+const CONTINUATION_LENGTH_RETRY_LIMIT = 2;
 
 const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
 // 非ストリーミング(generateText)の背景ステップ用の出力上限。
@@ -41,6 +42,56 @@ const DEFAULT_ANTHROPIC_THINKING_BUDGET = 8000;
 const NONSTREAMING_MAX_OUTPUT_TOKENS = 32768;
 const TOOL_LOOP_MAX_STEPS = 16;
 const DUPLICATE_TOOL_CALL_INPUT_LIMIT = 4;
+let aiStepSequence = 0;
+
+interface AiStepLog {
+  id: number;
+  name: string;
+  startedAt: number;
+}
+
+function beginAiStep(name: string, settings: AiSettings): AiStepLog {
+  const step = { id: ++aiStepSequence, name, startedAt: performance.now() };
+  console.log(`[litra:ai-step:${step.id}] START ${name}`, {
+    provider: settings.provider,
+    model: settings.model,
+  });
+  return step;
+}
+
+function completeAiStep(step: AiStepLog, output: unknown, finishReason?: string): void {
+  console.log(`[litra:ai-step:${step.id}] COMPLETE ${step.name}`, {
+    durationMs: Math.round(performance.now() - step.startedAt),
+    finishReason: finishReason ?? "unknown",
+  });
+  console.log(`[litra:ai-step:${step.id}] OUTPUT ${step.name}`, output);
+}
+
+function failAiStep(step: AiStepLog, error: unknown): void {
+  console.error(`[litra:ai-step:${step.id}] FAILED ${step.name}`, {
+    durationMs: Math.round(performance.now() - step.startedAt),
+    error,
+  });
+}
+
+async function generateLoggedText(
+  name: string,
+  settings: AiSettings,
+  options: Parameters<typeof generateText>[0],
+) {
+  const step = beginAiStep(name, settings);
+  try {
+    const result = await generateText(options);
+    if (result.reasoningText) {
+      console.log(`[litra:ai-step:${step.id}] REASONING ${step.name}`, result.reasoningText);
+    }
+    completeAiStep(step, result.text, result.finishReason);
+    return result;
+  } catch (error) {
+    failAiStep(step, error);
+    throw error;
+  }
+}
 
 function isDeepSeekThinkingEnabled(settings: AiSettings): boolean {
   // DeepSeek V3.2 以降、thinking モードはツール呼び出しと両立する
@@ -189,8 +240,16 @@ function toolLoopStopConditions(
  * パイプライン内部で再公開すると自己呼び出しになる。呼び出し側の指定にかかわらず除外する。
  */
 export function scopeContinuationTools(tools?: ToolSet): ToolSet | undefined {
-  if (!tools || !("continuePassage" in tools)) return tools;
-  const { continuePassage: _continuePassage, ...scoped } = tools;
+  if (!tools) return tools;
+  // 生成パイプライン自身から、生成入口と提案キャッシュの変更系ツールを隔離する。
+  // これらは外側のチャットエージェントだけが呼び、執筆モデルには公開しない。
+  const {
+    continuePassage: _continuePassage,
+    listPassageProposals: _listPassageProposals,
+    getPassageProposal: _getPassageProposal,
+    applyPassageProposal: _applyPassageProposal,
+    ...scoped
+  } = tools;
   return Object.keys(scoped).length > 0 ? scoped : undefined;
 }
 
@@ -580,7 +639,7 @@ export interface StreamContinuationOptions {
   relatedScenes?: string;
   tools?: ToolSet;
   onToolEvent?: (event: StreamToolEvent) => void;
-  onStage?: (stage: "plan" | "draft" | "review" | "revise") => void;
+  onStage?: (stage: "plan" | "draft" | "review" | "revise" | "regression") => void;
   // 判断系工程(構想・査読・選定・カード)で使う設定を解決する。
   // 呼び出し側(main.ts)が役割プロファイル・オーバーライドの解決を担う。
   getJudgmentSettings?: () => AiSettings;
@@ -642,7 +701,7 @@ async function verifyToolCallNeed(
     // そのため generateText で通常チャットを行い、レスポンスをクライアント側で Zod 検証する。
     const basePrompt = buildToolCallNeedPrompt(userRequest, assistantResponse, availableToolNames);
     const jsonPrompt = `${basePrompt}\n\nReturn ONLY a valid JSON object with this exact shape. No markdown, no code fence, no explanation:\n{"needsTools": boolean, "missingTools": string[], "reason": string}\nIf missingTools is unnecessary, omit it or use an empty array.`;
-    const result = await generateText({
+    const result = await generateLoggedText("tool-call-need-verification", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       system:
@@ -838,7 +897,7 @@ async function runContinuationPlanStep(
   authorInstruction?: string,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("continuation-plan", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes, authorInstruction),
@@ -878,7 +937,7 @@ async function runContinuationReviewStep(
   extras?: FictionPromptExtras,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("continuation-review", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildContinuationReviewPrompt(draft, context, settingsContext, plan, relatedScenes, extras),
@@ -933,10 +992,13 @@ async function runSceneStateCardStep(
 ): Promise<string | undefined> {
   const hash = hashText(context.slice(-2000));
   const cached = sceneStateCardCache.get(cacheKey);
-  if (cached && cached.hash === hash) return cached.card;
+  if (cached && cached.hash === hash) {
+    console.log("[litra:ai-step] CACHE HIT scene-state-card", cached.card);
+    return cached.card;
+  }
 
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("scene-state-card", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildSceneStateCardPrompt(context, settingsContext),
@@ -971,10 +1033,13 @@ async function runCharacterVoiceCardsStep(
 ): Promise<string | undefined> {
   const hash = hashText(`${names.join(",")}\n${excerpts}`);
   const cached = characterVoiceCardCache.get(cacheKey);
-  if (cached && cached.hash === hash) return cached.card;
+  if (cached && cached.hash === hash) {
+    console.log("[litra:ai-step] CACHE HIT character-voice-cards", cached.card);
+    return cached.card;
+  }
 
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("character-voice-cards", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildCharacterVoiceCardsPrompt(names, excerpts, settingsContext),
@@ -1010,7 +1075,7 @@ async function runDraftSelectionStep(
   authorInstruction?: string,
 ): Promise<number | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("draft-selection", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold, authorInstruction),
@@ -1042,7 +1107,7 @@ async function runCandidateSelectionStep(
   scaffold?: PromptScaffoldLevel,
 ): Promise<number | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("candidate-selection", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildCandidateSelectionPrompt(
@@ -1117,7 +1182,7 @@ async function runTargetedRevisionStep(
   abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("targeted-revision", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildTargetedRevisionPrompt(draft, review, context, settingsContext, extras),
@@ -1148,6 +1213,44 @@ async function runTargetedRevisionStep(
 }
 
 /**
+ * 修正稿の回帰検査。新しい機械的 hard error が残る稿は拒否し、次に判断系モデルで
+ * 元稿と修正稿を比較する。選定失敗時は parse の既定位置である元稿を維持する。
+ */
+async function revisionPassesRegressionGate(
+  judgmentSettings: AiSettings,
+  original: string,
+  revised: string,
+  context: string,
+  settingsContext: string | undefined,
+  abortSignal?: AbortSignal,
+): Promise<boolean> {
+  const sanitized = sanitizeDraftText(revised);
+  if (!sanitized.trim()) return false;
+
+  const revisedChecks = checkDraft(sanitized, context);
+  if (revisedChecks.hard.length > 0) {
+    console.warn("[litra] revision regression gate rejected hard violations", revisedChecks.hard);
+    return false;
+  }
+
+  const selected = await runCandidateSelectionStep(
+    judgmentSettings,
+    [original, sanitized],
+    "同じ査読を踏まえた完成稿の回帰比較。欠陥の解消だけでなく、元稿の長所、文体、リズム、含意が失われていない案",
+    original,
+    context,
+    settingsContext,
+    abortSignal,
+    judgmentSettings.promptScaffold,
+  );
+  if (selected !== 1) {
+    console.warn("[litra] revision regression gate kept original draft");
+    return false;
+  }
+  return true;
+}
+
+/**
  * ペン入れ第1工程 — 編集者の査読(判断系モデル)。
  * プロンプトは buildLineEditReviewPrompt で、出力形式は続き生成のレビューと同じ。
  * 失敗時は undefined を返す。
@@ -1162,7 +1265,7 @@ export async function runLineEditReview(
   abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
   try {
-    const result = await generateText({
+    const result = await generateLoggedText("line-edit-review", settings, {
       model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildLineEditReviewPrompt(passage, context, settingsContext, instruction, extras),
@@ -1202,7 +1305,7 @@ export async function runLineEditRevision(
   try {
     const generateCandidate = async (stage: "candidate-1" | "candidate-2"): Promise<string> => {
       onProgress?.(stage);
-      const result = await generateText({
+      const result = await generateLoggedText(`line-edit-${stage}`, settings, {
         model: createModel(settings),
         ...buildRetryOption(settings),
         prompt: buildLineEditRevisionPrompt(passage, review, context, settingsContext, instruction, extras),
@@ -1274,6 +1377,16 @@ export async function streamContinuation({
     // 構想・レビューは出力が短く「判断」寄りの工程のため、判断系モデルに振る。
     // source の判定(本文/バックグラウンド/カスタム)は main.ts 側が担う。
     const judgmentSettings = getJudgmentSettings ? normalizeSettings(getJudgmentSettings()) : s;
+    const reportStage = (stage: "plan" | "draft" | "review" | "revise" | "regression"): void => {
+      const stageSettings = stage === "plan" || stage === "review" || stage === "regression"
+        ? judgmentSettings
+        : s;
+      console.log(`[litra:pipeline] STAGE ${stage}`, {
+        provider: stageSettings.provider,
+        model: stageSettings.model,
+      });
+      onStage?.(stage);
+    };
 
     const cacheKeyBase = episodeId ?? "__no_episode__";
 
@@ -1294,7 +1407,7 @@ export async function streamContinuation({
       if (characterVoiceCards) extras = { ...extras, characterVoiceCards };
     }
 
-    if (s.twoStageContinuation) onStage?.("plan");
+    if (s.twoStageContinuation) reportStage("plan");
     const plan = s.twoStageContinuation
       ? await runContinuationPlanStep(
           judgmentSettings,
@@ -1306,47 +1419,83 @@ export async function streamContinuation({
         )
       : undefined;
 
-    onStage?.("draft");
+    reportStage("draft");
     const reviewEnabled = s.continuationReviewEnabled === true;
     const bestOfTwo = s.continuationBestOfTwo === true;
 
     // 設定資料は system ではなく本文プロンプト側に注入する(弱いモデルの recency 対策)
+    let draftGenerationSequence = 0;
     const runDraftGeneration = async (
       draftContext: string,
       draftExtras: FictionPromptExtras | undefined,
       onDraftChunk: (chunk: string) => void,
     ): Promise<{ text: string; run: StreamRunResult }> => {
-      const draftResult = streamText<ToolSet>({
-        model: createModel(s),
-        ...buildRetryOption(s),
-        system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
-        prompt: buildContinuationPrompt(draftContext, settingsContext, plan, relatedScenes, draftExtras),
-        ...buildTemperatureOption(s),
-        maxOutputTokens: s.maxTokens,
-        abortSignal,
-        tools: scopedTools,
-        stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
-        ...buildAdvancedOptions(s),
-      });
+      const generationId = ++draftGenerationSequence;
+      let cumulativeContext = draftContext;
       let text = "";
-      const run = await consumeStream(
-        draftResult,
-        (chunk) => {
-          text += chunk;
-          onDraftChunk(chunk);
-        },
-        onToolEvent,
-        onReasoning,
-      );
-      return { text, run };
+      let combinedRun: StreamRunResult | undefined;
+
+      for (let attempt = 0; attempt <= CONTINUATION_LENGTH_RETRY_LIMIT; attempt++) {
+        const draftStep = beginAiStep(`continuation-draft-${generationId}-segment-${attempt + 1}`, s);
+        const draftResult = streamText<ToolSet>({
+          model: createModel(s),
+          ...buildRetryOption(s),
+          system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
+          prompt: buildContinuationPrompt(cumulativeContext, settingsContext, plan, relatedScenes, draftExtras),
+          ...buildTemperatureOption(s),
+          maxOutputTokens: s.maxTokens,
+          abortSignal,
+          tools: scopedTools,
+          stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
+          ...buildAdvancedOptions(s),
+        });
+        let segmentText = "";
+        const segmentRun = await consumeStream(
+          draftResult,
+          (chunk) => {
+            segmentText += chunk;
+            onDraftChunk(chunk);
+          },
+          onToolEvent,
+          onReasoning,
+        );
+        completeAiStep(draftStep, segmentText, segmentRun.finishReason);
+        text += segmentText;
+        combinedRun = combinedRun ? mergeToolStats(combinedRun, segmentRun) : segmentRun;
+
+        if (segmentRun.finishReason !== "length" || !segmentText.trim()) break;
+        if (attempt === CONTINUATION_LENGTH_RETRY_LIMIT) {
+          console.warn("[litra] continuation length retry limit reached");
+          break;
+        }
+        console.warn("[litra] continuation hit maxOutputTokens; auto-continuing", { attempt: attempt + 1 });
+        const continuationContextBudget = Math.max(
+          BEAT_CONTEXT_CHAR_BUDGET,
+          Math.floor(Math.max(4096, s.maxContextTokens - s.maxTokens - 2048) * 2.5),
+        );
+        cumulativeContext = limitPromptText(
+          `${draftContext}${text}`,
+          continuationContextBudget,
+          "tail",
+        );
+      }
+
+      return { text, run: combinedRun! };
     };
 
     const noop = (_chunk: string): void => {};
     const mergeToolStats = (a: StreamRunResult, b: StreamRunResult): StreamRunResult => ({
-      ...a,
+      // 終了理由・レスポンス情報は最後の区間を採用し、件数だけを累積する。
+      ...b,
+      textChunkCount: a.textChunkCount + b.textChunkCount,
+      textCharCount: a.textCharCount + b.textCharCount,
+      reasoningChunkCount: a.reasoningChunkCount + b.reasoningChunkCount,
+      reasoningCharCount: a.reasoningCharCount + b.reasoningCharCount,
       toolCallCount: a.toolCallCount + b.toolCallCount,
       toolResultCount: a.toolResultCount + b.toolResultCount,
       toolErrorCount: a.toolErrorCount + b.toolErrorCount,
+      pendingToolCallIds: [...new Set([...a.pendingToolCallIds, ...b.pendingToolCallIds])],
+      responseMessages: [...a.responseMessages, ...b.responseMessages],
     });
 
     let draftText: string;
@@ -1433,7 +1582,7 @@ export async function streamContinuation({
     }
     const mechanicalFindings = [...checks.hard, ...checks.soft];
 
-    onStage?.("review");
+    reportStage("review");
     let review = await runContinuationReviewStep(
       judgmentSettings,
       draftText,
@@ -1454,19 +1603,30 @@ export async function streamContinuation({
       return draftRun;
     }
 
-    onStage?.("revise");
+    reportStage("revise");
 
     if (s.continuationTargetedRevision) {
       const targeted = await runTargetedRevisionStep(s, draftText, review, context, settingsContext, extras, abortSignal);
       if (targeted !== undefined) {
-        onChunk(targeted);
-        return draftRun;
+        reportStage("regression");
+        if (targeted === draftText || await revisionPassesRegressionGate(
+          judgmentSettings,
+          draftText,
+          targeted,
+          context,
+          settingsContext,
+          abortSignal,
+        )) {
+          onChunk(targeted);
+          return draftRun;
+        }
+        // 回帰検査で不合格なら、より広い修正が必要な可能性を考慮して全文修正を一度試す。
       }
       // undefined → 崩れた出力 or 全滅。以下の全文修正へフォールバックする。
     }
 
-    let emittedRevisionChunks = 0;
     try {
+      const revisionStep = beginAiStep("full-revision", s);
       const revisionResult = streamText<ToolSet>({
         model: createModel(s),
         ...buildRetryOption(s),
@@ -1477,15 +1637,27 @@ export async function streamContinuation({
         abortSignal,
         ...buildAdvancedOptions(s),
       });
+      let revisedText = "";
       const revisionRun = await consumeStream(
         revisionResult,
         (chunk) => {
-          emittedRevisionChunks += 1;
-          onChunk(chunk);
+          revisedText += chunk;
         },
         undefined,
         onReasoning,
       );
+      revisedText = sanitizeDraftText(revisedText);
+      completeAiStep(revisionStep, revisedText, revisionRun.finishReason);
+      reportStage("regression");
+      const accepted = await revisionPassesRegressionGate(
+        judgmentSettings,
+        draftText,
+        revisedText,
+        context,
+        settingsContext,
+        abortSignal,
+      );
+      onChunk(accepted ? revisedText : draftText);
       // main.ts の finalizeToolRun がツール実行数を表示に使うため、
       // ドラフト段のツール集計を最終 run に引き継ぐ
       return {
@@ -1496,13 +1668,10 @@ export async function streamContinuation({
       };
     } catch (error) {
       if (abortSignal?.aborted) throw error;
-      if (emittedRevisionChunks === 0) {
-        // 1文字も流れる前の失敗はドラフト採用にフォールバック
-        console.warn("[litra] continuation revision step failed; using draft as-is", error);
-        onChunk(draftText);
-        return draftRun;
-      }
-      throw error; // 途中まで流れた失敗は現行どおり伝播
+      // 修正稿は回帰検査が終わるまでバッファするため、失敗時に部分稿は露出しない。
+      console.warn("[litra] continuation revision step failed; using draft as-is", error);
+      onChunk(draftText);
+      return draftRun;
     }
   } catch (error) {
     console.error("streamContinuation error:", error);
