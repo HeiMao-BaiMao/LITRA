@@ -86,6 +86,17 @@ describe("chat writing pipeline prompts", () => {
     expect(guidance).toContain("Do NOT compose the prose in the chat model");
   });
 
+  it("routes fiction directly through editEpisode in direct creative mode", () => {
+    const guidance = buildToolGuidancePrompt(
+      ["getEpisodeLines", "editEpisode"],
+      { directCreativeEdit: true },
+    );
+    expect(guidance).toContain("DIRECT CREATIVE EDITING MODE — ACTIVE");
+    expect(guidance).toContain("write the final Japanese prose yourself");
+    expect(guidance).toContain("apply it with editEpisode");
+    expect(guidance).not.toContain("MUST call continuePassage");
+  });
+
   it("routes immediate and later application through the proposal cache", () => {
     const prompt = buildToolGuidancePrompt([
       "continuePassage",
