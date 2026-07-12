@@ -513,6 +513,32 @@ describe("resolveWritingRunSettings", () => {
     } as AiSettings);
     expect(resolved.maxTokens).toBe(32000);
   });
+
+  it("keeps the configured output limit for exceptional non-thinking writing models", () => {
+    const config: ProviderConfig = {
+      providers: [{
+        id: "openai",
+        name: "OpenAI compatible",
+        sdkType: "openai",
+        defaultBaseUrl: "https://example.invalid/v1",
+        defaultModel: "special-non-thinking-model",
+        models: [{
+          id: "special-non-thinking-model",
+          maxTokens: 48000,
+          reasoningCapability: { kind: "openai" },
+          writing: { openaiReasoningEffort: "none" },
+        }],
+      }],
+    };
+    const resolved = resolveWritingRunSettings(config, {
+      ...baseSettings,
+      provider: "openai",
+      model: "special-non-thinking-model",
+      maxTokens: 48000,
+    } as AiSettings);
+    expect(resolved.openaiReasoningEffort).toBe("none");
+    expect(resolved.maxTokens).toBe(48000);
+  });
 });
 
 describe("resolveJudgmentRunSettings", () => {
