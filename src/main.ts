@@ -70,6 +70,9 @@ import {
   createRebuildSearchIndexTool,
   createRetrieveEpisodeTool,
   createContinuePassageTool,
+  createListPassageProposalsTool,
+  createGetPassageProposalTool,
+  createApplyPassageProposalTool,
   createRewritePassageTool,
   createLineEditPassageTool,
   createSaveEpisodeMemoTool,
@@ -86,6 +89,7 @@ import {
   createWebSearchTool,
   createWebFetchTool,
 } from "./ai/tools.ts";
+import { cachePassageProposal } from "./project/passage-proposals.ts";
 import { getElements } from "./ui/layout.ts";
 import {
   initEditor,
@@ -690,6 +694,18 @@ function createAiTools(options: {
     }),
   };
 
+  const proposalDeps = {
+    projectId: currentProject.id,
+    currentEpisodeId: () => state.currentEpisodeId ?? undefined,
+    applyText: async (text: string) => {
+      insertAtCursor(text);
+      await saveCurrentEpisode();
+    },
+  };
+  tools.listPassageProposals = createListPassageProposalsTool(proposalDeps);
+  tools.getPassageProposal = createGetPassageProposalTool(proposalDeps);
+  tools.applyPassageProposal = createApplyPassageProposalTool(proposalDeps);
+
   if (options.includeContinuePassage !== false) {
     // チャットからの新規本文生成だけを、続き生成ボタンと同じ執筆パイプラインへ送る。
     // 専用パイプライン自身へこのツールを渡すと自己呼び出しになるため、呼び出し側で除外する。
@@ -715,6 +731,8 @@ function createAiTools(options: {
           },
         };
       },
+      cacheProposal: (input) => cachePassageProposal(proposalDeps.projectId, input),
+      onProgress: options.onToolProgress,
     });
   }
 
@@ -2413,6 +2431,7 @@ const CONTINUATION_STAGE_LABELS = {
   draft: "執筆中…",
   review: "レビュー中…",
   revise: "修正中…",
+  regression: "修正稿を検証中…",
 } as const;
 
 // ボタン表示用にモデルラベルを切り詰める(長いモデルIDでツールバーが崩れるのを防ぐ)
@@ -2488,7 +2507,7 @@ async function handleContinue(): Promise<void> {
       onToolEvent: (event) => handleToolEvent(event, writingRun),
       onStage: (stage) => {
         // 構想・査読は判断系モデル、ドラフト・修正は執筆系モデルが実行する
-        const stageSettings = stage === "plan" || stage === "review" ? judgmentRun : writingRun;
+        const stageSettings = stage === "plan" || stage === "review" || stage === "regression" ? judgmentRun : writingRun;
         btnContinue.textContent = `${CONTINUATION_STAGE_LABELS[stage]}〔${stageModelLabel(stageSettings)}〕`;
       },
       getJudgmentSettings: () => judgmentRun,

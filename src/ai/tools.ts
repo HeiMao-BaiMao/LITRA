@@ -37,6 +37,12 @@ import {
 } from "../genres/sources.ts";
 import { extractSegmentContent } from "../genres/segmentation.ts";
 import { genreKnowledgeCategorySchema } from "../genres/schema.ts";
+import {
+  getPassageProposal,
+  listPassageProposals,
+  markPassageProposalApplied,
+  type PassageProposal,
+} from "../project/passage-proposals.ts";
 
 interface ValidationResult<T> {
   success: true;
@@ -1008,6 +1014,8 @@ export interface ContinuePassageToolDependencies {
     episodeId?: string;
     characterVoiceInput?: { names: string[]; excerpts: string };
   }>;
+  onProgress?: (event: Extract<StreamToolEvent, { type: "progress" }>) => void;
+  cacheProposal?: (input: Pick<PassageProposal, "episodeId" | "instruction" | "generatedText">) => Promise<PassageProposal>;
 }
 
 const continuePassageInputSchema = z.object({
@@ -1027,11 +1035,18 @@ export function createContinuePassageTool(deps: ContinuePassageToolDependencies)
     inputSchema: continuePassageInputSchema,
     execute: wrapToolExecute(
       "continuePassage",
-      async ({ instruction }: z.infer<typeof continuePassageInputSchema>) => {
+      async ({ instruction }: z.infer<typeof continuePassageInputSchema>, execution) => {
         const prepared = await deps.prepareContext();
         const writingSettings = deps.resolveWritingSettings();
         const judgmentSettings = deps.resolveJudgmentSettings();
         let generatedText = "";
+        const stageLabels = {
+          plan: "構想を作成中",
+          draft: "本文を生成中",
+          review: "生成稿を査読中",
+          revise: "指摘箇所を修正中",
+          regression: "修正稿の非劣化を検査中",
+        } as const;
         await streamContinuation({
           settings: writingSettings,
           context: prepared.context,
@@ -1043,14 +1058,32 @@ export function createContinuePassageTool(deps: ContinuePassageToolDependencies)
           authorInstruction: instruction,
           getJudgmentSettings: () => judgmentSettings,
           onChunk: (chunk) => { generatedText += chunk; },
+          abortSignal: execution.abortSignal,
+          onStage: (stage) => {
+            const usesJudgmentModel = stage === "plan" || stage === "review" || stage === "regression";
+            deps.onProgress?.({
+              type: "progress",
+              toolCallId: execution.toolCallId,
+              toolName: "continuePassage",
+              phase: stage,
+              label: stageLabels[stage],
+              model: usesJudgmentModel ? judgmentSettings.model : writingSettings.model,
+            });
+          },
         });
         generatedText = generatedText.trim();
         if (!generatedText) {
           return { success: false, message: "執筆系パイプラインの生成結果が空でした。" };
         }
+        const proposal = prepared.episodeId && deps.cacheProposal
+          ? await deps.cacheProposal({ episodeId: prepared.episodeId, instruction, generatedText })
+          : undefined;
         return {
           success: true,
-          message: "執筆系パイプラインで本文案を生成しました。本文はまだ変更していません。",
+          message: proposal
+            ? "執筆系パイプラインで本文案を生成し、提案キャッシュへ保存しました。本文はまだ変更していません。"
+            : "執筆系パイプラインで本文案を生成しました。対象エピソードが無いためキャッシュしていません。",
+          proposalId: proposal?.id,
           generatedText,
           usedWritingModel: writingSettings.model,
           usedJudgmentModel: judgmentSettings.model,
@@ -1058,6 +1091,78 @@ export function createContinuePassageTool(deps: ContinuePassageToolDependencies)
         };
       },
     ),
+  });
+}
+
+export interface PassageProposalToolDependencies {
+  projectId: string;
+  currentEpisodeId: () => string | undefined;
+  applyText: (text: string) => Promise<void>;
+}
+
+export function createListPassageProposalsTool(deps: PassageProposalToolDependencies) {
+  return tool({
+    description: "Lists cached continuation proposals for the current episode. Use when the user asks about a previously generated passage or when a prior continuePassage result was not applied.",
+    inputSchema: z.object({
+      includeApplied: z.boolean().optional().describe("Include proposals already applied to the manuscript. Defaults to false."),
+    }),
+    execute: wrapToolExecute("listPassageProposals", async ({ includeApplied }) => {
+      const episodeId = deps.currentEpisodeId();
+      if (!episodeId) return { success: false, message: "現在のエピソードがありません。" };
+      const proposals = await listPassageProposals(deps.projectId, episodeId, includeApplied === true);
+      return {
+        success: true,
+        proposals: proposals.map(({ id, instruction, createdAt, appliedAt, generatedText }) => ({
+          id,
+          instruction,
+          createdAt,
+          appliedAt,
+          preview: generatedText.slice(0, 240),
+          characterCount: generatedText.length,
+        })),
+      };
+    }),
+  });
+}
+
+export function createGetPassageProposalTool(deps: PassageProposalToolDependencies) {
+  return tool({
+    description: "Retrieves the exact full text of a cached continuation proposal by proposal ID.",
+    inputSchema: z.object({ proposalId: z.string().min(1) }),
+    execute: wrapToolExecute("getPassageProposal", async ({ proposalId }) => {
+      const proposal = await getPassageProposal(deps.projectId, proposalId);
+      if (!proposal) return { success: false, message: "指定された生成案はキャッシュにありません。" };
+      if (proposal.episodeId !== deps.currentEpisodeId()) {
+        return { success: false, message: "生成案は現在とは別のエピソードに属しています。" };
+      }
+      return { success: true, proposal };
+    }),
+  });
+}
+
+export function createApplyPassageProposalTool(deps: PassageProposalToolDependencies) {
+  return tool({
+    description: "Inserts the exact cached continuation proposal at the current editor cursor and saves the episode. Use this instead of copying generatedText into editEpisode.",
+    inputSchema: z.object({ proposalId: z.string().min(1) }),
+    execute: wrapToolExecute("applyPassageProposal", async ({ proposalId }) => {
+      const proposal = await getPassageProposal(deps.projectId, proposalId);
+      if (!proposal) return { success: false, message: "指定された生成案はキャッシュにありません。" };
+      if (proposal.episodeId !== deps.currentEpisodeId()) {
+        return { success: false, message: "生成案は現在とは別のエピソードに属しているため反映できません。" };
+      }
+      if (proposal.appliedAt) {
+        return { success: false, message: "この生成案は既に本文へ反映済みです。", appliedAt: proposal.appliedAt };
+      }
+      await deps.applyText(proposal.generatedText);
+      const applied = await markPassageProposalApplied(deps.projectId, proposal.id);
+      return {
+        success: true,
+        message: "キャッシュ済み生成案を現在のカーソル位置へ挿入し、本文を保存しました。",
+        proposalId: proposal.id,
+        appliedAt: applied?.appliedAt,
+        characterCount: proposal.generatedText.length,
+      };
+    }),
   });
 }
 
