@@ -714,6 +714,20 @@ button#btn-cancel:hover:not(:disabled) {
   min-width: fit-content;
 }
 
+.chat-controls .direct-writing-toggle {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+.chat-controls .direct-writing-toggle.is-active {
+  color: #fff;
+  background: #b45f06;
+  border-color: #d9821b;
+  box-shadow: 0 0 0 1px rgb(217 130 27 / 25%);
+}
+
 .chat-controls.has-register-source {
   flex-direction: column;
 }

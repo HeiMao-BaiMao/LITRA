@@ -1233,10 +1233,17 @@ export function computeModelResolutionPreviewRows(
   ];
 }
 
+export function shouldRenderModelResolutionPreviewOnInput(
+  target: EventTarget | null,
+  providerSelect: EventTarget,
+): boolean {
+  return target !== providerSelect;
+}
+
 /**
  * フォームの現在値から各工程の解決結果を計算してミニテーブルを描画する。
- * readSettingsFromModal は DOM 読み取り(+モーダル内キャッシュの同期)だけで
- * ストアや設定本体には触れないため、入力のたびに呼んで問題ない。
+ * readSettingsFromModal は現在の接続欄をモーダル内キャッシュへ同期するため、
+ * プロバイダー選択時は接続欄の切替が完了した change 後に呼ぶ。
  * モーダル未描画などで計算できない場合はその旨を表示する。
  */
 export function renderModelResolutionPreview(): void {
@@ -1444,6 +1451,7 @@ export function bindSettingsActions(actions: SettingsActions): void {
     btnCloseLicenses,
     settingWebdavEnabled,
     settingDeepseekThinking,
+    settingProvider,
     btnOAuthLogin,
     btnOAuthLogout,
     btnOAuthCancel,
@@ -1461,7 +1469,14 @@ export function bindSettingsActions(actions: SettingsActions): void {
   });
   // どの入力が変わってもモデル解決プレビューを更新する(委譲リスナー。描画は軽量なので都度実行)
   settingsForm.addEventListener("change", () => renderModelResolutionPreview());
-  settingsForm.addEventListener("input", () => renderModelResolutionPreview());
+  settingsForm.addEventListener("input", (event) => {
+    // select は input → change の順に発火する。プロバイダーの input 時点では
+    // 接続欄が旧プロバイダーのままなので、readSettingsFromModal を呼ぶと旧値を
+    // 新プロバイダーへ保存してしまう。change 側の切替完了後に描画する。
+    if (shouldRenderModelResolutionPreviewOnInput(event.target, settingProvider)) {
+      renderModelResolutionPreview();
+    }
+  });
   btnShowLicenses.addEventListener("click", () => void showLicenseModal());
   btnCloseLicenses.addEventListener("click", hideLicenseModal);
   licenseModal.querySelector(".modal-backdrop")?.addEventListener("click", hideLicenseModal);

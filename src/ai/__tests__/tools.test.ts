@@ -5,8 +5,25 @@
 import { describe, it, expect } from "bun:test";
 import { resolveForcedToolChoice } from "../service.ts";
 import { resolveProviderBaseUrl } from "../provider.ts";
+import { extractDeepSeekCacheTokens } from "../cache-observability.ts";
+
+describe("extractDeepSeekCacheTokens", () => {
+  it("reads DeepSeek provider cache metadata", () => {
+    expect(extractDeepSeekCacheTokens({
+      deepseek: { promptCacheHitTokens: 1200, promptCacheMissTokens: 300 },
+    })).toEqual({ hit: 1200, miss: 300 });
+  });
+
+  it("does not invent metrics when a compatibility provider omits them", () => {
+    expect(extractDeepSeekCacheTokens({ openai: { cachedPromptTokens: 10 } })).toBeUndefined();
+  });
+});
 
 describe("resolveProviderBaseUrl", () => {
+  it("prevents Sakura from using the DeepSeek endpoint", () => {
+    expect(resolveProviderBaseUrl("sakura", "https://api.deepseek.com")).toBe("https://api.ai.sakura.ad.jp/v1");
+  });
+
   it("prevents DeepSeek from using the OpenCode Go endpoint", () => {
     expect(resolveProviderBaseUrl("deepseek", "https://opencode.ai/zen/go/v1")).toBe("https://api.deepseek.com");
   });
@@ -17,6 +34,7 @@ describe("resolveProviderBaseUrl", () => {
 
   it("preserves user-defined proxy endpoints", () => {
     expect(resolveProviderBaseUrl("deepseek", "https://proxy.example/v1")).toBe("https://proxy.example/v1");
+    expect(resolveProviderBaseUrl("sakura", "https://proxy.example/v1")).toBe("https://proxy.example/v1");
   });
 });
 
@@ -84,6 +102,17 @@ describe("chat writing pipeline prompts", () => {
     const guidance = buildToolGuidancePrompt(["continuePassage", "editEpisode"]);
     expect(guidance).toContain("MUST call continuePassage");
     expect(guidance).toContain("Do NOT compose the prose in the chat model");
+  });
+
+  it("routes fiction directly through editEpisode in direct creative mode", () => {
+    const guidance = buildToolGuidancePrompt(
+      ["getEpisodeLines", "editEpisode"],
+      { directCreativeEdit: true },
+    );
+    expect(guidance).toContain("DIRECT CREATIVE EDITING MODE — ACTIVE");
+    expect(guidance).toContain("write the final Japanese prose yourself");
+    expect(guidance).toContain("apply it with editEpisode");
+    expect(guidance).not.toContain("MUST call continuePassage");
   });
 
   it("routes immediate and later application through the proposal cache", () => {
@@ -686,6 +715,7 @@ import {
   describePreviewTemperature,
   describePreviewThinking,
   computeModelResolutionPreviewRows,
+  shouldRenderModelResolutionPreviewOnInput,
 } from "../../ui/settings-modal.ts";
 import type { ProviderConfig } from "../../providers/config.ts";
 
@@ -819,6 +849,14 @@ describe("computeModelResolutionPreviewRows", () => {
 
   it("returns undefined for null config", () => {
     expect(computeModelResolutionPreviewRows(undefined, settings)).toBeUndefined();
+  });
+});
+
+describe("shouldRenderModelResolutionPreviewOnInput", () => {
+  it("defers provider input until its change handler has switched connection fields", () => {
+    const providerSelect = {} as EventTarget;
+    expect(shouldRenderModelResolutionPreviewOnInput(providerSelect, providerSelect)).toBe(false);
+    expect(shouldRenderModelResolutionPreviewOnInput({} as EventTarget, providerSelect)).toBe(true);
   });
 });
 

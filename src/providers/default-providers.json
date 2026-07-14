@@ -21,7 +21,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -39,7 +46,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -57,7 +71,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -75,7 +96,13 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -93,7 +120,13 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -111,7 +144,9 @@
           "openaiReasoningEffort": "none",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none"]
+            "supportedEfforts": [
+              "none"
+            ]
           }
         }
       ]
@@ -135,7 +170,13 @@
           "anthropicThinkingEnabled": false,
           "reasoningCapability": {
             "kind": "anthropic-adaptive",
-            "supportedEfforts": ["low","medium","high","xhigh","max"],
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
             "display": "summarized"
           },
           "writing": {
@@ -152,7 +193,13 @@
           "anthropicThinkingEnabled": false,
           "reasoningCapability": {
             "kind": "anthropic-adaptive",
-            "supportedEfforts": ["low","medium","high","xhigh","max"],
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
             "display": "summarized",
             "canDisable": true
           },
@@ -209,7 +256,10 @@
           "deepseekReasoningEffort": "high",
           "reasoningCapability": {
             "kind": "deepseek",
-            "supportedEfforts": ["high","max"],
+            "supportedEfforts": [
+              "high",
+              "max"
+            ],
             "canDisable": false
           },
           "writing": {
@@ -233,7 +283,10 @@
           "deepseekReasoningEffort": "high",
           "reasoningCapability": {
             "kind": "deepseek",
-            "supportedEfforts": ["high","max"],
+            "supportedEfforts": [
+              "high",
+              "max"
+            ],
             "canDisable": false
           },
           "writing": {
@@ -266,7 +319,12 @@
           "googleThinkingLevel": "high",
           "reasoningCapability": {
             "kind": "google",
-            "supportedEfforts": ["minimal","low","medium","high"]
+            "supportedEfforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -280,7 +338,11 @@
           "googleThinkingLevel": "high",
           "reasoningCapability": {
             "kind": "google",
-            "supportedEfforts": ["low","medium","high"]
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -294,7 +356,12 @@
           "googleThinkingLevel": "high",
           "reasoningCapability": {
             "kind": "google",
-            "supportedEfforts": ["minimal","low","medium","high"]
+            "supportedEfforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
           }
         },
         {
@@ -305,7 +372,12 @@
           "googleThinkingLevel": "minimal",
           "reasoningCapability": {
             "kind": "google",
-            "supportedEfforts": ["minimal","low","medium","high"]
+            "supportedEfforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
           }
         },
         {
@@ -380,7 +452,9 @@
           "openaiReasoningEffort": "none",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none"]
+            "supportedEfforts": [
+              "none"
+            ]
           }
         },
         {
@@ -401,6 +475,17 @@
           "maxContextTokens": 1010000,
           "topP": 0.9,
           "frequencyPenalty": 0.05,
+          "presencePenalty": 0
+        },
+        {
+          "id": "preview/gemma-4-31B-it",
+          "label": "Gemma 4 31B IT Preview",
+          "temperature": 1.0,
+          "maxTokens": 24576,
+          "maxContextTokens": 262144,
+          "topP": 0.95,
+          "topK": 64,
+          "frequencyPenalty": 0,
           "presencePenalty": 0
         }
       ]
@@ -445,7 +530,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -463,7 +555,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -481,7 +580,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -498,7 +604,13 @@
           "presencePenalty": 0,
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
           }
         },
         {
@@ -512,7 +624,13 @@
           "presencePenalty": 0,
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
           }
         },
         {
@@ -527,7 +645,9 @@
           "openaiReasoningEffort": "none",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none"]
+            "supportedEfforts": [
+              "none"
+            ]
           }
         },
         {
@@ -563,7 +683,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -581,7 +708,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -599,7 +733,14 @@
           "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh","max"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
           },
           "writing": {
             "promptScaffold": "light"
@@ -616,7 +757,13 @@
           "presencePenalty": 0,
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
           }
         },
         {
@@ -630,7 +777,13 @@
           "presencePenalty": 0,
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none","low","medium","high","xhigh"]
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
           }
         },
         {
@@ -645,7 +798,9 @@
           "openaiReasoningEffort": "none",
           "reasoningCapability": {
             "kind": "openai",
-            "supportedEfforts": ["none"]
+            "supportedEfforts": [
+              "none"
+            ]
           }
         },
         {
@@ -684,7 +839,11 @@
           "anthropicThinkingEnabled": false,
           "reasoningCapability": {
             "kind": "anthropic-adaptive",
-            "supportedEfforts": ["low","medium","high"],
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high"
+            ],
             "display": "summarized"
           },
           "writing": {
@@ -713,7 +872,10 @@
           "presencePenalty": 0,
           "reasoningCapability": {
             "kind": "deepseek",
-            "supportedEfforts": ["high", "max"],
+            "supportedEfforts": [
+              "high",
+              "max"
+            ],
             "canDisable": false
           }
         },
@@ -728,7 +890,10 @@
           "presencePenalty": 0,
           "reasoningCapability": {
             "kind": "deepseek",
-            "supportedEfforts": ["high", "max"],
+            "supportedEfforts": [
+              "high",
+              "max"
+            ],
             "canDisable": false
           },
           "writing": {

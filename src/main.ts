@@ -32,6 +32,7 @@ import {
 } from "./ai/service.ts";
 import { buildSummaryPrompt, limitPromptText, parseSummaryOutput, samplePromptText } from "./ai/prompts.ts";
 import { formatAiErrorMessage } from "./ai/provider-options.ts";
+import { setAiCacheProject } from "./ai/cache-observability.ts";
 import {
   resolveChatRunSettings as resolveChatRunSettingsWith,
   resolveBackgroundRunSettings as resolveBackgroundRunSettingsWith,
@@ -114,6 +115,7 @@ import {
   bindChatSubmitShortcut,
   populateChatModelOptions,
   populateChatProviderOptions,
+  renderDirectWritingToggle,
 } from "./ui/chat-window-common.ts";
 import { renderChatMessageHtml } from "./markdown.ts";
 import { bindToolbarActions } from "./ui/toolbar.ts";
@@ -425,6 +427,7 @@ function setGenerating(generating: boolean): void {
     btnSettings,
     chatForm,
     chatInput,
+    btnDirectWriting,
   } = getElements();
 
   const disabled = generating;
@@ -434,6 +437,7 @@ function setGenerating(generating: boolean): void {
   btnFeedback.disabled = disabled;
   btnSettings.disabled = disabled;
   chatInput.disabled = disabled;
+  btnDirectWriting.disabled = disabled;
   chatForm.classList.toggle("is-generating", generating);
 
   if (generating) {
@@ -546,6 +550,7 @@ async function validateChatSettings(): Promise<boolean> {
 
 function createAiTools(options: {
   includeContinuePassage?: boolean;
+  directCreativeEdit?: boolean;
   onToolProgress?: (event: Extract<StreamToolEvent, { type: "progress" }>) => void;
 } = {}): ToolSet | undefined {
   if (!currentProject) return undefined;
@@ -705,6 +710,11 @@ function createAiTools(options: {
   tools.listPassageProposals = createListPassageProposalsTool(proposalDeps);
   tools.getPassageProposal = createGetPassageProposalTool(proposalDeps);
   tools.applyPassageProposal = createApplyPassageProposalTool(proposalDeps);
+
+  if (options.directCreativeEdit) {
+    delete tools.rewritePassage;
+    delete tools.lineEditPassage;
+  }
 
   if (options.includeContinuePassage !== false) {
     // チャットからの新規本文生成だけを、続き生成ボタンと同じ執筆パイプラインへ送る。
@@ -1078,14 +1088,20 @@ async function streamChatOnce(
   controller: AbortController,
   allowTools: boolean,
   settings: AiSettings,
+  directCreativeEdit: boolean,
 ) {
   return await streamChat({
     settings,
     messages,
     settingsContext: buildSettingsContext(state.currentEpisodeId ?? undefined, settings),
     tools: allowTools
-      ? createAiTools({ onToolProgress: (event) => handleToolEvent(event, settings) })
+      ? createAiTools({
+          includeContinuePassage: !directCreativeEdit,
+          directCreativeEdit,
+          onToolProgress: (event) => handleToolEvent(event, settings),
+        })
       : undefined,
+    directCreativeEdit,
     onChunk: (chunk) => {
       appendAssistantChunk(chunk);
     },
@@ -1101,11 +1117,12 @@ async function streamChatWithAutoContinuation(
   initialMessages: ModelMessage[],
   controller: AbortController,
   settings: AiSettings,
+  directCreativeEdit: boolean,
 ) {
   let messages = initialMessages;
   let toolCallRetryCount = 0;
   let toolResultContinuationCount = 0;
-  let run = await streamChatOnce(messages, controller, true, settings);
+  let run = await streamChatOnce(messages, controller, true, settings, directCreativeEdit);
   finalizeToolRun(run);
 
   while (!controller.signal.aborted) {
@@ -1129,7 +1146,7 @@ async function streamChatWithAutoContinuation(
           content: `${CHAT_TOOL_CALL_RETRY_PROMPT}\n\n【直前に生成された未実行の説明文】\n${limitPromptText(missedText, 4000, "head")}`,
         },
       ];
-      run = await streamChatOnce(messages, controller, true, settings);
+      run = await streamChatOnce(messages, controller, true, settings, directCreativeEdit);
       finalizeToolRun(run);
       continue;
     }
@@ -1145,7 +1162,7 @@ async function streamChatWithAutoContinuation(
         retry: toolResultContinuationCount,
       });
       messages = buildToolResultContinuationMessages(messages, run);
-      run = await streamChatOnce(messages, controller, false, settings);
+      run = await streamChatOnce(messages, controller, false, settings, directCreativeEdit);
       finalizeToolRun(run);
       continue;
     }
@@ -1159,7 +1176,7 @@ async function streamChatWithAutoContinuation(
       ...buildChatMessagesForModel(settings),
       { role: "user", content: CHAT_LENGTH_CONTINUATION_PROMPT },
     ];
-    run = await streamChatOnce(messages, controller, false, settings);
+    run = await streamChatOnce(messages, controller, false, settings, directCreativeEdit);
     finalizeToolRun(run);
   }
 
@@ -1250,7 +1267,22 @@ function syncMemoToWindow(): void {
 }
 
 function syncChatToWindow(): void {
-  emit("chat-sync", { messages: state.chatMessages, isGenerating: state.isGenerating });
+  emit("chat-sync", {
+    messages: state.chatMessages,
+    isGenerating: state.isGenerating,
+    directWritingEnabled: state.directWritingEnabled,
+  });
+}
+
+function renderDirectWritingMode(): void {
+  renderDirectWritingToggle(getElements().btnDirectWriting, state.directWritingEnabled);
+}
+
+function toggleDirectWritingMode(): void {
+  if (state.isGenerating) return;
+  state.directWritingEnabled = !state.directWritingEnabled;
+  renderDirectWritingMode();
+  syncChatToWindow();
 }
 
 function syncSummaryToWindow(): void {
@@ -1901,6 +1933,7 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
 
 async function loadProjectData(project: Project): Promise<void> {
   currentProject = project;
+  setAiCacheProject(project.id);
   state.currentProject = { id: project.id, title: project.title };
 
   await migrateFromManuscript(project.id);
@@ -2050,23 +2083,20 @@ function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = 
     }, 0);
   }
 
-  const relevantCharacters = (characters ?? [])
-    .map((character, index) => ({
-      character,
-      index,
-      score: scoreTerms([character.name, character.reading, character.alias]),
-    }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(({ character }) => character);
-
-  const relevantWorldEntries = (worldEntries ?? [])
-    .map((entry, index) => ({
-      entry,
-      index,
-      score: scoreTerms([entry.name, entry.category]),
-    }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(({ entry }) => entry);
+  // プロバイダーの先頭一致キャッシュを安定させるため、正史データは会話内容で
+  // 並べ替えず、永続ID（無い場合は名前）の決定論的な順序に固定する。
+  const relevantCharacters = [...(characters ?? [])]
+    .sort((a, b) => (a.id || a.name).localeCompare(b.id || b.name, "ja"));
+  const relevantWorldEntries = [...(worldEntries ?? [])]
+    .sort((a, b) => (a.id || a.name).localeCompare(b.id || b.name, "ja"));
+  const currentlyRelevantNames = [
+    ...(characters ?? [])
+      .filter((character) => scoreTerms([character.name, character.reading, character.alias]) > 0)
+      .map((character) => character.name),
+    ...(worldEntries ?? [])
+      .filter((entry) => scoreTerms([entry.name, entry.category]) > 0)
+      .map((entry) => entry.name),
+  ].filter(Boolean);
 
   function formatFields(entries: [string, string | undefined][]): string {
     return entries
@@ -2138,31 +2168,21 @@ function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = 
 
   const currentOrder = episodes.find((episode) => episode.id === currentEpisodeId)?.order ?? 0;
   const relationshipLinesRaw = [...(relationshipsMap.groups ?? [])]
-    .sort((a, b) => {
-      const rank = (episodeId: string | undefined): number => {
-        if (episodeId === currentEpisodeId) return 0;
-        if (!episodeId) return 1;
-        const order = episodes.find((episode) => episode.id === episodeId)?.order ?? currentOrder;
-        return 2 + Math.abs(order - currentOrder);
-      };
-      return rank(a.episodeId) - rank(b.episodeId);
-    })
+    .sort((a, b) => (a.episodeId ?? "").localeCompare(b.episodeId ?? ""))
     .map((group) => {
       const episode = episodes.find((candidate) => candidate.id === group.episodeId);
       const groupTitle = group.episodeId ? `■ ${episode?.title || "（無題）"}` : "■ 全体（全話共通）";
       const lines = [...group.relationships]
-        .map((relationship, index) => {
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((relationship) => {
           const charA = characters.find((character) => character.id === relationship.characterAId)?.name || "（不明）";
           const charB = characters.find((character) => character.id === relationship.characterBId)?.name || "（不明）";
           return {
             relationship,
-            index,
             charA,
             charB,
-            score: scoreTerms([charA, charB]),
           };
         })
-        .sort((a, b) => b.score - a.score || a.index - b.index)
         .map(({ relationship, charA, charB }) => {
           const arrow = relationship.direction === "a-to-b" ? "→" : relationship.direction === "b-to-a" ? "←" : "↔";
           return `  - ${charA} ${arrow} ${charB}: ${relationship.description || "（説明なし）"}`;
@@ -2214,6 +2234,10 @@ function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = 
     }
   }
 
+  if (currentlyRelevantNames.length > 0) {
+    contextParts.push(`【現在の本文・会話で言及された項目】\n${[...new Set(currentlyRelevantNames)].join("、")}`);
+  }
+
   return contextParts.join("\n\n");
 }
 
@@ -2262,6 +2286,7 @@ async function handleDeleteProject(projectId: string): Promise<void> {
 
     if (currentProject?.id === projectId) {
       currentProject = null;
+      setAiCacheProject(undefined);
       state.currentProject = null;
       episodes = [];
       characters = [];
@@ -2627,7 +2652,12 @@ async function handleChatMessage(): Promise<void> {
     const messages = buildChatMessagesForModel(chatSettings);
     console.log("[litra] streaming chat with messages:", messages.length);
 
-    const run = await streamChatWithAutoContinuation(messages, controller, chatSettings);
+    const run = await streamChatWithAutoContinuation(
+      messages,
+      controller,
+      chatSettings,
+      state.directWritingEnabled,
+    );
     if (run.stoppedAfterToolActivity) {
       appendToolInterruptedFallback();
     }
@@ -3083,6 +3113,8 @@ function bindUiEvents(): void {
   bindChatSubmitShortcut(getElements().chatInput, getElements().chatForm, () => currentSettings.chatSubmitShortcut);
 
   getElements().btnCancel.addEventListener("click", stopGeneration);
+  getElements().btnDirectWriting.addEventListener("click", toggleDirectWritingMode);
+  renderDirectWritingMode();
 
   bindSettingsActions({
     onSave: (settings) => void saveAndCloseSettings(settings),
@@ -3245,6 +3277,10 @@ async function init(): Promise<void> {
 
   listen("chat-stop", () => {
     stopGeneration();
+  });
+
+  listen("chat-direct-writing-toggle", () => {
+    toggleDirectWritingMode();
   });
 
   listen("chat-ready", () => {

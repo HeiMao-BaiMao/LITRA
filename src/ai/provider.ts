@@ -173,6 +173,9 @@ function isDeepSeekUrl(url: string): boolean {
 
 export function resolveProviderBaseUrl(provider: AiSettings["provider"], configuredBaseUrl: string): string {
   const baseUrl = configuredBaseUrl.trim();
+  if (provider === "sakura" && isDeepSeekUrl(baseUrl)) {
+    return `https://${SAKURA_API_HOST}/v1`;
+  }
   if (provider === "deepseek" && isOpenCodeUrl(baseUrl)) {
     return `https://${DEEPSEEK_API_HOST}`;
   }
@@ -834,6 +837,8 @@ export function createModel(settings: AiSettings) {
     console.error("[litra] rejected OpenCode Go URL for DeepSeek provider; using official DeepSeek API");
   } else if (baseURL !== configuredBaseUrl && settings.provider === "opencode") {
     console.error("[litra] rejected DeepSeek URL for OpenCode Go provider; using official OpenCode Go API");
+  } else if (baseURL !== configuredBaseUrl && settings.provider === "sakura") {
+    console.error("[litra] rejected DeepSeek URL for Sakura provider; using official Sakura AI Engine API");
   }
   const trimmedApiKey = typeof settings.apiKey === "string" ? settings.apiKey.trim() : "";
   const apiKey =

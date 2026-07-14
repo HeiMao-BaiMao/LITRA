@@ -211,7 +211,10 @@ function hasAnyTool(toolNames: Set<string>, names: string[]): boolean {
   return names.some((name) => toolNames.has(name));
 }
 
-export function buildToolGuidancePrompt(toolNames: string[] = []): string {
+export function buildToolGuidancePrompt(
+  toolNames: string[] = [],
+  options: { directCreativeEdit?: boolean } = {},
+): string {
   const available = new Set(toolNames);
   const sections = [baseToolGuidancePrompt];
 
@@ -241,6 +244,15 @@ export function buildToolGuidancePrompt(toolNames: string[] = []): string {
 - The tool uses the dedicated writing settings and, when enabled, multiple candidates, judgment-model selection, review, and deterministic checks.
 - The result is saved in the proposal cache and does NOT modify the manuscript by itself. If the user explicitly requested writing/application now, immediately call applyPassageProposal with the returned proposalId. Do not copy generatedText into editEpisode.
 - IF the tool fails → report the failure honestly. Do not silently replace it with chat-model prose.`);
+  }
+
+  if (options.directCreativeEdit && hasTool(available, "editEpisode")) {
+    sections.push(`DIRECT CREATIVE EDITING MODE — ACTIVE:
+- This mode replaces the multi-stage continuePassage pipeline. For a request to write new fiction, you MUST write the final Japanese prose yourself and apply it with editEpisode in this same turn. Do not call continuePassage, rewritePassage, lineEditPassage, or any proposal-selection/review pipeline.
+- Read the exact target with getEpisodeLines or findEpisodeLines first. For a continuation at the end, replace the final line with that exact line followed by the newly written continuation in replacementText. Preserve the original final line character-for-character.
+- Do not merely print or propose the prose in chat. The requested result is complete only after editEpisode returns success.
+- Keep canon, viewpoint, tense, voice, and the user's requested length, but perform no separate planning, candidate generation, literary review, or regression comparison.
+- If editEpisode rejects an exact-text mismatch, re-read the affected range and retry once. If it still fails, report the failure without claiming that the manuscript changed.`);
   }
 
   if (hasAnyTool(available, ["listPassageProposals", "getPassageProposal", "applyPassageProposal"])) {
@@ -437,12 +449,17 @@ export function buildAssistantSystemPrompt({
   settingsContext,
   toolsEnabled = false,
   toolNames = [],
+  directCreativeEdit = false,
 }: {
   settingsContext?: string;
   toolsEnabled?: boolean;
   toolNames?: string[];
+  directCreativeEdit?: boolean;
 }): string {
   const parts = [systemPrompt];
+  // ツール規則は比較的固定なので、毎回変化する作品資料より前に置き、
+  // 先頭一致型のプロンプトキャッシュで再利用できる範囲を広げる。
+  if (toolsEnabled) parts.push(buildToolGuidancePrompt(toolNames, { directCreativeEdit }));
   const trimmedContext = settingsContext?.trim();
   if (trimmedContext) {
     parts.push(
@@ -457,7 +474,6 @@ export function buildAssistantSystemPrompt({
 ${formatPromptDataBlock("story_reference", trimmedContext)}`,
     );
   }
-  if (toolsEnabled) parts.push(buildToolGuidancePrompt(toolNames));
   return parts.join("\n\n");
 }
 
@@ -683,7 +699,8 @@ export function buildContinuationPlanPrompt(
     authorInstruction,
     "構想する展開の最優先条件として従う。正史と直前本文に矛盾する場合は、その矛盾を避けた形で満たす。",
   );
-  return `【依頼】
+  return `【LITRA工程】continuation-plan/v2
+【依頼】
 提示された日本語小説の続きを書く前の構想を練る。本文はまだ書かない。
 
 ${authorInstructionSection}
@@ -740,7 +757,8 @@ ${limitPromptText(plan.trim(), 2000, "tail")}
 
 `
     : "";
-  return `【依頼】
+  return `【LITRA工程】continuation-draft/v2
+【依頼】
 提示された日本語小説の末尾から、途切れなく続きを執筆する。
 
 【手順 — この順番で必ず実行する】
@@ -802,7 +820,8 @@ ${limitPromptText(plan.trim(), 2000, "tail")}
 
 `
     : "";
-  return `【依頼】
+  return `【LITRA工程】continuation-review/v2
+【依頼】
 あなたは日本語小説の査読者である。<reference_data name="text_immediately_before_continuation"> の続きとして生成されたドラフト <reference_data name="draft_to_review"> を徹底的に査読する。あなたの仕事は問題の発見と修正方針の提示だけである。修正版の本文を書くのは次工程の別の書き手である。
 
 【査読の手順 — この順番で必ず実行する】
@@ -855,7 +874,8 @@ export function buildContinuationRevisionPrompt(
   const referenceSection = buildStoryReferenceSection(settingsContext);
   const relatedScenesSection = buildRelatedScenesSection(relatedScenes);
   const extraSections = buildExtraContextSections(extras);
-  return `【依頼】
+  return `【LITRA工程】continuation-revision/v2
+【依頼】
 <reference_data name="text_immediately_before_continuation"> の続きとして書かれたドラフト <reference_data name="draft_to_review"> を、査読結果 <reference_data name="review"> に従って修正し、修正稿を出力する。
 
 【手順 — この順番で必ず実行する】
@@ -1105,7 +1125,8 @@ export function buildSceneStateCardPrompt(
   settingsContext?: string,
 ): string {
   const referenceSection = buildStoryReferenceSection(settingsContext);
-  return `【依頼】
+  return `【LITRA工程】scene-state-card/v2
+【依頼】
 提示された日本語小説の直前本文を読み、末尾の時点での場面の状態を事実だけで整理したカードを作る。小説本文は書かない。
 
 【規則 — 全項目を必ず守る】
@@ -1138,7 +1159,8 @@ export function buildCharacterVoiceCardsPrompt(
   const names = characterNames
     .map((name) => name.trim())
     .filter(Boolean);
-  return `【依頼】
+  return `【LITRA工程】character-voice-card/v2
+【依頼】
 対象人物それぞれの「話し方カード」を作る。提示された本文抜粋の実際の台詞と、【設定資料】の記録だけを根拠にする。小説本文は書かない。
 
 【対象人物】
@@ -1191,7 +1213,8 @@ ${limitPromptText(plan.trim(), 2000, "tail")}
     authorInstruction,
     "候補を比較する最優先基準として使う。正史・直前本文・視点規則への違反は採用しない。",
   );
-  return `【依頼】
+  return `【LITRA工程】draft-selection/v2
+【依頼】
 <reference_data name="text_immediately_before_continuation"> の続きとして生成された${drafts.length}案のドラフトを比較し、続きとして採用すべき1案を選ぶ。本文の書き直し、混合、抜粋はしない。選ぶだけである。
 
 【選定基準 — 番号が小さいほど優先】
@@ -1251,7 +1274,8 @@ export function buildCandidateSelectionPrompt(
   const candidateBlocks = candidates
     .map((candidate, index) => formatPromptDataBlock(`candidate_${index + 1}`, candidate))
     .join("\n\n");
-  return `【依頼】
+  return `【LITRA工程】candidate-selection/v2
+【依頼】
 ${task}として生成された${candidates.length}案を比較し、完成稿として最も優れた1案を選ぶ。候補を混合、抜粋、書き直しせず、選定だけを行う。
 
 【選定基準 — 番号が小さいほど優先】
@@ -1287,7 +1311,8 @@ export function buildTargetedRevisionPrompt(
 ): string {
   const referenceSection = buildStoryReferenceSection(settingsContext);
   const extraSections = buildExtraContextSections(extras);
-  return `【依頼】
+  return `【LITRA工程】targeted-revision/v2
+【依頼】
 <reference_data name="text_immediately_before_continuation"> の続きとして書かれたドラフト <reference_data name="draft_to_review"> を、査読結果 <reference_data name="review"> に従って修正する。ただし修正稿の全文は出力しない。修正が必要な箇所だけを「対象と修正」の置換指示として出力する。置換はプログラムが機械的に適用するため、形式を厳守する。
 
 【手順 — この順番で必ず実行する】
