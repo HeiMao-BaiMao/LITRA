@@ -715,6 +715,7 @@ import {
   describePreviewTemperature,
   describePreviewThinking,
   computeModelResolutionPreviewRows,
+  shouldRenderModelResolutionPreviewOnInput,
 } from "../../ui/settings-modal.ts";
 import type { ProviderConfig } from "../../providers/config.ts";
 
@@ -848,6 +849,14 @@ describe("computeModelResolutionPreviewRows", () => {
 
   it("returns undefined for null config", () => {
     expect(computeModelResolutionPreviewRows(undefined, settings)).toBeUndefined();
+  });
+});
+
+describe("shouldRenderModelResolutionPreviewOnInput", () => {
+  it("defers provider input until its change handler has switched connection fields", () => {
+    const providerSelect = {} as EventTarget;
+    expect(shouldRenderModelResolutionPreviewOnInput(providerSelect, providerSelect)).toBe(false);
+    expect(shouldRenderModelResolutionPreviewOnInput({} as EventTarget, providerSelect)).toBe(true);
   });
 });
 
