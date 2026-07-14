@@ -32,6 +32,7 @@ import {
 } from "./ai/service.ts";
 import { buildSummaryPrompt, limitPromptText, parseSummaryOutput, samplePromptText } from "./ai/prompts.ts";
 import { formatAiErrorMessage } from "./ai/provider-options.ts";
+import { setAiCacheProject } from "./ai/cache-observability.ts";
 import {
   resolveChatRunSettings as resolveChatRunSettingsWith,
   resolveBackgroundRunSettings as resolveBackgroundRunSettingsWith,
@@ -1932,6 +1933,7 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
 
 async function loadProjectData(project: Project): Promise<void> {
   currentProject = project;
+  setAiCacheProject(project.id);
   state.currentProject = { id: project.id, title: project.title };
 
   await migrateFromManuscript(project.id);
@@ -2081,23 +2083,20 @@ function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = 
     }, 0);
   }
 
-  const relevantCharacters = (characters ?? [])
-    .map((character, index) => ({
-      character,
-      index,
-      score: scoreTerms([character.name, character.reading, character.alias]),
-    }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(({ character }) => character);
-
-  const relevantWorldEntries = (worldEntries ?? [])
-    .map((entry, index) => ({
-      entry,
-      index,
-      score: scoreTerms([entry.name, entry.category]),
-    }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(({ entry }) => entry);
+  // プロバイダーの先頭一致キャッシュを安定させるため、正史データは会話内容で
+  // 並べ替えず、永続ID（無い場合は名前）の決定論的な順序に固定する。
+  const relevantCharacters = [...(characters ?? [])]
+    .sort((a, b) => (a.id || a.name).localeCompare(b.id || b.name, "ja"));
+  const relevantWorldEntries = [...(worldEntries ?? [])]
+    .sort((a, b) => (a.id || a.name).localeCompare(b.id || b.name, "ja"));
+  const currentlyRelevantNames = [
+    ...(characters ?? [])
+      .filter((character) => scoreTerms([character.name, character.reading, character.alias]) > 0)
+      .map((character) => character.name),
+    ...(worldEntries ?? [])
+      .filter((entry) => scoreTerms([entry.name, entry.category]) > 0)
+      .map((entry) => entry.name),
+  ].filter(Boolean);
 
   function formatFields(entries: [string, string | undefined][]): string {
     return entries
@@ -2169,31 +2168,21 @@ function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = 
 
   const currentOrder = episodes.find((episode) => episode.id === currentEpisodeId)?.order ?? 0;
   const relationshipLinesRaw = [...(relationshipsMap.groups ?? [])]
-    .sort((a, b) => {
-      const rank = (episodeId: string | undefined): number => {
-        if (episodeId === currentEpisodeId) return 0;
-        if (!episodeId) return 1;
-        const order = episodes.find((episode) => episode.id === episodeId)?.order ?? currentOrder;
-        return 2 + Math.abs(order - currentOrder);
-      };
-      return rank(a.episodeId) - rank(b.episodeId);
-    })
+    .sort((a, b) => (a.episodeId ?? "").localeCompare(b.episodeId ?? ""))
     .map((group) => {
       const episode = episodes.find((candidate) => candidate.id === group.episodeId);
       const groupTitle = group.episodeId ? `■ ${episode?.title || "（無題）"}` : "■ 全体（全話共通）";
       const lines = [...group.relationships]
-        .map((relationship, index) => {
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((relationship) => {
           const charA = characters.find((character) => character.id === relationship.characterAId)?.name || "（不明）";
           const charB = characters.find((character) => character.id === relationship.characterBId)?.name || "（不明）";
           return {
             relationship,
-            index,
             charA,
             charB,
-            score: scoreTerms([charA, charB]),
           };
         })
-        .sort((a, b) => b.score - a.score || a.index - b.index)
         .map(({ relationship, charA, charB }) => {
           const arrow = relationship.direction === "a-to-b" ? "→" : relationship.direction === "b-to-a" ? "←" : "↔";
           return `  - ${charA} ${arrow} ${charB}: ${relationship.description || "（説明なし）"}`;
@@ -2245,6 +2234,10 @@ function buildSettingsContext(currentEpisodeId?: string, settings: AiSettings = 
     }
   }
 
+  if (currentlyRelevantNames.length > 0) {
+    contextParts.push(`【現在の本文・会話で言及された項目】\n${[...new Set(currentlyRelevantNames)].join("、")}`);
+  }
+
   return contextParts.join("\n\n");
 }
 
@@ -2293,6 +2286,7 @@ async function handleDeleteProject(projectId: string): Promise<void> {
 
     if (currentProject?.id === projectId) {
       currentProject = null;
+      setAiCacheProject(undefined);
       state.currentProject = null;
       episodes = [];
       characters = [];

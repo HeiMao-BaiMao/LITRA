@@ -29,6 +29,11 @@ import {
 import { checkDraft, sanitizeDraftText } from "./draft-checks.ts";
 import { parsePlanBeats } from "./plan-beats.ts";
 import type { AiSettings } from "../settings.ts";
+import {
+  loadPersistentAiArtifact,
+  recordProviderCacheUsage,
+  savePersistentAiArtifact,
+} from "./cache-observability.ts";
 
 // ビート分割生成で前ビートの生成分を文脈に継ぎ足す際、無制限に伸びないための上限
 const BEAT_CONTEXT_CHAR_BUDGET = 12000;
@@ -82,6 +87,7 @@ async function generateLoggedText(
   const step = beginAiStep(name, settings);
   try {
     const result = await generateText(options);
+    recordProviderCacheUsage(name, settings, result.providerMetadata);
     if (result.reasoningText) {
       console.log(`[litra:ai-step:${step.id}] REASONING ${step.name}`, result.reasoningText);
     }
@@ -453,6 +459,7 @@ async function consumeStream(
   onChunk: (chunk: string) => void,
   onToolEvent?: (event: StreamToolEvent) => void,
   onReasoning?: (chunk: string) => void,
+  cacheStat?: { step: string; settings: AiSettings },
 ): Promise<StreamRunResult> {
   let chunkCount = 0;
   let charCount = 0;
@@ -562,6 +569,9 @@ async function consumeStream(
         break;
       }
       case "finish-step": {
+        if (cacheStat) {
+          recordProviderCacheUsage(cacheStat.step, cacheStat.settings, part.providerMetadata);
+        }
         response = {
           id: part.response.id,
           modelId: part.response.modelId,
@@ -836,7 +846,10 @@ export async function streamChat({
       ...buildAdvancedOptions(s),
     });
 
-    const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent, onReasoning);
+    const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent, onReasoning, {
+      step: "chat",
+      settings: s,
+    });
 
     // ツールが有効なのにツール呼び出しがなく、かつ通常終了した場合は検証する
     if (
@@ -872,7 +885,10 @@ export async function streamChat({
           stopWhen: toolLoopStopConditions(isLoopFinished() as StopCondition<ToolSet>),
           ...buildAdvancedOptions(s),
         });
-        return await consumeStream(retryResult, onChunk, onToolEvent, onReasoning);
+        return await consumeStream(retryResult, onChunk, onToolEvent, onReasoning, {
+          step: "chat-tool-retry",
+          settings: s,
+        });
       }
     }
 
@@ -992,11 +1008,18 @@ async function runSceneStateCardStep(
   cacheKey: string,
   abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
-  const hash = hashText(context.slice(-2000));
+  const hash = hashText(`scene-state-v2\n${settings.provider}\n${settings.model}\n${settingsContext ?? ""}\n${context.slice(-2000)}`);
+  const persistentKey = `scene-state:${cacheKey}:${settings.provider}:${settings.model}`;
   const cached = sceneStateCardCache.get(cacheKey);
   if (cached && cached.hash === hash) {
     console.log("[litra:ai-step] CACHE HIT scene-state-card", cached.card);
     return cached.card;
+  }
+  const persisted = await loadPersistentAiArtifact(persistentKey, hash);
+  if (persisted) {
+    sceneStateCardCache.set(cacheKey, { hash, card: persisted });
+    console.log("[litra:ai-step] PERSISTENT CACHE HIT scene-state-card");
+    return persisted;
   }
 
   try {
@@ -1012,6 +1035,7 @@ async function runSceneStateCardStep(
     const card = result.text.trim();
     if (!card) return undefined;
     sceneStateCardCache.set(cacheKey, { hash, card });
+    await savePersistentAiArtifact(persistentKey, hash, card);
     console.log("[litra] scene state card:", card);
     return card;
   } catch (error) {
@@ -1033,11 +1057,18 @@ async function runCharacterVoiceCardsStep(
   cacheKey: string,
   abortSignal?: AbortSignal,
 ): Promise<string | undefined> {
-  const hash = hashText(`${names.join(",")}\n${excerpts}`);
+  const hash = hashText(`character-voice-v2\n${settings.provider}\n${settings.model}\n${settingsContext ?? ""}\n${names.join(",")}\n${excerpts}`);
+  const persistentKey = `character-voice:${cacheKey}:${settings.provider}:${settings.model}`;
   const cached = characterVoiceCardCache.get(cacheKey);
   if (cached && cached.hash === hash) {
     console.log("[litra:ai-step] CACHE HIT character-voice-cards", cached.card);
     return cached.card;
+  }
+  const persisted = await loadPersistentAiArtifact(persistentKey, hash);
+  if (persisted) {
+    characterVoiceCardCache.set(cacheKey, { hash, card: persisted });
+    console.log("[litra:ai-step] PERSISTENT CACHE HIT character-voice-cards");
+    return persisted;
   }
 
   try {
@@ -1053,6 +1084,7 @@ async function runCharacterVoiceCardsStep(
     const card = result.text.trim();
     if (!card) return undefined;
     characterVoiceCardCache.set(cacheKey, { hash, card });
+    await savePersistentAiArtifact(persistentKey, hash, card);
     console.log("[litra] character voice cards:", card);
     return card;
   } catch (error) {
@@ -1460,6 +1492,7 @@ export async function streamContinuation({
           },
           onToolEvent,
           onReasoning,
+          { step: `continuation-draft-segment-${attempt + 1}`, settings: s },
         );
         completeAiStep(draftStep, segmentText, segmentRun.finishReason);
         text += segmentText;
@@ -1647,6 +1680,7 @@ export async function streamContinuation({
         },
         undefined,
         onReasoning,
+        { step: "continuation-full-revision", settings: s },
       );
       revisedText = sanitizeDraftText(revisedText);
       completeAiStep(revisionStep, revisedText, revisionRun.finishReason);
@@ -1706,7 +1740,13 @@ export async function streamRewrite({
         ...buildAdvancedOptions(s),
       });
       let text = "";
-      const run = await consumeStream(result, (chunk) => { text += chunk; emit(chunk); }, undefined, onReasoning);
+      const run = await consumeStream(
+        result,
+        (chunk) => { text += chunk; emit(chunk); },
+        undefined,
+        onReasoning,
+        { step: "rewrite-candidate", settings: s },
+      );
       return { text: sanitizeDraftText(text), run };
     };
 
@@ -1762,7 +1802,10 @@ export async function streamFeedback({
       ...buildAdvancedOptions(s),
     });
 
-    return await consumeStream(result, onChunk, undefined, onReasoning);
+    return await consumeStream(result, onChunk, undefined, onReasoning, {
+      step: "feedback",
+      settings: s,
+    });
   } catch (error) {
     console.error("streamFeedback error:", error);
     throw error;

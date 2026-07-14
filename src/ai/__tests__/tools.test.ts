@@ -5,8 +5,25 @@
 import { describe, it, expect } from "bun:test";
 import { resolveForcedToolChoice } from "../service.ts";
 import { resolveProviderBaseUrl } from "../provider.ts";
+import { extractDeepSeekCacheTokens } from "../cache-observability.ts";
+
+describe("extractDeepSeekCacheTokens", () => {
+  it("reads DeepSeek provider cache metadata", () => {
+    expect(extractDeepSeekCacheTokens({
+      deepseek: { promptCacheHitTokens: 1200, promptCacheMissTokens: 300 },
+    })).toEqual({ hit: 1200, miss: 300 });
+  });
+
+  it("does not invent metrics when a compatibility provider omits them", () => {
+    expect(extractDeepSeekCacheTokens({ openai: { cachedPromptTokens: 10 } })).toBeUndefined();
+  });
+});
 
 describe("resolveProviderBaseUrl", () => {
+  it("prevents Sakura from using the DeepSeek endpoint", () => {
+    expect(resolveProviderBaseUrl("sakura", "https://api.deepseek.com")).toBe("https://api.ai.sakura.ad.jp/v1");
+  });
+
   it("prevents DeepSeek from using the OpenCode Go endpoint", () => {
     expect(resolveProviderBaseUrl("deepseek", "https://opencode.ai/zen/go/v1")).toBe("https://api.deepseek.com");
   });
@@ -17,6 +34,7 @@ describe("resolveProviderBaseUrl", () => {
 
   it("preserves user-defined proxy endpoints", () => {
     expect(resolveProviderBaseUrl("deepseek", "https://proxy.example/v1")).toBe("https://proxy.example/v1");
+    expect(resolveProviderBaseUrl("sakura", "https://proxy.example/v1")).toBe("https://proxy.example/v1");
   });
 });
 
