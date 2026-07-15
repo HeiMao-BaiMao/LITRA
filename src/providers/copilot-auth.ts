@@ -5,10 +5,7 @@
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  startDeviceAuth,
-  pollDeviceToken,
-} from "./oauth-helpers.ts";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import {
   readOAuthCredential,
   writeOAuthCredential,
@@ -20,7 +17,6 @@ export const GITHUB_COPILOT_CLIENT_ID = "Ov23li8tweQw6odWQebz";
 export const API_VERSION = "2026-06-01";
 export const DEFAULT_COPILOT_BASE = "https://api.githubcopilot.com";
 
-const OAUTH_POLLING_TIMEOUT_MS = 5 * 60 * 1_000;
 
 // ---- 型 ----
 
@@ -37,12 +33,6 @@ const CREDENTIAL_PROVIDER = "github-copilot" as const;
 
 export async function readCopilotCredential(): Promise<CopilotCredential | undefined> {
   return readOAuthCredential<CopilotCredential>(CREDENTIAL_PROVIDER);
-}
-
-async function saveCopilotCredential(cred: CopilotCredential): Promise<void> {
-  await writeOAuthCredential(CREDENTIAL_PROVIDER, cred);
-  // ログイン時にモデルキャッシュを無効化（再取得させる）
-  invalidateCopilotModelCache();
 }
 
 export async function deleteCopilotCredential(): Promise<void> {
@@ -68,77 +58,24 @@ export async function loginWithDeviceCode(
   enterpriseUrl?: string,
   onUserCode?: (code: string, verificationUri: string) => void,
 ): Promise<CopilotCredential> {
-  const domain = enterpriseUrl
-    ? enterpriseUrl.replace(/^https?:\/\//, "").replace(/\/$/, "")
-    : "github.com";
-  const deviceCodeUrl = `https://${domain}/login/device/code`;
-  const accessTokenUrl = `https://${domain}/login/oauth/access_token`;
-
-  // 1. デバイスコード発行
-  const oauthHeaders = { "User-Agent": "litra/1.0" };
-  const device = await startDeviceAuth(
-    deviceCodeUrl,
-    {
-      client_id: GITHUB_COPILOT_CLIENT_ID,
-      scope: "read:user",
-    },
-    oauthHeaders,
-  );
-
-  // 2. verification_uri をブラウザで開く（GitHub の verification_uri は github.com/login/device）
-  const verificationUrl = device.verificationUri || `https://${domain}/login/device`;
-  await openUrl(verificationUrl).catch(() => {
-    // エラー時はコード表示で対応
+  const channel = new Channel<{ userCode: string; verificationUri: string }>((event) => {
+    void openUrl(event.verificationUri).catch(() => {});
+    onUserCode?.(event.userCode, event.verificationUri);
   });
-
-  // ユーザーコードを表示するコールバック
-  onUserCode?.(device.userCode, verificationUrl);
-
-  // 3. ポーリングでアクセストークンを取得
-  const timeoutSignal = AbortSignal.timeout(OAUTH_POLLING_TIMEOUT_MS);
-  const combinedSignal = combineAbortSignals(signal, timeoutSignal);
-
-  const pollResult = await pollDeviceToken(
-    accessTokenUrl,
-    {
-      client_id: GITHUB_COPILOT_CLIENT_ID,
-      device_code: device.deviceCode,
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-    },
-    oauthHeaders,
-    device.intervalSeconds ?? 5,
-    combinedSignal,
-  );
-
-  if (!pollResult.ok) {
-    if (pollResult.error === "denied") {
-      throw new Error("認証が拒否されました。");
-    }
-    if (pollResult.error === "expired") {
-      throw new Error("認証コードの有効期限が切れました。もう一度お試しください。");
-    }
-    if (pollResult.error === "network") {
-      throw new Error(
-        `ネットワークエラーが発生しました: ${pollResult.message ?? "不明なエラー"}`,
-      );
-    }
-    if (combinedSignal.aborted && signal.aborted) {
-      throw new Error("ログインがキャンセルされました。");
-    }
-    throw new Error("GitHub Copilot の認証に失敗しました。");
+  const cancel = (): void => { void invoke("cancel_copilot_device_auth"); };
+  if (signal.aborted) {
+    cancel();
+    throw new Error("ログインがキャンセルされました。");
   }
-
-  const tokenData = pollResult.data as { access_token?: string };
-  if (!tokenData.access_token) {
-    throw new Error("アクセストークンが取得できませんでした。");
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    await invoke("start_copilot_device_auth", { enterpriseUrl, onEvent: channel });
+  } finally {
+    signal.removeEventListener("abort", cancel);
   }
-
-  const credential: CopilotCredential = {
-    token: tokenData.access_token,
-    ...(enterpriseUrl ? { enterpriseUrl } : {}),
-  };
-
-  await saveCopilotCredential(credential);
+  invalidateCopilotModelCache();
+  const credential = await readCopilotCredential();
+  if (!credential) throw new Error("認証後に credential が見つかりませんでした。");
   return credential;
 }
 
@@ -379,14 +316,3 @@ export function getCopilotModelEndpoint(modelId: string): "chat" | "responses" |
 
 // ---- util ----
 
-function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
-  const controller = new AbortController();
-  for (const sig of signals) {
-    if (sig.aborted) {
-      controller.abort(sig.reason);
-      return controller.signal;
-    }
-    sig.addEventListener("abort", () => controller.abort(sig.reason), { once: true });
-  }
-  return controller.signal;
-}

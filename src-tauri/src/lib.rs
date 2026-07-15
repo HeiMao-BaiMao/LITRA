@@ -21,11 +21,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(ai::AiRequestRegistry::default())
+        .manage(ai::oauth::copilot::CopilotOAuthCancelFlag::new())
         .manage(codex_oauth::OAuthCancelFlag::new())
         .invoke_handler(tauri::generate_handler![
             ai::ai_stream_text,
             ai::ai_cancel,
             ai::models::ai_list_models,
+            ai::oauth::copilot::start_copilot_device_auth,
+            ai::oauth::copilot::cancel_copilot_device_auth,
             codex_oauth::start_codex_browser_auth,
             codex_oauth::cancel_codex_browser_auth,
             genre_search::rebuild_genre_search_index,
