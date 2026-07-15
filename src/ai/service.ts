@@ -889,7 +889,6 @@ export async function streamChat({
   settingsContext,
   tools,
   toolChoice,
-  stopWhen,
   onToolEvent,
   onReasoning,
   directCreativeEdit = false,
@@ -904,65 +903,44 @@ export async function streamChat({
     };
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
 
-    if (supportsRustTextProvider(s)) {
-      const rustMessages = modelMessagesForRust(messages);
-      if (rustMessages) {
-        const rustTools = toolsEnabled ? await serializeRustTools(tools) : undefined;
-        const result = await streamRustText(s, {
-          system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames, directCreativeEdit }),
-          messages: rustMessages,
-          tools: rustTools,
-          toolChoice: toolsEnabled ? toolChoice : undefined,
-          prompt: "",
-          maxOutputTokens: s.maxTokens,
-          abortSignal,
-          onChunk: wrappedOnChunk,
-          onReasoning,
-          onToolInputStart: ({ toolCallId, toolName }) =>
-            onToolEvent?.({ type: "input-start", toolCallId, toolName }),
-        });
-        if (toolsEnabled && result.toolCalls.length > 0) {
-          const execution = await executeRustToolCalls(
-            tools,
-            result.toolCalls,
-            messages,
-            assistantText,
-            abortSignal,
-            onToolEvent,
-          );
-          return {
-            ...result,
-            toolCallCount: result.toolCalls.length,
-            toolResultCount: execution.resultCount,
-            toolErrorCount: execution.errorCount,
-            stoppedAfterToolResult: execution.resultCount + execution.errorCount > 0,
-            stoppedAfterToolActivity: true,
-            pendingToolCallIds: [],
-            responseMessages: execution.responseMessages,
-          };
-        }
-        return rustTextResultToRunResult(result, assistantText);
-      }
-    }
-
-    const result = streamText<ToolSet>({
-      model: createModel(s),
-      ...buildRetryOption(s),
+    const rustMessages = modelMessagesForRust(messages);
+    if (!rustMessages) throw new Error("Rust AI transport が未対応のチャットメッセージ形式です");
+    const rustTools = toolsEnabled ? await serializeRustTools(tools) : undefined;
+    const result = await streamRustText(s, {
       system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames, directCreativeEdit }),
-      messages,
-      ...buildTemperatureOption(s),
+      messages: rustMessages,
+      tools: rustTools,
+      toolChoice: toolsEnabled ? toolChoice : undefined,
+      prompt: "",
       maxOutputTokens: s.maxTokens,
       abortSignal,
-      tools,
-      toolChoice: toolsEnabled ? toolChoice : undefined,
-      stopWhen: toolsEnabled ? toolLoopStopConditions(stopWhen) : stopWhen,
-      ...buildAdvancedOptions(s),
+      onChunk: wrappedOnChunk,
+      onReasoning,
+      onToolInputStart: ({ toolCallId, toolName }) =>
+        onToolEvent?.({ type: "input-start", toolCallId, toolName }),
     });
+    if (toolsEnabled && result.toolCalls.length > 0) {
+      const execution = await executeRustToolCalls(
+        tools,
+        result.toolCalls,
+        messages,
+        assistantText,
+        abortSignal,
+        onToolEvent,
+      );
+      return {
+        ...result,
+        toolCallCount: result.toolCalls.length,
+        toolResultCount: execution.resultCount,
+        toolErrorCount: execution.errorCount,
+        stoppedAfterToolResult: execution.resultCount + execution.errorCount > 0,
+        stoppedAfterToolActivity: true,
+        pendingToolCallIds: [],
+        responseMessages: execution.responseMessages,
+      };
+    }
 
-    const runResult = await consumeStream(result, wrappedOnChunk, onToolEvent, onReasoning, {
-      step: "chat",
-      settings: s,
-    });
+    const runResult = rustTextResultToRunResult(result, assistantText);
 
     // ツールが有効なのにツール呼び出しがなく、かつ通常終了した場合は検証する
     if (
@@ -985,23 +963,43 @@ export async function streamChat({
               "まだ必要なツールを呼び出していないようです。先にツールを呼び出してから、必要であれば説明を続けてください。",
           },
         ];
-        const retryResult = streamText<ToolSet>({
-          model: createModel(s),
-          ...buildRetryOption(s),
+        const retryRustMessages = modelMessagesForRust(retryMessages);
+        if (!retryRustMessages) throw new Error("Rust AI transport が未対応の再試行メッセージ形式です");
+        let retryAssistantText = "";
+        const retryResult = await streamRustText(s, {
           system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: true, toolNames, directCreativeEdit }),
-          messages: retryMessages,
-          ...buildTemperatureOption(s),
+          messages: retryRustMessages,
+          tools: rustTools,
+          toolChoice: resolveForcedToolChoice(s),
+          prompt: "",
           maxOutputTokens: s.maxTokens,
           abortSignal,
+          onChunk: (chunk) => { retryAssistantText += chunk; onChunk(chunk); },
+          onReasoning,
+          onToolInputStart: ({ toolCallId, toolName }) =>
+            onToolEvent?.({ type: "input-start", toolCallId, toolName }),
+        });
+        if (retryResult.toolCalls.length === 0) {
+          return rustTextResultToRunResult(retryResult, retryAssistantText);
+        }
+        const execution = await executeRustToolCalls(
           tools,
-          toolChoice: resolveForcedToolChoice(s),
-          stopWhen: toolLoopStopConditions(isLoopFinished() as StopCondition<ToolSet>),
-          ...buildAdvancedOptions(s),
-        });
-        return await consumeStream(retryResult, onChunk, onToolEvent, onReasoning, {
-          step: "chat-tool-retry",
-          settings: s,
-        });
+          retryResult.toolCalls,
+          retryMessages,
+          retryAssistantText,
+          abortSignal,
+          onToolEvent,
+        );
+        return {
+          ...retryResult,
+          toolCallCount: retryResult.toolCalls.length,
+          toolResultCount: execution.resultCount,
+          toolErrorCount: execution.errorCount,
+          stoppedAfterToolResult: execution.resultCount + execution.errorCount > 0,
+          stoppedAfterToolActivity: true,
+          pendingToolCallIds: [],
+          responseMessages: execution.responseMessages,
+        };
       }
     }
 
