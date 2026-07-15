@@ -16,6 +16,15 @@ pub struct AiInputMessage {
     pub content: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiToolDefinition {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub input_schema: Value,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiTextRequest {
@@ -30,6 +39,9 @@ pub struct AiTextRequest {
     pub system: String,
     #[serde(default)]
     pub messages: Vec<AiInputMessage>,
+    #[serde(default)]
+    pub tools: Vec<AiToolDefinition>,
+    pub tool_choice: Option<String>,
     #[serde(default)]
     pub prompt: String,
     pub max_output_tokens: u64,
@@ -120,6 +132,10 @@ impl AiTextRequest {
                 json!({ "effort": self.reasoning_effort, "summary": "auto" }),
             );
         }
+        if !self.tools.is_empty() {
+            body.insert("tools".into(), Value::Array(self.responses_tools()));
+            insert_option(&mut body, "tool_choice", self.tool_choice.as_deref());
+        }
         Value::Object(body)
     }
 
@@ -154,6 +170,10 @@ impl AiTextRequest {
             if let Some(effort @ ("high" | "max")) = self.reasoning_effort.as_deref() {
                 body.insert("reasoning_effort".into(), json!(effort));
             }
+        }
+        if !self.tools.is_empty() {
+            body.insert("tools".into(), Value::Array(self.chat_tools()));
+            insert_option(&mut body, "tool_choice", self.tool_choice.as_deref());
         }
         Value::Object(body)
     }
@@ -195,6 +215,16 @@ impl AiTextRequest {
         }
         if let Some(effort) = self.anthropic_thinking_effort.as_deref() {
             body.insert("output_config".into(), json!({ "effort": effort }));
+        }
+        if !self.tools.is_empty() && self.tool_choice.as_deref() != Some("none") {
+            body.insert("tools".into(), Value::Array(self.anthropic_tools()));
+            let choice = match self.tool_choice.as_deref() {
+                Some("required") => "any",
+                _ => "auto",
+            };
+            body.insert("tool_choice".into(), json!({ "type": choice }));
+        } else if self.tool_choice.as_deref() == Some("none") {
+            body.insert("tool_choice".into(), json!({ "type": "none" }));
         }
         Value::Object(body)
     }
@@ -239,6 +269,21 @@ impl AiTextRequest {
                 json!({ "parts": [{ "text": self.system }] }),
             );
         }
+        if !self.tools.is_empty() {
+            body.insert(
+                "tools".into(),
+                json!([{ "functionDeclarations": self.google_tools() }]),
+            );
+            let mode = match self.tool_choice.as_deref() {
+                Some("required") => "ANY",
+                Some("none") => "NONE",
+                _ => "AUTO",
+            };
+            body.insert(
+                "toolConfig".into(),
+                json!({ "functionCallingConfig": { "mode": mode } }),
+            );
+        }
         Value::Object(body)
     }
 
@@ -261,6 +306,62 @@ impl AiTextRequest {
         } else {
             vec![json!({ "role": "system", "content": self.system })]
         }
+    }
+
+    fn responses_tools(&self) -> Vec<Value> {
+        self.tools
+            .iter()
+            .map(|tool| {
+                json!({
+                    "type": "function",
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                })
+            })
+            .collect()
+    }
+
+    fn chat_tools(&self) -> Vec<Value> {
+        self.tools
+            .iter()
+            .map(|tool| {
+                json!({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.input_schema,
+                    },
+                })
+            })
+            .collect()
+    }
+
+    fn anthropic_tools(&self) -> Vec<Value> {
+        self.tools
+            .iter()
+            .map(|tool| {
+                json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_schema,
+                })
+            })
+            .collect()
+    }
+
+    fn google_tools(&self) -> Vec<Value> {
+        self.tools
+            .iter()
+            .map(|tool| {
+                json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                })
+            })
+            .collect()
     }
 }
 

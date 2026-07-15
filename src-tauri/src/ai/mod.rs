@@ -180,6 +180,8 @@ mod tests {
             model: "model".into(),
             system: String::new(),
             messages: Vec::new(),
+            tools: Vec::new(),
+            tool_choice: None,
             prompt: "hello".into(),
             max_output_tokens: 100,
             temperature: None,
@@ -222,5 +224,37 @@ mod tests {
         assert_eq!(request.body()["messages"][2]["content"], "third");
         request.api_type = ProviderApiType::GoogleGenerateContent;
         assert_eq!(request.body()["contents"][1]["role"], "model");
+    }
+
+    #[test]
+    fn tools_are_converted_for_each_protocol() {
+        use super::types::AiToolDefinition;
+        use serde_json::json;
+
+        let mut request = sample_request();
+        request.tools = vec![AiToolDefinition {
+            name: "lookup".into(),
+            description: "Look up a value".into(),
+            input_schema: json!({ "type": "object", "properties": { "id": { "type": "string" } } }),
+        }];
+        request.tool_choice = Some("required".into());
+
+        request.api_type = ProviderApiType::OpenaiResponses;
+        assert_eq!(request.body()["tools"][0]["name"], "lookup");
+        assert_eq!(request.body()["tool_choice"], "required");
+        request.api_type = ProviderApiType::OpenaiChat;
+        assert_eq!(request.body()["tools"][0]["function"]["name"], "lookup");
+        request.api_type = ProviderApiType::AnthropicMessages;
+        assert_eq!(request.body()["tools"][0]["input_schema"]["type"], "object");
+        assert_eq!(request.body()["tool_choice"]["type"], "any");
+        request.api_type = ProviderApiType::GoogleGenerateContent;
+        assert_eq!(
+            request.body()["tools"][0]["functionDeclarations"][0]["name"],
+            "lookup"
+        );
+        assert_eq!(
+            request.body()["toolConfig"]["functionCallingConfig"]["mode"],
+            "ANY"
+        );
     }
 }
