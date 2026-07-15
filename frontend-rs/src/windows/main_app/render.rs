@@ -125,6 +125,24 @@ fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
             cancel.set_attribute("disabled", "")?;
         }
     }
+    if let Some(button) = document.get_element_by_id("btn-direct-writing") {
+        button.set_text_content(Some(if state.direct_writing {
+            "⚡ 直接執筆 ON"
+        } else {
+            "⚡ 直接執筆 OFF"
+        }));
+        button.set_attribute(
+            "aria-pressed",
+            if state.direct_writing {
+                "true"
+            } else {
+                "false"
+            },
+        )?;
+        button
+            .class_list()
+            .toggle_with_force("active", state.direct_writing)?;
+    }
     Ok(())
 }
 

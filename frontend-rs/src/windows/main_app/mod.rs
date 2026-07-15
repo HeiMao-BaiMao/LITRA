@@ -40,6 +40,7 @@ struct State {
     current_memo_id: Option<String>,
     current_view: String,
     ai_settings: Value,
+    direct_writing: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -220,6 +221,14 @@ fn sync_children(state: &State) {
     let memos = json!({"memos":state.project_memos,"currentMemoId":state.current_memo_id});
     if let Ok(payload) = serde_wasm_bindgen::to_value(&memos) {
         tauri::emit("project-memos-sync", &payload);
+    }
+    let chat = json!({"messages":state.chat,"isGenerating":state.is_generating,"directWritingEnabled":state.direct_writing});
+    if let Ok(payload) = serde_wasm_bindgen::to_value(&chat) {
+        tauri::emit("chat-sync", &payload);
+    }
+    let chat_settings = json!({"provider":state.selected_provider,"model":state.selected_model,"chatSubmitShortcut":state.ai_settings.get("chatSubmitShortcut").and_then(Value::as_str).unwrap_or("ctrlEnter"),"providerConfig":{"providers":state.catalog}});
+    if let Ok(payload) = serde_wasm_bindgen::to_value(&chat_settings) {
+        tauri::emit("chat-settings-sync", &payload);
     }
 }
 

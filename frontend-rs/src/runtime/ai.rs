@@ -51,12 +51,12 @@ struct ConfigArgs<'a> {
     model_override: Option<&'a str>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CatalogModel {
     pub id: String,
     pub label: Option<String>,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CatalogProvider {
     pub id: String,
     pub name: String,

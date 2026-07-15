@@ -135,17 +135,31 @@ pub async fn chat(
         .chars()
         .rev()
         .collect::<String>();
+    let direct = current.direct_writing;
     drop(current);
     let prompt = format!("現在の本文末尾:\n{editor_context}\n\n会話:\n{history}");
     generating(document, state, true)?;
-    let result = generate(
-        state,
-        "あなたは小説制作アプリLITRAの相談AIです。日本語で具体的に答えてください。".into(),
-        prompt,
-    )
-    .await;
+    let system = if direct {
+        "あなたは日本語小説の執筆者です。最後のユーザー指示に従って、現在の本文へ追記する小説本文だけを返してください。説明や前置きは禁止です。"
+    } else {
+        "あなたは小説制作アプリLITRAの相談AIです。日本語で具体的に答えてください。"
+    };
+    let result = generate(state, system.into(), prompt).await;
     generating(document, state, false)?;
-    push_assistant(document, state, result?.text).await
+    let result = result?;
+    if direct {
+        {
+            let mut current = state.borrow_mut();
+            if !current.editor_text.ends_with('\n') {
+                current.editor_text.push('\n');
+            }
+            current.editor_text.push_str(result.text.trim_start());
+        }
+        save_editor(&state.borrow()).await?;
+        push_assistant(document, state, "本文へ直接反映しました。".into()).await
+    } else {
+        push_assistant(document, state, result.text).await
+    }
 }
 
 pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {

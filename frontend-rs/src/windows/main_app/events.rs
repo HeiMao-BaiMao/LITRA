@@ -58,6 +58,7 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-settings" => "open-ai-settings",
                     "btn-save-settings" => "save-ai-settings",
                     "btn-cancel-settings" => "cancel-ai-settings",
+                    "btn-direct-writing" => "toggle-direct-writing",
                     _ => "",
                 }
                 .into()
@@ -293,6 +294,12 @@ async fn handle_click(
         "open-ai-settings" => super::settings::open(document, state).await?,
         "save-ai-settings" => super::settings::save(document, state).await?,
         "cancel-ai-settings" => super::settings::cancel(document)?,
+        "toggle-direct-writing" => {
+            let next = !state.borrow().direct_writing;
+            state.borrow_mut().direct_writing = next;
+            super::render::all(document, &state.borrow())?;
+            sync_children(&state.borrow());
+        }
         _ => {}
     }
     Ok(())
@@ -493,6 +500,7 @@ pub async fn listen_children(document: Document, state: Rc<RefCell<State>>) -> R
         "memo-ready",
         "settings-ready",
         "project-memos-ready",
+        "chat-ready",
     ] {
         let state = Rc::clone(&state);
         tauri::listen(
@@ -519,7 +527,8 @@ pub async fn listen_children(document: Document, state: Rc<RefCell<State>>) -> R
     )
     .await?;
     listen_settings(document.clone(), Rc::clone(&state)).await?;
-    listen_project_memos(document, state).await
+    listen_project_memos(document.clone(), Rc::clone(&state)).await?;
+    listen_chat(document, state).await
 }
 
 async fn listen_update(
@@ -589,6 +598,22 @@ enum ChildAction {
     UpdateMemo,
     DeleteMemo,
     SelectMemo,
+    ChatSend,
+    ChatStop,
+    DirectToggle,
+    ChatSettings,
+}
+
+async fn listen_chat(document: Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    for (event, action) in [
+        ("chat-send", ChildAction::ChatSend),
+        ("chat-stop", ChildAction::ChatStop),
+        ("chat-direct-writing-toggle", ChildAction::DirectToggle),
+        ("chat-settings-change", ChildAction::ChatSettings),
+    ] {
+        register_child(event, action, document.clone(), Rc::clone(&state)).await?;
+    }
+    Ok(())
 }
 
 async fn listen_settings(document: Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
@@ -816,6 +841,24 @@ async fn apply_child(
                 .get("id")
                 .and_then(|value| value.as_str())
                 .map(str::to_owned)
+        }
+        ChildAction::ChatSend => {
+            if let Some(content) = payload.get("content").and_then(|value| value.as_str()) {
+                super::ai_actions::chat(document, state, content.to_owned()).await?;
+            }
+        }
+        ChildAction::ChatStop => super::ai_actions::cancel(document, state),
+        ChildAction::DirectToggle => {
+            let next = !state.borrow().direct_writing;
+            state.borrow_mut().direct_writing = next;
+        }
+        ChildAction::ChatSettings => {
+            if let Some(provider) = payload.get("provider").and_then(|value| value.as_str()) {
+                state.borrow_mut().selected_provider = Some(provider.into());
+            }
+            if let Some(model) = payload.get("model").and_then(|value| value.as_str()) {
+                state.borrow_mut().selected_model = Some(model.into());
+            }
         }
     }
     super::render::all(document, &state.borrow())?;
