@@ -1,3 +1,4 @@
+mod messages;
 mod providers;
 mod stream;
 mod transport;
@@ -137,6 +138,7 @@ fn truncate(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::types::{AiTextRequest, ProviderApiType};
+    use serde_json::json;
 
     #[test]
     fn endpoint_is_selected_by_configured_api_type() {
@@ -212,22 +214,22 @@ mod tests {
         request.messages = vec![
             AiInputMessage {
                 role: "user".into(),
-                content: "first".into(),
+                content: json!("first"),
             },
             AiInputMessage {
                 role: "assistant".into(),
-                content: "second".into(),
+                content: json!("second"),
             },
             AiInputMessage {
                 role: "user".into(),
-                content: "third".into(),
+                content: json!("third"),
             },
         ];
 
         request.api_type = ProviderApiType::OpenaiResponses;
         assert_eq!(request.body()["input"][1]["role"], "assistant");
         request.api_type = ProviderApiType::AnthropicMessages;
-        assert_eq!(request.body()["messages"][2]["content"], "third");
+        assert_eq!(request.body()["messages"][2]["content"][0]["text"], "third");
         request.api_type = ProviderApiType::GoogleGenerateContent;
         assert_eq!(request.body()["contents"][1]["role"], "model");
     }
@@ -235,7 +237,6 @@ mod tests {
     #[test]
     fn tools_are_converted_for_each_protocol() {
         use super::types::AiToolDefinition;
-        use serde_json::json;
 
         let mut request = sample_request();
         request.tools = vec![AiToolDefinition {
@@ -261,6 +262,51 @@ mod tests {
         assert_eq!(
             request.body()["toolConfig"]["functionCallingConfig"]["mode"],
             "ANY"
+        );
+    }
+
+    #[test]
+    fn tool_history_is_converted_for_each_protocol() {
+        use super::types::AiInputMessage;
+
+        let mut request = sample_request();
+        request.messages = vec![
+            AiInputMessage {
+                role: "assistant".into(),
+                content: json!([{ "type": "tool-call", "toolCallId": "call-1", "toolName": "lookup", "input": { "id": "42" } }]),
+            },
+            AiInputMessage {
+                role: "tool".into(),
+                content: json!([{ "type": "tool-result", "toolCallId": "call-1", "toolName": "lookup", "output": { "type": "json", "value": { "name": "answer" } } }]),
+            },
+        ];
+
+        request.api_type = ProviderApiType::OpenaiResponses;
+        assert_eq!(request.body()["input"][0]["type"], "function_call");
+        assert_eq!(request.body()["input"][1]["type"], "function_call_output");
+        request.api_type = ProviderApiType::OpenaiChat;
+        assert_eq!(
+            request.body()["messages"][0]["tool_calls"][0]["function"]["name"],
+            "lookup"
+        );
+        assert_eq!(request.body()["messages"][1]["role"], "tool");
+        request.api_type = ProviderApiType::AnthropicMessages;
+        assert_eq!(
+            request.body()["messages"][0]["content"][0]["type"],
+            "tool_use"
+        );
+        assert_eq!(
+            request.body()["messages"][1]["content"][0]["type"],
+            "tool_result"
+        );
+        request.api_type = ProviderApiType::GoogleGenerateContent;
+        assert_eq!(
+            request.body()["contents"][0]["parts"][0]["functionCall"]["name"],
+            "lookup"
+        );
+        assert_eq!(
+            request.body()["contents"][1]["parts"][0]["functionResponse"]["name"],
+            "lookup"
         );
     }
 }

@@ -13,7 +13,7 @@ pub enum ProviderApiType {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AiInputMessage {
     pub role: String,
-    pub content: String,
+    pub content: Value,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -128,7 +128,7 @@ impl AiTextRequest {
         let input = if self.messages.is_empty() {
             json!(self.prompt)
         } else {
-            Value::Array(self.openai_messages())
+            Value::Array(crate::ai::messages::openai_responses(&self.messages))
         };
         let mut body = Map::from_iter([
             ("model".into(), json!(self.model)),
@@ -157,7 +157,7 @@ impl AiTextRequest {
         if self.messages.is_empty() {
             messages.push(json!({ "role": "user", "content": self.prompt }));
         } else {
-            messages.extend(self.openai_messages());
+            messages.extend(crate::ai::messages::openai_chat(&self.messages));
         }
         let mut body = Map::from_iter([
             ("model".into(), json!(self.model)),
@@ -195,13 +195,7 @@ impl AiTextRequest {
         let messages = if self.messages.is_empty() {
             json!([{ "role": "user", "content": self.prompt }])
         } else {
-            Value::Array(
-                self.messages
-                    .iter()
-                    .filter(|message| matches!(message.role.as_str(), "user" | "assistant"))
-                    .map(|message| json!({ "role": message.role, "content": message.content }))
-                    .collect(),
-            )
+            Value::Array(crate::ai::messages::anthropic(&self.messages))
         };
         let mut body = Map::from_iter([
             ("model".into(), json!(self.model)),
@@ -257,20 +251,7 @@ impl AiTextRequest {
         let contents = if self.messages.is_empty() {
             json!([{ "role": "user", "parts": [{ "text": self.prompt }] }])
         } else {
-            Value::Array(
-                self.messages
-                    .iter()
-                    .filter(|message| matches!(message.role.as_str(), "user" | "assistant"))
-                    .map(|message| {
-                        let role = if message.role == "assistant" {
-                            "model"
-                        } else {
-                            "user"
-                        };
-                        json!({ "role": role, "parts": [{ "text": message.content }] })
-                    })
-                    .collect(),
-            )
+            Value::Array(crate::ai::messages::google(&self.messages))
         };
         let mut body = Map::from_iter([
             ("contents".into(), contents),
@@ -298,19 +279,6 @@ impl AiTextRequest {
             );
         }
         Value::Object(body)
-    }
-
-    fn openai_messages(&self) -> Vec<Value> {
-        self.messages
-            .iter()
-            .filter(|message| {
-                matches!(
-                    message.role.as_str(),
-                    "system" | "developer" | "user" | "assistant"
-                )
-            })
-            .map(|message| json!({ "role": message.role, "content": message.content }))
-            .collect()
     }
 
     fn system_message(&self) -> Vec<Value> {

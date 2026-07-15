@@ -35,8 +35,8 @@ export interface RustTextStreamOptions {
 }
 
 export interface RustChatMessage {
-  role: "system" | "developer" | "user" | "assistant";
-  content: string;
+  role: "system" | "developer" | "user" | "assistant" | "tool";
+  content: unknown;
 }
 
 export interface RustTextStreamResult {
