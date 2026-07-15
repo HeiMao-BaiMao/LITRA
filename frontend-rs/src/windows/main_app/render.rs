@@ -42,6 +42,89 @@ pub fn all(document: &Document, state: &State) -> Result<(), JsValue> {
         &memo(state),
         state.current_episode_id.is_none(),
     )?;
+    render_chat(document, state)?;
+    Ok(())
+}
+
+fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
+    if let Some(container) = document.get_element_by_id("chat-messages") {
+        let rows = state
+            .chat
+            .iter()
+            .map(|message| {
+                format!(
+                    r#"<div class="chat-message {}">{}</div>"#,
+                    escape(&message.role),
+                    markdown(&message.content)
+                )
+            })
+            .collect::<String>();
+        container.set_inner_html(&format!(
+            "{}{}",
+            rows,
+            if state.is_generating {
+                r#"<div class="chat-message assistant chat-pending"></div>"#
+            } else {
+                ""
+            }
+        ));
+        container.set_scroll_top(container.scroll_height());
+    }
+    if let Some(select) = document.get_element_by_id("chat-provider") {
+        select.set_inner_html(
+            &state
+                .catalog
+                .iter()
+                .map(|provider| {
+                    format!(
+                        r#"<option value="{}"{}>{}</option>"#,
+                        escape(&provider.id),
+                        if state.selected_provider.as_deref() == Some(&provider.id) {
+                            " selected"
+                        } else {
+                            ""
+                        },
+                        escape(&provider.name)
+                    )
+                })
+                .collect::<String>(),
+        );
+    }
+    if let Some(select) = document.get_element_by_id("chat-model") {
+        let models = state
+            .selected_provider
+            .as_ref()
+            .and_then(|id| state.catalog.iter().find(|provider| &provider.id == id))
+            .map(|provider| provider.models.as_slice())
+            .unwrap_or(&[]);
+        select.set_inner_html(
+            &models
+                .iter()
+                .map(|model| {
+                    format!(
+                        r#"<option value="{}"{}>{}</option>"#,
+                        escape(&model.id),
+                        if state.selected_model.as_deref() == Some(&model.id) {
+                            " selected"
+                        } else {
+                            ""
+                        },
+                        escape(model.label.as_deref().unwrap_or(&model.id))
+                    )
+                })
+                .collect::<String>(),
+        );
+    }
+    if let Some(cancel) = document.get_element_by_id("btn-cancel") {
+        cancel
+            .class_list()
+            .toggle_with_force("hidden", !state.is_generating)?;
+        if state.is_generating {
+            cancel.remove_attribute("disabled")?;
+        } else {
+            cancel.set_attribute("disabled", "")?;
+        }
+    }
     Ok(())
 }
 
@@ -86,4 +169,13 @@ fn escape(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+fn markdown(value: &str) -> String {
+    let mut output = String::new();
+    pulldown_cmark::html::push_html(
+        &mut output,
+        pulldown_cmark::Parser::new_ext(value, pulldown_cmark::Options::ENABLE_GFM),
+    );
+    ammonia::Builder::default().clean(&output).to_string()
 }

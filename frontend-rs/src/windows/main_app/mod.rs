@@ -1,6 +1,8 @@
+mod ai_actions;
 mod events;
 mod render;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::JsValue;
@@ -20,6 +22,21 @@ struct State {
     editor_text: String,
     summaries: Value,
     memos: Value,
+    chat: Vec<ChatMessage>,
+    is_generating: bool,
+    catalog: Vec<crate::runtime::ai::CatalogProvider>,
+    selected_provider: Option<String>,
+    selected_model: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct ChatMessage {
+    role: String,
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<String>,
+    #[serde(flatten)]
+    extra: std::collections::BTreeMap<String, Value>,
 }
 
 pub async fn mount(document: &Document) -> Result<(), JsValue> {
@@ -29,6 +46,12 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
         memos: json!({"memos":{}}),
         ..Default::default()
     }));
+    state.borrow_mut().catalog = crate::runtime::ai::catalog().await.unwrap_or_default();
+    if let Ok((provider, model)) = crate::runtime::ai::selection("chat").await {
+        let mut current = state.borrow_mut();
+        current.selected_provider = Some(provider);
+        current.selected_model = Some(model);
+    }
     refresh_projects(document, &state).await?;
     events::bind(document, Rc::clone(&state))?;
     events::listen_children(document.clone(), Rc::clone(&state)).await?;
@@ -54,6 +77,10 @@ async fn open_project(
     let memos = projects::read_document(&project_id, "memos")
         .await?
         .unwrap_or_else(|| json!({"memos":{}}));
+    let chat = projects::read_document(&project_id, "chat")
+        .await?
+        .and_then(|value| serde_json::from_value::<Vec<ChatMessage>>(value).ok())
+        .unwrap_or_default();
     let current_id = episodes.first().map(|episode| episode.id.clone());
     let editor_text = match current_id
         .as_ref()
@@ -69,6 +96,7 @@ async fn open_project(
     current.editor_text = editor_text;
     current.summaries = summaries;
     current.memos = memos;
+    current.chat = chat;
     render::all(document, &current)?;
     sync_children(&current);
     Ok(())

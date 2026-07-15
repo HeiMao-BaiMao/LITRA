@@ -7,7 +7,7 @@ use js_sys::Reflect;
 use serde_json::json;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{Document, Element, Event, HtmlInputElement, HtmlTextAreaElement};
+use web_sys::{Document, Element, Event, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
 
 use super::{open_project, refresh_projects, report, select_episode, sync_children, State};
 use crate::{
@@ -48,6 +48,11 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-popout-settings" => "popout-settings",
                     "btn-popout-memos" => "popout-memos",
                     "btn-genre-library" => "open-genres",
+                    "btn-continue" => "continue",
+                    "btn-rewrite" => "rewrite",
+                    "btn-feedback" => "feedback",
+                    "btn-generate-summary" => "generate-summary",
+                    "btn-cancel" => "cancel-generation",
                     _ => "",
                 }
                 .into()
@@ -272,6 +277,11 @@ async fn handle_click(
         )
         .await
         .map(|_| ())?,
+        "continue" => super::ai_actions::continue_story(document, state).await?,
+        "rewrite" => super::ai_actions::rewrite_selection(document, state).await?,
+        "feedback" => super::ai_actions::feedback_selection(document, state).await?,
+        "generate-summary" => super::ai_actions::summary(document, state).await?,
+        "cancel-generation" => super::ai_actions::cancel(document, state),
         _ => {}
     }
     Ok(())
@@ -317,7 +327,7 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
         if field == "editor" {
             handler_state.borrow_mut().editor_text = value.clone();
         } else {
-            update_document(&mut handler_state.borrow_mut(), &field, &episode_id, &value);
+            set_document_content(&mut handler_state.borrow_mut(), &field, &episode_id, &value);
         }
         let Some(window) = web_sys::window() else {
             return;
@@ -366,10 +376,83 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
     }) as Box<dyn FnMut(Event)>);
     document.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
     handler.forget();
+    bind_chat_form(document, Rc::clone(&state))?;
+    bind_selectors(document, state)?;
     Ok(())
 }
 
-fn update_document(state: &mut State, field: &str, episode_id: &str, content: &str) {
+fn bind_chat_form(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let Some(form) = document.get_element_by_id("chat-form") else {
+        return Ok(());
+    };
+    let event_document = document.clone();
+    let handler = Closure::wrap(Box::new(move |event: Event| {
+        event.prevent_default();
+        let Some(input) = event_document
+            .get_element_by_id("chat-input")
+            .and_then(|item| item.dyn_into::<HtmlTextAreaElement>().ok())
+        else {
+            return;
+        };
+        let content = input.value().trim().to_owned();
+        if content.is_empty() {
+            return;
+        }
+        input.set_value("");
+        let document = event_document.clone();
+        let state = Rc::clone(&state);
+        spawn_local(async move {
+            if let Err(error) = super::ai_actions::chat(&document, &state, content).await {
+                state.borrow_mut().is_generating = false;
+                let _ = super::render::all(&document, &state.borrow());
+                report(error);
+            }
+        });
+    }) as Box<dyn FnMut(Event)>);
+    form.add_event_listener_with_callback("submit", handler.as_ref().unchecked_ref())?;
+    handler.forget();
+    Ok(())
+}
+
+fn bind_selectors(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let event_document = document.clone();
+    let handler = Closure::wrap(Box::new(move |event: Event| {
+        let Some(select) = event
+            .target()
+            .and_then(|target| target.dyn_into::<HtmlSelectElement>().ok())
+        else {
+            return;
+        };
+        if select.id() == "chat-provider" {
+            let provider = select.value();
+            let model = state
+                .borrow()
+                .catalog
+                .iter()
+                .find(|item| item.id == provider)
+                .and_then(|item| item.models.first())
+                .map(|item| item.id.clone());
+            let mut current = state.borrow_mut();
+            current.selected_provider = Some(provider);
+            current.selected_model = model;
+        } else if select.id() == "chat-model" {
+            state.borrow_mut().selected_model = Some(select.value());
+        } else {
+            return;
+        }
+        let _ = super::render::all(&event_document, &state.borrow());
+    }) as Box<dyn FnMut(Event)>);
+    document.add_event_listener_with_callback("change", handler.as_ref().unchecked_ref())?;
+    handler.forget();
+    Ok(())
+}
+
+pub(super) fn set_document_content(
+    state: &mut State,
+    field: &str,
+    episode_id: &str,
+    content: &str,
+) {
     let target = if field == "episode-summary" {
         &mut state.summaries
     } else {
@@ -438,7 +521,7 @@ async fn listen_update(
             else {
                 return;
             };
-            update_document(&mut state.borrow_mut(), field, &episode_id, &content);
+            set_document_content(&mut state.borrow_mut(), field, &episode_id, &content);
             let value = if field == "episode-summary" {
                 state.borrow().summaries.clone()
             } else {
