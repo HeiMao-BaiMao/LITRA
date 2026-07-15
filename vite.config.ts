@@ -34,6 +34,7 @@ export default defineConfig(() => ({
       input: {
         main: resolve(import.meta.dirname, "index.html"),
         memo: resolve(import.meta.dirname, "memo-window.html"),
+        "project-memo": resolve(import.meta.dirname, "project-memo-window.html"),
         chat: resolve(import.meta.dirname, "chat-window.html"),
         summary: resolve(import.meta.dirname, "summary-window.html"),
         settings: resolve(import.meta.dirname, "settings-window.html"),

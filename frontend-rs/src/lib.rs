@@ -17,6 +17,7 @@ pub fn start() -> Result<(), JsValue> {
     spawn_local(async move {
         let _ = match window_name.as_deref() {
             Some("memo") => windows::memo::mount(&document).await,
+            Some("project-memos") => windows::project_memos::mount(&document).await,
             Some("summary") => windows::summary::mount(&document).await,
             _ => Ok(()),
         };
