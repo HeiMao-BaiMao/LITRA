@@ -38,6 +38,7 @@ pub enum ProjectDocumentKind {
     Chat,
     Summaries,
     Memos,
+    Relationships,
 }
 
 impl ProjectDocumentKind {
@@ -46,6 +47,7 @@ impl ProjectDocumentKind {
             Self::Chat => "chat.json",
             Self::Summaries => "summaries.json",
             Self::Memos => "memos.json",
+            Self::Relationships => "relationships.json",
         }
     }
 }

@@ -11,7 +11,7 @@ use web_sys::{Document, Element, Event, HtmlInputElement, HtmlSelectElement, Htm
 
 use super::{open_project, refresh_projects, report, select_episode, sync_children, State};
 use crate::{
-    data::projects,
+    data::{project_settings, projects},
     runtime::{tauri, windows},
 };
 
@@ -46,7 +46,9 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-popout-memo" => "popout-memo",
                     "btn-popout-chat" => "popout-chat",
                     "btn-popout-settings" => "popout-settings",
+                    "nav-characters" | "nav-world" | "nav-relationships" => "popout-settings",
                     "btn-popout-memos" => "popout-memos",
+                    "nav-memos" => "popout-memos",
                     "btn-genre-library" => "open-genres",
                     "btn-continue" => "continue",
                     "btn-rewrite" => "rewrite",
@@ -474,7 +476,12 @@ pub(super) fn set_document_content(
 }
 
 pub async fn listen_children(document: Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
-    for event in ["summary-ready", "memo-ready"] {
+    for event in [
+        "summary-ready",
+        "memo-ready",
+        "settings-ready",
+        "project-memos-ready",
+    ] {
         let state = Rc::clone(&state);
         tauri::listen(
             event,
@@ -492,7 +499,15 @@ pub async fn listen_children(document: Document, state: Rc<RefCell<State>>) -> R
         Rc::clone(&state),
     )
     .await?;
-    listen_update("memo-update", "episode-memo", document, state).await
+    listen_update(
+        "memo-update",
+        "episode-memo",
+        document.clone(),
+        Rc::clone(&state),
+    )
+    .await?;
+    listen_settings(document.clone(), Rc::clone(&state)).await?;
+    listen_project_memos(document, state).await
 }
 
 async fn listen_update(
@@ -544,6 +559,256 @@ async fn listen_update(
         }) as Box<dyn FnMut(JsValue)>),
     )
     .await
+}
+
+#[derive(Clone, Copy)]
+enum ChildAction {
+    CreateCharacter,
+    UpdateCharacter,
+    DeleteCharacter,
+    SelectCharacter,
+    CreateWorld,
+    UpdateWorld,
+    DeleteWorld,
+    SelectWorld,
+    SelectView,
+    UpdateRelationships,
+    CreateMemo,
+    UpdateMemo,
+    DeleteMemo,
+    SelectMemo,
+}
+
+async fn listen_settings(document: Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    for (event, action) in [
+        ("settings-create-character", ChildAction::CreateCharacter),
+        ("settings-update-character", ChildAction::UpdateCharacter),
+        ("settings-delete-character", ChildAction::DeleteCharacter),
+        ("settings-select-character", ChildAction::SelectCharacter),
+        ("settings-create-world", ChildAction::CreateWorld),
+        ("settings-update-world", ChildAction::UpdateWorld),
+        ("settings-delete-world", ChildAction::DeleteWorld),
+        ("settings-select-world", ChildAction::SelectWorld),
+        ("settings-select-view", ChildAction::SelectView),
+        (
+            "settings-update-relationships",
+            ChildAction::UpdateRelationships,
+        ),
+    ] {
+        register_child(event, action, document.clone(), Rc::clone(&state)).await?;
+    }
+    Ok(())
+}
+
+async fn listen_project_memos(
+    document: Document,
+    state: Rc<RefCell<State>>,
+) -> Result<(), JsValue> {
+    for (event, action) in [
+        ("project-memos-create", ChildAction::CreateMemo),
+        ("project-memos-update", ChildAction::UpdateMemo),
+        ("project-memos-delete", ChildAction::DeleteMemo),
+        ("project-memos-select", ChildAction::SelectMemo),
+    ] {
+        register_child(event, action, document.clone(), Rc::clone(&state)).await?;
+    }
+    Ok(())
+}
+
+async fn register_child(
+    event: &'static str,
+    action: ChildAction,
+    document: Document,
+    state: Rc<RefCell<State>>,
+) -> Result<(), JsValue> {
+    tauri::listen(
+        event,
+        Closure::wrap(Box::new(move |payload: JsValue| {
+            let value = serde_wasm_bindgen::from_value::<serde_json::Value>(payload)
+                .unwrap_or_else(|_| json!({}));
+            let document = document.clone();
+            let state = Rc::clone(&state);
+            spawn_local(async move {
+                if let Err(error) = apply_child(action, &document, &state, value).await {
+                    report(error);
+                }
+            });
+        }) as Box<dyn FnMut(JsValue)>),
+    )
+    .await
+}
+
+async fn apply_child(
+    action: ChildAction,
+    document: &Document,
+    state: &Rc<RefCell<State>>,
+    payload: serde_json::Value,
+) -> Result<(), JsValue> {
+    let Some(project_id) = state
+        .borrow()
+        .current_project
+        .as_ref()
+        .map(|project| project.id.clone())
+    else {
+        return Ok(());
+    };
+    match action {
+        ChildAction::CreateCharacter => {
+            if let Some(name) = payload.get("name").and_then(|value| value.as_str()) {
+                let doc = project_settings::create_character(&project_id, name).await?;
+                state.borrow_mut().characters = doc
+                    .get("characters")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+            }
+        }
+        ChildAction::UpdateCharacter => {
+            if let Some(value) = payload.get("character") {
+                let doc = project_settings::update_character(&project_id, value).await?;
+                state.borrow_mut().characters = doc
+                    .get("characters")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+            }
+        }
+        ChildAction::DeleteCharacter => {
+            if let Some(id) = payload.get("id").and_then(|value| value.as_str()) {
+                let doc = project_settings::delete_character(&project_id, id).await?;
+                let mut current = state.borrow_mut();
+                current.characters = doc
+                    .get("characters")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                current.current_character_id = current
+                    .characters
+                    .first()
+                    .and_then(|value| value.get("id")?.as_str())
+                    .map(str::to_owned);
+            }
+        }
+        ChildAction::SelectCharacter => {
+            state.borrow_mut().current_character_id = payload
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        }
+        ChildAction::CreateWorld => {
+            let name = payload
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("新規項目");
+            let category = payload
+                .get("category")
+                .and_then(|value| value.as_str())
+                .unwrap_or("other");
+            let doc = project_settings::create_world(&project_id, name, category).await?;
+            state.borrow_mut().world_entries = doc
+                .get("entries")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default();
+        }
+        ChildAction::UpdateWorld => {
+            if let Some(value) = payload.get("entry") {
+                let doc = project_settings::update_world(&project_id, value).await?;
+                state.borrow_mut().world_entries = doc
+                    .get("entries")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+            }
+        }
+        ChildAction::DeleteWorld => {
+            if let Some(id) = payload.get("id").and_then(|value| value.as_str()) {
+                let doc = project_settings::delete_world(&project_id, id).await?;
+                let mut current = state.borrow_mut();
+                current.world_entries = doc
+                    .get("entries")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                current.current_world_entry_id = current
+                    .world_entries
+                    .first()
+                    .and_then(|value| value.get("id")?.as_str())
+                    .map(str::to_owned);
+            }
+        }
+        ChildAction::SelectWorld => {
+            state.borrow_mut().current_world_entry_id = payload
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        }
+        ChildAction::SelectView => {
+            state.borrow_mut().current_view = payload
+                .get("view")
+                .and_then(|value| value.as_str())
+                .unwrap_or("characters")
+                .into()
+        }
+        ChildAction::UpdateRelationships => {
+            if let Some(map) = payload.get("map") {
+                state.borrow_mut().relationships = map.clone();
+                projects::write_document(&project_id, "relationships", map).await?;
+            }
+        }
+        ChildAction::CreateMemo => {
+            if let Some(title) = payload.get("title").and_then(|value| value.as_str()) {
+                let memo = project_settings::create_memo(&project_id, title).await?;
+                let id = memo
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned);
+                let mut current = state.borrow_mut();
+                current.project_memos.push(memo);
+                current.current_memo_id = id;
+            }
+        }
+        ChildAction::UpdateMemo => {
+            let id = payload
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let title = payload.get("title").and_then(|value| value.as_str());
+            let content = payload.get("content").and_then(|value| value.as_str());
+            let memo = project_settings::update_memo(&project_id, id, title, content).await?;
+            if let Some(position) = state
+                .borrow()
+                .project_memos
+                .iter()
+                .position(|item| item.get("id").and_then(|value| value.as_str()) == Some(id))
+            {
+                state.borrow_mut().project_memos[position] = memo;
+            }
+        }
+        ChildAction::DeleteMemo => {
+            if let Some(id) = payload.get("id").and_then(|value| value.as_str()) {
+                project_settings::delete_memo(&project_id, id).await?;
+                let mut current = state.borrow_mut();
+                current
+                    .project_memos
+                    .retain(|item| item.get("id").and_then(|value| value.as_str()) != Some(id));
+                current.current_memo_id = current
+                    .project_memos
+                    .first()
+                    .and_then(|item| item.get("id")?.as_str())
+                    .map(str::to_owned);
+            }
+        }
+        ChildAction::SelectMemo => {
+            state.borrow_mut().current_memo_id = payload
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        }
+    }
+    super::render::all(document, &state.borrow())?;
+    sync_children(&state.borrow());
+    Ok(())
 }
 
 fn set_modal(document: &Document, hidden: bool) -> Result<(), JsValue> {

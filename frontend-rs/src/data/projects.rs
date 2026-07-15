@@ -4,7 +4,7 @@ use wasm_bindgen::JsValue;
 
 use crate::runtime::invoke;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: String,
@@ -13,7 +13,7 @@ pub struct Project {
     pub updated_at: String,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
     pub id: String,
@@ -21,7 +21,7 @@ pub struct ProjectSummary {
     pub updated_at: String,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Episode {
     pub id: String,

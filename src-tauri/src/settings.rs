@@ -280,3 +280,41 @@ pub fn update_world_entry(req: UpdateWorldEntryRequest) -> Result<Value, String>
     write_json(&path, &data)?;
     Ok(data)
 }
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteCharacterRequest {
+    pub project_id: String,
+    pub character_id: String,
+}
+
+#[tauri::command]
+pub fn delete_character(req: DeleteCharacterRequest) -> Result<Value, String> {
+    let path = characters_path(&req.project_id)?;
+    let mut data = read_or_empty(&path, json!({ "characters": [] }));
+    let characters = data["characters"]
+        .as_array_mut()
+        .ok_or_else(|| "Invalid characters structure".to_string())?;
+    characters.retain(|character| character["id"].as_str() != Some(&req.character_id));
+    write_json(&path, &data)?;
+    Ok(data)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteWorldEntryRequest {
+    pub project_id: String,
+    pub entry_id: String,
+}
+
+#[tauri::command]
+pub fn delete_world_entry(req: DeleteWorldEntryRequest) -> Result<Value, String> {
+    let path = world_path(&req.project_id)?;
+    let mut data = read_or_empty(&path, json!({ "entries": [] }));
+    let entries = data["entries"]
+        .as_array_mut()
+        .ok_or_else(|| "Invalid world entries structure".to_string())?;
+    entries.retain(|entry| entry["id"].as_str() != Some(&req.entry_id));
+    write_json(&path, &data)?;
+    Ok(data)
+}

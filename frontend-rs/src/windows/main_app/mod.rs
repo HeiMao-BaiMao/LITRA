@@ -9,7 +9,10 @@ use wasm_bindgen::JsValue;
 use web_sys::Document;
 
 use crate::{
-    data::projects::{self, Episode, Project, ProjectSummary},
+    data::{
+        project_settings,
+        projects::{self, Episode, Project, ProjectSummary},
+    },
     runtime::tauri,
 };
 
@@ -27,6 +30,14 @@ struct State {
     catalog: Vec<crate::runtime::ai::CatalogProvider>,
     selected_provider: Option<String>,
     selected_model: Option<String>,
+    characters: Vec<Value>,
+    world_entries: Vec<Value>,
+    relationships: Value,
+    project_memos: Vec<Value>,
+    current_character_id: Option<String>,
+    current_world_entry_id: Option<String>,
+    current_memo_id: Option<String>,
+    current_view: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -81,6 +92,12 @@ async fn open_project(
         .await?
         .and_then(|value| serde_json::from_value::<Vec<ChatMessage>>(value).ok())
         .unwrap_or_default();
+    let characters_doc = project_settings::characters(&project_id).await?;
+    let world_doc = project_settings::world(&project_id).await?;
+    let relationships = projects::read_document(&project_id, "relationships")
+        .await?
+        .unwrap_or_else(|| json!({}));
+    let project_memos = project_settings::memos(&project_id).await?;
     let current_id = episodes.first().map(|episode| episode.id.clone());
     let editor_text = match current_id
         .as_ref()
@@ -97,6 +114,34 @@ async fn open_project(
     current.summaries = summaries;
     current.memos = memos;
     current.chat = chat;
+    current.characters = characters_doc
+        .get("characters")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    current.world_entries = world_doc
+        .get("entries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    current.relationships = relationships;
+    current.current_character_id = current
+        .characters
+        .first()
+        .and_then(|item| item.get("id")?.as_str())
+        .map(str::to_owned);
+    current.current_world_entry_id = current
+        .world_entries
+        .first()
+        .and_then(|item| item.get("id")?.as_str())
+        .map(str::to_owned);
+    current.project_memos = project_memos;
+    current.current_memo_id = current
+        .project_memos
+        .first()
+        .and_then(|item| item.get("id")?.as_str())
+        .map(str::to_owned);
+    current.current_view = "episode".into();
     render::all(document, &current)?;
     sync_children(&current);
     Ok(())
@@ -166,6 +211,14 @@ fn sync_children(state: &State) {
     )
     .unwrap_or_default();
     tauri::emit("memo-sync", &memo_payload);
+    let settings = json!({"view": if state.current_view == "episode" { "characters" } else { &state.current_view }, "characters":state.characters, "worldEntries":state.world_entries, "episodes":state.episodes, "relationshipsMap":state.relationships, "currentCharacterId":state.current_character_id, "currentWorldEntryId":state.current_world_entry_id});
+    if let Ok(payload) = serde_wasm_bindgen::to_value(&settings) {
+        tauri::emit("settings-sync", &payload);
+    }
+    let memos = json!({"memos":state.project_memos,"currentMemoId":state.current_memo_id});
+    if let Ok(payload) = serde_wasm_bindgen::to_value(&memos) {
+        tauri::emit("project-memos-sync", &payload);
+    }
 }
 
 fn report(error: JsValue) {
