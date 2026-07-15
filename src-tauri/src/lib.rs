@@ -1,6 +1,7 @@
 mod ai;
 mod codex_oauth;
 mod genre_search;
+mod genre_store;
 mod genre_windows;
 mod import;
 mod project_memo;
@@ -32,6 +33,10 @@ pub fn run() {
             codex_oauth::cancel_codex_browser_auth,
             genre_search::rebuild_genre_search_index,
             genre_search::search_genre,
+            genre_store::genre_read_text,
+            genre_store::genre_write_text,
+            genre_store::genre_list_path,
+            genre_store::genre_remove_path,
             genre_windows::open_genre_chat_window,
             import::import_files,
             project_memo::list_project_memos,
