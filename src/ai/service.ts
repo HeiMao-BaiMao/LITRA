@@ -1,4 +1,4 @@
-import { generateText, isLoopFinished, stepCountIs, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
+import { isLoopFinished, stepCountIs, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
 import { createModel } from "./provider.ts";
 import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provider-options.ts";
 import {
@@ -89,43 +89,31 @@ function failAiStep(step: AiStepLog, error: unknown): void {
 async function generateLoggedText(
   name: string,
   settings: AiSettings,
-  options: Parameters<typeof generateText>[0],
+  options: {
+    prompt: string;
+    system?: string;
+    maxOutputTokens?: number;
+    abortSignal?: AbortSignal;
+    [key: string]: unknown;
+  },
 ): Promise<{ text: string; reasoningText?: string; finishReason?: string }> {
   const step = beginAiStep(name, settings);
   try {
-    if (
-      supportsRustTextProvider(settings) &&
-      "prompt" in options &&
-      typeof options.prompt === "string"
-    ) {
-      let text = "";
-      let reasoningText = "";
-      const result = await streamRustText(settings, {
-        system: typeof options.system === "string" ? options.system : "",
-        prompt: options.prompt,
-        maxOutputTokens: options.maxOutputTokens ?? NONSTREAMING_MAX_OUTPUT_TOKENS,
-        abortSignal: options.abortSignal,
-        onChunk: (chunk) => { text += chunk; },
-        onReasoning: (chunk) => { reasoningText += chunk; },
-      });
-      const generated = {
-        text,
-        reasoningText: reasoningText || undefined,
-        finishReason: result.finishReason,
-      };
-      if (generated.reasoningText) {
-        console.log(`[litra:ai-step:${step.id}] REASONING ${step.name}`, generated.reasoningText);
-      }
-      completeAiStep(step, generated.text, generated.finishReason);
-      return generated;
+    let text = "";
+    let reasoningText = "";
+    const result = await streamRustText(settings, {
+      system: options.system ?? "",
+      prompt: options.prompt,
+      maxOutputTokens: options.maxOutputTokens ?? NONSTREAMING_MAX_OUTPUT_TOKENS,
+      abortSignal: options.abortSignal,
+      onChunk: (chunk) => { text += chunk; },
+      onReasoning: (chunk) => { reasoningText += chunk; },
+    });
+    if (reasoningText) {
+      console.log(`[litra:ai-step:${step.id}] REASONING ${step.name}`, reasoningText);
     }
-    const result = await generateText(options);
-    recordProviderCacheUsage(name, settings, result.providerMetadata);
-    if (result.reasoningText) {
-      console.log(`[litra:ai-step:${step.id}] REASONING ${step.name}`, result.reasoningText);
-    }
-    completeAiStep(step, result.text, result.finishReason);
-    return result;
+    completeAiStep(step, text, result.finishReason);
+    return { text, reasoningText: reasoningText || undefined, finishReason: result.finishReason };
   } catch (error) {
     failAiStep(step, error);
     throw error;
@@ -764,7 +752,6 @@ async function verifyToolCallNeed(
     const basePrompt = buildToolCallNeedPrompt(userRequest, assistantResponse, availableToolNames);
     const jsonPrompt = `${basePrompt}\n\nReturn ONLY a valid JSON object with this exact shape. No markdown, no code fence, no explanation:\n{"needsTools": boolean, "missingTools": string[], "reason": string}\nIf missingTools is unnecessary, omit it or use an empty array.`;
     const result = await generateLoggedText("tool-call-need-verification", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       system:
         "You audit assistant responses. Decide one thing: did the request require an actual tool call that the assistant failed to perform? Return ONLY a JSON object. IF uncertain → set needsTools=false.",
@@ -1042,7 +1029,6 @@ async function runContinuationPlanStep(
 ): Promise<string | undefined> {
   try {
     const result = await generateLoggedText("continuation-plan", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildContinuationPlanPrompt(context, settingsContext, relatedScenes, authorInstruction),
       ...buildTemperatureOption(settings),
@@ -1082,7 +1068,6 @@ async function runContinuationReviewStep(
 ): Promise<string | undefined> {
   try {
     const result = await generateLoggedText("continuation-review", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildContinuationReviewPrompt(draft, context, settingsContext, plan, relatedScenes, extras),
       ...buildTemperatureOption(settings),
@@ -1150,7 +1135,6 @@ async function runSceneStateCardStep(
 
   try {
     const result = await generateLoggedText("scene-state-card", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildSceneStateCardPrompt(context, settingsContext),
       ...buildTemperatureOption(settings),
@@ -1199,7 +1183,6 @@ async function runCharacterVoiceCardsStep(
 
   try {
     const result = await generateLoggedText("character-voice-cards", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildCharacterVoiceCardsPrompt(names, excerpts, settingsContext),
       ...buildTemperatureOption(settings),
@@ -1236,7 +1219,6 @@ async function runDraftSelectionStep(
 ): Promise<number | undefined> {
   try {
     const result = await generateLoggedText("draft-selection", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildDraftSelectionPrompt(drafts, context, settingsContext, plan, scaffold, authorInstruction),
       ...buildTemperatureOption(settings),
@@ -1268,7 +1250,6 @@ async function runCandidateSelectionStep(
 ): Promise<number | undefined> {
   try {
     const result = await generateLoggedText("candidate-selection", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildCandidateSelectionPrompt(
         candidates,
@@ -1343,7 +1324,6 @@ async function runTargetedRevisionStep(
 ): Promise<string | undefined> {
   try {
     const result = await generateLoggedText("targeted-revision", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildTargetedRevisionPrompt(draft, review, context, settingsContext, extras),
       ...buildTemperatureOption(settings),
@@ -1426,7 +1406,6 @@ export async function runLineEditReview(
 ): Promise<string | undefined> {
   try {
     const result = await generateLoggedText("line-edit-review", settings, {
-      model: createModel(settings),
       ...buildRetryOption(settings),
       prompt: buildLineEditReviewPrompt(passage, context, settingsContext, instruction, extras),
       ...buildTemperatureOption(settings),
@@ -1466,7 +1445,6 @@ export async function runLineEditRevision(
     const generateCandidate = async (stage: "candidate-1" | "candidate-2"): Promise<string> => {
       onProgress?.(stage);
       const result = await generateLoggedText(`line-edit-${stage}`, settings, {
-        model: createModel(settings),
         ...buildRetryOption(settings),
         prompt: buildLineEditRevisionPrompt(passage, review, context, settingsContext, instruction, extras),
         ...buildTemperatureOption(settings),
