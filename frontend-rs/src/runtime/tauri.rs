@@ -11,6 +11,10 @@ export function emitTauriEvent(name, payload) {
   void window.__TAURI__.event.emit(name, payload);
 }
 
+export function randomUuid() {
+  return crypto.randomUUID();
+}
+
 export async function startDpiZoomListener() {
   const apply = async () => {
     try {
@@ -36,6 +40,9 @@ extern "C" {
 
     #[wasm_bindgen(js_name = emitTauriEvent)]
     fn emit_tauri_event(name: &str, payload: &JsValue);
+
+    #[wasm_bindgen(js_name = randomUuid)]
+    pub fn random_uuid() -> String;
 
     #[wasm_bindgen(catch, js_name = startDpiZoomListener)]
     async fn start_dpi_zoom_listener() -> Result<JsValue, JsValue>;
