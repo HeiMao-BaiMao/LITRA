@@ -6,6 +6,7 @@ use web_sys::Document;
 use super::State;
 
 pub fn all(document: &Document, state: &State) -> Result<(), JsValue> {
+    render_catalog(document, state)?;
     if let Some(genre) = &state.genre {
         if let Some(title) = document.get_element_by_id("genre-chat-title") {
             title.set_text_content(Some(&format!("{} - ジャンルリトラチャット", genre.name)));
@@ -48,20 +49,49 @@ pub fn all(document: &Document, state: &State) -> Result<(), JsValue> {
     Ok(())
 }
 
-pub fn selection(document: &Document, provider: &str, model: &str) -> Result<(), JsValue> {
+fn render_catalog(document: &Document, state: &State) -> Result<(), JsValue> {
     if let Some(select) = document.get_element_by_id("chat-provider") {
-        select.set_inner_html(&format!(
-            r#"<option value="{}">{}</option>"#,
-            escape(provider),
-            escape(provider)
-        ));
+        let options = state
+            .catalog
+            .iter()
+            .map(|provider| {
+                format!(
+                    r#"<option value="{}"{}>{}</option>"#,
+                    escape(&provider.id),
+                    if state.selected_provider.as_deref() == Some(&provider.id) {
+                        " selected"
+                    } else {
+                        ""
+                    },
+                    escape(&provider.name)
+                )
+            })
+            .collect::<String>();
+        select.set_inner_html(&options);
     }
     if let Some(select) = document.get_element_by_id("chat-model") {
-        select.set_inner_html(&format!(
-            r#"<option value="{}">{}</option>"#,
-            escape(model),
-            escape(model)
-        ));
+        let models = state
+            .selected_provider
+            .as_deref()
+            .and_then(|id| state.catalog.iter().find(|provider| provider.id == id))
+            .map(|provider| provider.models.as_slice())
+            .unwrap_or(&[]);
+        let options = models
+            .iter()
+            .map(|model| {
+                format!(
+                    r#"<option value="{}"{}>{}</option>"#,
+                    escape(&model.id),
+                    if state.selected_model.as_deref() == Some(&model.id) {
+                        " selected"
+                    } else {
+                        ""
+                    },
+                    escape(model.label.as_deref().unwrap_or(&model.id))
+                )
+            })
+            .collect::<String>();
+        select.set_inner_html(&options);
     }
     Ok(())
 }

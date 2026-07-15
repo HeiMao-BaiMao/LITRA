@@ -32,6 +32,9 @@ struct State {
     current_thread_id: Option<String>,
     messages: Vec<Message>,
     is_streaming: bool,
+    catalog: Vec<ai::CatalogProvider>,
+    selected_provider: Option<String>,
+    selected_model: Option<String>,
 }
 
 pub async fn mount(document: &Document) -> Result<(), JsValue> {
@@ -39,8 +42,11 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     let state = Rc::new(RefCell::new(State::default()));
     events::bind(document, Rc::clone(&state))?;
     events::listen(document.clone(), Rc::clone(&state)).await?;
+    state.borrow_mut().catalog = ai::catalog().await.unwrap_or_default();
     if let Ok((provider, model)) = ai::selection("chat").await {
-        render::selection(document, &provider, &model)?;
+        let mut current = state.borrow_mut();
+        current.selected_provider = Some(provider);
+        current.selected_model = Some(model);
     }
     let genre_id = genre_id_from_location();
     if !genre_id.is_empty() {
@@ -129,7 +135,21 @@ async fn send(
         .collect::<Vec<_>>()
         .join("\n");
     let system = format!("あなたは小説制作アプリLITRAのジャンル相談AIです。ジャンル『{}』について、保存済みの定義と会話を根拠に日本語で回答してください。保存知識にない内容は推測だと明示してください。\n\nジャンル説明: {}\nユーザー定義: {}\n\n採用済み知識:\n{}", genre.name, genre.description, genre.user_definition, accepted);
-    let generated = ai::generate("chat", system, history).await;
+    let (provider, model) = {
+        let current = state.borrow();
+        (
+            current.selected_provider.clone(),
+            current.selected_model.clone(),
+        )
+    };
+    let generated = ai::generate_with(
+        "chat",
+        system,
+        history,
+        provider.as_deref(),
+        model.as_deref(),
+    )
+    .await;
     state.borrow_mut().is_streaming = false;
     let generated = generated?;
     let document_data = chat::append(

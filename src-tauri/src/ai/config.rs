@@ -14,7 +14,7 @@ struct Connection {
     base_url: String,
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Model {
     id: String,
@@ -37,6 +37,8 @@ struct Model {
 #[serde(rename_all = "camelCase")]
 struct Provider {
     id: String,
+    #[serde(default)]
+    name: String,
     sdk_type: String,
     default_base_url: String,
     default_model: String,
@@ -75,7 +77,12 @@ pub struct RuntimeAiConfig {
 }
 
 #[tauri::command]
-pub fn ai_runtime_config(app: AppHandle, role: Option<String>) -> Result<RuntimeAiConfig, String> {
+pub fn ai_runtime_config(
+    app: AppHandle,
+    role: Option<String>,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+) -> Result<RuntimeAiConfig, String> {
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -94,13 +101,17 @@ pub fn ai_runtime_config(app: AppHandle, role: Option<String>) -> Result<Runtime
 
     let role = role.as_deref().unwrap_or("main");
     let main_provider = string(&settings, "provider").unwrap_or("openai");
-    let provider_id = match role {
+    let configured_provider_id = match role {
         "chat" => string(&settings, "chatProvider").unwrap_or(main_provider),
         "background" => string(&settings, "backgroundProvider")
             .or_else(|| string(&settings, "chatProvider"))
             .unwrap_or(main_provider),
         _ => main_provider,
     };
+    let provider_id = provider_override
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(configured_provider_id);
     let fallback = defaults
         .providers
         .iter()
@@ -125,11 +136,15 @@ pub fn ai_runtime_config(app: AppHandle, role: Option<String>) -> Result<Runtime
         _ => None,
     };
     let provider_default_model = if provider.default_model.trim().is_empty() {
-        fallback.map(|item| item.default_model.clone()).unwrap_or_default()
+        fallback
+            .map(|item| item.default_model.clone())
+            .unwrap_or_default()
     } else {
         provider.default_model.clone()
     };
-    let model_id = role_model
+    let model_id = model_override
+        .filter(|value| !value.trim().is_empty())
+        .or(role_model)
         .or(specific_model)
         .filter(|value| !value.is_empty())
         .unwrap_or(provider_default_model);
@@ -171,7 +186,9 @@ pub fn ai_runtime_config(app: AppHandle, role: Option<String>) -> Result<Runtime
             .map(|item| item.base_url.clone())
             .unwrap_or_else(|| {
                 if provider.default_base_url.trim().is_empty() {
-                    fallback.map(|item| item.default_base_url.clone()).unwrap_or_default()
+                    fallback
+                        .map(|item| item.default_base_url.clone())
+                        .unwrap_or_default()
                 } else {
                     provider.default_base_url.clone()
                 }
@@ -229,6 +246,66 @@ pub fn ai_runtime_config(app: AppHandle, role: Option<String>) -> Result<Runtime
             .map(str::to_owned)
             .or_else(|| model.and_then(|item| item.google_thinking_level.clone())),
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogEntry {
+    id: String,
+    name: String,
+    models: Vec<Model>,
+}
+
+#[tauri::command]
+pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, String> {
+    let defaults: ProviderDocument =
+        serde_json::from_str(DEFAULT_PROVIDERS).map_err(|error| error.to_string())?;
+    let configured = read_json(
+        app.path()
+            .app_config_dir()
+            .map_err(|error| error.to_string())?
+            .join("providers.json"),
+    )
+    .and_then(|value| serde_json::from_value::<ProviderDocument>(value).ok())
+    .unwrap_or_default();
+    let mut result = Vec::new();
+    for default in &defaults.providers {
+        let custom = configured
+            .providers
+            .iter()
+            .find(|item| item.id == default.id);
+        let mut models = default.models.clone();
+        if let Some(custom) = custom {
+            for model in &custom.models {
+                if let Some(position) = models.iter().position(|item| item.id == model.id) {
+                    models[position] = model.clone();
+                } else {
+                    models.push(model.clone());
+                }
+            }
+        }
+        result.push(ProviderCatalogEntry {
+            id: default.id.clone(),
+            name: custom
+                .filter(|item| !item.name.is_empty())
+                .map(|item| item.name.clone())
+                .unwrap_or_else(|| default.name.clone()),
+            models,
+        });
+    }
+    for custom in configured.providers.iter().filter(|item| {
+        !defaults
+            .providers
+            .iter()
+            .any(|default| default.id == item.id)
+    }) {
+        result.push(ProviderCatalogEntry {
+            id: custom.id.clone(),
+            name: custom.name.clone(),
+            models: custom.models.clone(),
+        });
+    }
+    Ok(result)
 }
 
 fn read_json(path: std::path::PathBuf) -> Option<Value> {

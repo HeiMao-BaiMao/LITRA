@@ -27,6 +27,7 @@ pub fn run() {
             ai::ai_stream_text,
             ai::ai_cancel,
             ai::config::ai_runtime_config,
+            ai::config::ai_provider_catalog,
             ai::models::ai_list_models,
             ai::oauth::copilot::start_copilot_device_auth,
             ai::oauth::copilot::cancel_copilot_device_auth,

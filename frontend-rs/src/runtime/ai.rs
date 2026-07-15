@@ -42,8 +42,30 @@ struct RuntimeConfig {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ConfigArgs<'a> {
     role: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_override: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_override: Option<&'a str>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct CatalogModel {
+    pub id: String,
+    pub label: Option<String>,
+}
+#[derive(Clone, Deserialize)]
+pub struct CatalogProvider {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub models: Vec<CatalogModel>,
+}
+
+pub async fn catalog() -> Result<Vec<CatalogProvider>, JsValue> {
+    invoke::invoke("ai_provider_catalog", &()).await
 }
 
 #[derive(Serialize)]
@@ -79,7 +101,15 @@ pub struct GeneratedText {
 }
 
 pub async fn selection(role: &str) -> Result<(String, String), JsValue> {
-    let config: RuntimeConfig = invoke::invoke("ai_runtime_config", &ConfigArgs { role }).await?;
+    let config: RuntimeConfig = invoke::invoke(
+        "ai_runtime_config",
+        &ConfigArgs {
+            role,
+            provider_override: None,
+            model_override: None,
+        },
+    )
+    .await?;
     Ok((config.provider, config.model))
 }
 
@@ -88,7 +118,25 @@ pub async fn generate(
     system: String,
     prompt: String,
 ) -> Result<GeneratedText, JsValue> {
-    let config: RuntimeConfig = invoke::invoke("ai_runtime_config", &ConfigArgs { role }).await?;
+    generate_with(role, system, prompt, None, None).await
+}
+
+pub async fn generate_with(
+    role: &str,
+    system: String,
+    prompt: String,
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
+) -> Result<GeneratedText, JsValue> {
+    let config: RuntimeConfig = invoke::invoke(
+        "ai_runtime_config",
+        &ConfigArgs {
+            role,
+            provider_override,
+            model_override,
+        },
+    )
+    .await?;
     let provider = config.provider.clone();
     let model = config.model.clone();
     let request_id = format!("ai_{}", tauri::random_uuid().replace('-', ""));

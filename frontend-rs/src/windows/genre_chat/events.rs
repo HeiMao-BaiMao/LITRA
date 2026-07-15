@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use js_sys::Reflect;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{Document, Element, Event, HtmlTextAreaElement};
+use web_sys::{Document, Element, Event, HtmlSelectElement, HtmlTextAreaElement};
 
 use crate::{
     data::genres::{chat, sources},
@@ -70,6 +70,36 @@ pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValu
     }) as Box<dyn FnMut(Event)>);
     form.add_event_listener_with_callback("submit", submit.as_ref().unchecked_ref())?;
     submit.forget();
+    let change_document = document.clone();
+    let change_state = Rc::clone(&state);
+    let change = Closure::wrap(Box::new(move |event: Event| {
+        let Some(select) = event
+            .target()
+            .and_then(|target| target.dyn_into::<HtmlSelectElement>().ok())
+        else {
+            return;
+        };
+        if select.id() == "chat-provider" {
+            let provider = select.value();
+            let model = change_state
+                .borrow()
+                .catalog
+                .iter()
+                .find(|item| item.id == provider)
+                .and_then(|item| item.models.first())
+                .map(|item| item.id.clone());
+            let mut current = change_state.borrow_mut();
+            current.selected_provider = Some(provider);
+            current.selected_model = model;
+        } else if select.id() == "chat-model" {
+            change_state.borrow_mut().selected_model = Some(select.value());
+        } else {
+            return;
+        }
+        let _ = super::render::all(&change_document, &change_state.borrow());
+    }) as Box<dyn FnMut(Event)>);
+    document.add_event_listener_with_callback("change", change.as_ref().unchecked_ref())?;
+    change.forget();
     Ok(())
 }
 
