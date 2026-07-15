@@ -28,10 +28,13 @@ export interface RustTextStreamOptions {
   system: string;
   prompt: string;
   messages?: RustChatMessage[];
+  tools?: RustToolDefinition[];
+  toolChoice?: "auto" | "none" | "required";
   maxOutputTokens: number;
   abortSignal?: AbortSignal;
   onChunk: (chunk: string) => void;
   onReasoning?: (chunk: string) => void;
+  onToolInputStart?: (call: { toolCallId: string; toolName: string }) => void;
 }
 
 export interface RustChatMessage {
@@ -50,6 +53,19 @@ export interface RustTextStreamResult {
     outputTokens?: number;
     cachedInputTokens?: number;
   };
+  toolCalls: RustToolCall[];
+}
+
+export interface RustToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+}
+
+export interface RustToolCall {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
 }
 
 /** OAuth付き接続は次の移行段階でRustへ統合する。 */
@@ -85,6 +101,7 @@ export async function streamRustText(
   let usage: RustTextStreamResult["usage"];
   let eventError: Error | undefined;
   let cancelled = false;
+  const toolCalls: RustToolCall[] = [];
 
   const channel = new Channel<RustAiStreamEvent>((event) => {
     switch (event.type) {
@@ -115,9 +132,21 @@ export async function streamRustText(
         eventError = new Error(event.message);
         break;
       case "started":
+        break;
       case "tool_input_start":
+        options.onToolInputStart?.({
+          toolCallId: event.tool_call_id,
+          toolName: event.tool_name,
+        });
+        break;
       case "tool_input_delta":
+        break;
       case "tool_call":
+        toolCalls.push({
+          toolCallId: event.tool_call_id,
+          toolName: event.tool_name,
+          input: event.input,
+        });
         break;
     }
   });
@@ -154,6 +183,7 @@ export async function streamRustText(
     reasoningCharCount,
     finishReason,
     usage,
+    toolCalls,
   };
 }
 
@@ -197,6 +227,8 @@ function buildRustTextRequest(
     model: settings.model,
     system: options.system,
     messages: options.messages,
+    tools: options.tools,
+    toolChoice: options.toolChoice,
     prompt: options.prompt,
     maxOutputTokens: options.maxOutputTokens,
     temperature: ignoreSampling ? undefined : settings.temperature,

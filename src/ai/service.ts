@@ -40,6 +40,7 @@ import {
   type RustChatMessage,
   type RustTextStreamResult,
 } from "./rust-transport.ts";
+import { executeRustToolCalls, serializeRustTools } from "./rust-tools.ts";
 
 // ビート分割生成で前ビートの生成分を文脈に継ぎ足す際、無制限に伸びないための上限
 const BEAT_CONTEXT_CHAR_BUDGET = 12000;
@@ -814,28 +815,29 @@ function getLastUserMessageContent(messages: ModelMessage[]): string {
 function modelMessagesForRust(messages: ModelMessage[]): RustChatMessage[] | undefined {
   const converted: RustChatMessage[] = [];
   for (const message of messages) {
-    if (message.role !== "system" && message.role !== "user" && message.role !== "assistant") {
+    if (
+      message.role !== "system" &&
+      message.role !== "user" &&
+      message.role !== "assistant" &&
+      message.role !== "tool"
+    ) {
       return undefined;
     }
-    let content: string;
+    let content: unknown;
     if (typeof message.content === "string") {
       content = message.content;
     } else if (Array.isArray(message.content)) {
-      const textParts: string[] = [];
       for (const part of message.content) {
         if (
           typeof part !== "object" ||
           part === null ||
           !("type" in part) ||
-          part.type !== "text" ||
-          !("text" in part) ||
-          typeof part.text !== "string"
+          (part.type !== "text" && part.type !== "tool-call" && part.type !== "tool-result")
         ) {
           return undefined;
         }
-        textParts.push(part.text);
       }
-      content = textParts.join("");
+      content = message.content;
     } else {
       return undefined;
     }
@@ -915,18 +917,43 @@ export async function streamChat({
     };
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
 
-    if (!toolsEnabled && supportsRustTextProvider(s)) {
+    if (supportsRustTextProvider(s)) {
       const rustMessages = modelMessagesForRust(messages);
       if (rustMessages) {
+        const rustTools = toolsEnabled ? await serializeRustTools(tools) : undefined;
         const result = await streamRustText(s, {
-          system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false, directCreativeEdit }),
+          system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled, toolNames, directCreativeEdit }),
           messages: rustMessages,
+          tools: rustTools,
+          toolChoice: toolsEnabled ? toolChoice : undefined,
           prompt: "",
           maxOutputTokens: s.maxTokens,
           abortSignal,
           onChunk: wrappedOnChunk,
           onReasoning,
+          onToolInputStart: ({ toolCallId, toolName }) =>
+            onToolEvent?.({ type: "input-start", toolCallId, toolName }),
         });
+        if (toolsEnabled && result.toolCalls.length > 0) {
+          const execution = await executeRustToolCalls(
+            tools,
+            result.toolCalls,
+            messages,
+            assistantText,
+            abortSignal,
+            onToolEvent,
+          );
+          return {
+            ...result,
+            toolCallCount: result.toolCalls.length,
+            toolResultCount: execution.resultCount,
+            toolErrorCount: execution.errorCount,
+            stoppedAfterToolResult: execution.resultCount + execution.errorCount > 0,
+            stoppedAfterToolActivity: true,
+            pendingToolCallIds: [],
+            responseMessages: execution.responseMessages,
+          };
+        }
         return rustTextResultToRunResult(result, assistantText);
       }
     }
