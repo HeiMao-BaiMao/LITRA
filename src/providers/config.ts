@@ -9,6 +9,21 @@ import {
 
 export type SdkType = "openai" | "anthropic" | "google";
 
+/// Rust AI コアが扱う wire protocol。プロバイダー名やモデル名から推測せず、
+/// providers.json の接続定義で明示する。
+export type ProviderApiType =
+  | "openai-responses"
+  | "openai-chat"
+  | "anthropic-messages"
+  | "google-generate-content";
+
+/// 1プロバイダー内で利用できる接続先。モデルは `connection` でこの id を参照する。
+export interface ProviderConnection {
+  id: string;
+  apiType: ProviderApiType;
+  baseUrl: string;
+}
+
 /// モデル選択方式。
 /// - "fixed": `models` 一覧からの固定選択（取得ボタンは無効化される）
 /// - "fetch": 自由入力＋プロバイダー API からのモデル一覧取得
@@ -59,6 +74,8 @@ export interface ReasoningCapability {
 
 export interface ProviderModelDefaults {
   id: string;
+  /// ProviderEntry.connections 内の接続 ID。省略時は defaultConnection を使う。
+  connection?: string;
   label?: string;
   temperature?: number;
   maxTokens?: number;
@@ -109,6 +126,10 @@ export interface ProviderEntry {
   sdkType: SdkType;
   defaultBaseUrl: string;
   defaultModel: string;
+  /// 省略時は後方互換のため sdkType から接続を合成する。
+  defaultConnection?: string;
+  /// 同じプロバイダーで複数の wire protocol / base URL を利用できる。
+  connections?: ProviderConnection[];
   requiresApiKey?: boolean;
   /// 省略時は "fetch"
   modelSelection?: ModelSelectionMode;
@@ -127,6 +148,12 @@ const BASE_DIR = BaseDirectory.AppConfig;
 import defaultProviders from "./default-providers.json" with { type: "json" };
 
 const DEFAULT_CONFIG: ProviderConfig = defaultProviders as ProviderConfig;
+let cachedConfig: ProviderConfig = DEFAULT_CONFIG;
+
+/** 同期APIしか持たない移行期間中の呼び出し層向け。loadProviderConfig 後はユーザー設定を返す。 */
+export function getCachedProviderConfig(): ProviderConfig {
+  return cachedConfig;
+}
 
 async function initializeDefaultConfig(): Promise<void> {
   await mkdir("", { baseDir: BASE_DIR, recursive: true });
@@ -154,6 +181,22 @@ function mergeDefaultModels(
   return Array.from(mergedById.values());
 }
 
+function mergeDefaultConnections(
+  existingConnections: ProviderConnection[] | undefined,
+  defaultConnections: ProviderConnection[] | undefined,
+): ProviderConnection[] | undefined {
+  if (!existingConnections && !defaultConnections) return undefined;
+  const mergedById = new Map<string, ProviderConnection>();
+  for (const connection of defaultConnections ?? []) mergedById.set(connection.id, connection);
+  for (const connection of existingConnections ?? []) {
+    mergedById.set(connection.id, {
+      ...(mergedById.get(connection.id) ?? {}),
+      ...connection,
+    });
+  }
+  return Array.from(mergedById.values());
+}
+
 function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
   const existingById = new Map(config.providers.map((p) => [p.id, p]));
   const merged: ProviderEntry[] = [];
@@ -168,6 +211,8 @@ function mergeDefaultProviders(config: ProviderConfig): ProviderConfig {
         ...existing,
         defaultBaseUrl: existing.defaultBaseUrl || defaultProvider.defaultBaseUrl,
         defaultModel: existing.defaultModel || defaultProvider.defaultModel,
+        defaultConnection: existing.defaultConnection || defaultProvider.defaultConnection,
+        connections: mergeDefaultConnections(existing.connections, defaultProvider.connections),
         requiresApiKey: existing.requiresApiKey ?? defaultProvider.requiresApiKey,
         models:
           (existing.modelsPolicy ?? "merge") === "replace"
@@ -206,6 +251,7 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
   }
 
   const merged = mergeDefaultProviders(parsed);
+  cachedConfig = merged;
   if (JSON.stringify(merged) !== JSON.stringify(parsed)) {
     await writeTextFile(CONFIG_FILE, JSON.stringify(merged, null, 2), { baseDir: BASE_DIR });
   }
@@ -225,6 +271,49 @@ export function getProviderModelDefaults(
   modelId: string,
 ): ProviderModelDefaults | undefined {
   return provider?.models?.find((model) => model.id === modelId);
+}
+
+export interface ResolvedProviderConnection {
+  id: string;
+  apiType: ProviderApiType;
+  baseUrl: string;
+}
+
+/** モデルに対応する接続を providers.json から解決する。 */
+export function resolveProviderConnection(
+  provider: ProviderEntry | undefined,
+  modelId: string,
+  configuredBaseUrl?: string,
+): ResolvedProviderConnection | undefined {
+  if (!provider) return undefined;
+  const model = getProviderModelDefaults(provider, modelId);
+  const connectionId = model?.connection ?? provider.defaultConnection;
+  const configured = connectionId
+    ? provider.connections?.find((connection) => connection.id === connectionId)
+    : provider.connections?.[0];
+  if (configured) {
+    const override = configuredBaseUrl?.trim();
+    const baseUrl = override && override !== provider.defaultBaseUrl
+      ? override
+      : configured.baseUrl;
+    return {
+      ...configured,
+      baseUrl,
+    };
+  }
+
+  // 旧 providers.json / ユーザー追加プロバイダーの後方互換。
+  const apiType: ProviderApiType =
+    provider.sdkType === "anthropic"
+      ? "anthropic-messages"
+      : provider.sdkType === "google"
+        ? "google-generate-content"
+        : "openai-chat";
+  return {
+    id: "legacy-default",
+    apiType,
+    baseUrl: configuredBaseUrl?.trim() || provider.defaultBaseUrl,
+  };
 }
 
 export function getProviderModelIds(provider: ProviderEntry | undefined): string[] {
@@ -287,6 +376,7 @@ function isProviderModelDefaults(value: unknown): value is ProviderModelDefaults
   const model = value as Partial<ProviderModelDefaults>;
   return (
     typeof model.id === "string" &&
+    (model.connection === undefined || typeof model.connection === "string") &&
     (model.label === undefined || typeof model.label === "string") &&
     (model.temperature === undefined || typeof model.temperature === "number") &&
     (model.maxTokens === undefined || typeof model.maxTokens === "number") &&
@@ -334,10 +424,26 @@ function isProviderConfig(value: unknown): value is ProviderConfig {
       (p.sdkType === "openai" || p.sdkType === "anthropic" || p.sdkType === "google") &&
       typeof p.defaultBaseUrl === "string" &&
       typeof p.defaultModel === "string" &&
+      (p.defaultConnection === undefined || typeof p.defaultConnection === "string") &&
+      (p.connections === undefined ||
+        (Array.isArray(p.connections) && p.connections.every(isProviderConnection))) &&
       (p.requiresApiKey === undefined || typeof p.requiresApiKey === "boolean") &&
       (p.modelSelection === undefined || p.modelSelection === "fixed" || p.modelSelection === "fetch") &&
       (p.modelsPolicy === undefined || p.modelsPolicy === "merge" || p.modelsPolicy === "replace") &&
       (p.models === undefined || (Array.isArray(p.models) && p.models.every(isProviderModelDefaults)))
     );
   });
+}
+
+function isProviderConnection(value: unknown): value is ProviderConnection {
+  if (typeof value !== "object" || value === null) return false;
+  const connection = value as Partial<ProviderConnection>;
+  return (
+    typeof connection.id === "string" &&
+    typeof connection.baseUrl === "string" &&
+    (connection.apiType === "openai-responses" ||
+      connection.apiType === "openai-chat" ||
+      connection.apiType === "anthropic-messages" ||
+      connection.apiType === "google-generate-content")
+  );
 }

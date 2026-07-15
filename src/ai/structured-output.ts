@@ -1,7 +1,11 @@
 import { generateObject, generateText, tool, type LanguageModel } from "ai";
 import type { z } from "zod";
-import { OPENCODE_GO_ANTHROPIC_MODELS } from "./provider.ts";
 import type { AiSettings } from "../settings.ts";
+import {
+  getCachedProviderConfig,
+  getProviderEntry,
+  resolveProviderConnection,
+} from "../providers/config.ts";
 
 /**
  * OpenCode Go プロバイダは OpenAI 互換経路のときに
@@ -48,7 +52,11 @@ export async function generateStructuredObject<T>(
   });
   const isOpenCodeOpenAiCompatible =
     options.settings.provider === "opencode" &&
-    !OPENCODE_GO_ANTHROPIC_MODELS.has(options.settings.model);
+    resolveProviderConnection(
+      getProviderEntry(getCachedProviderConfig(), options.settings.provider),
+      options.settings.model,
+      options.settings.baseUrl,
+    )?.apiType !== "anthropic-messages";
 
   const { settings: _settings, providerOptions, schema, ...sharedOptions } = options;
   void _settings;

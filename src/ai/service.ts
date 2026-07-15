@@ -34,6 +34,7 @@ import {
   recordProviderCacheUsage,
   savePersistentAiArtifact,
 } from "./cache-observability.ts";
+import { streamRustText, supportsRustTextProvider } from "./rust-transport.ts";
 
 // ビート分割生成で前ビートの生成分を文脈に継ぎ足す際、無制限に伸びないための上限
 const BEAT_CONTEXT_CHAR_BUDGET = 12000;
@@ -83,9 +84,35 @@ async function generateLoggedText(
   name: string,
   settings: AiSettings,
   options: Parameters<typeof generateText>[0],
-) {
+): Promise<{ text: string; reasoningText?: string; finishReason?: string }> {
   const step = beginAiStep(name, settings);
   try {
+    if (
+      supportsRustTextProvider(settings) &&
+      "prompt" in options &&
+      typeof options.prompt === "string"
+    ) {
+      let text = "";
+      let reasoningText = "";
+      const result = await streamRustText(settings, {
+        system: typeof options.system === "string" ? options.system : "",
+        prompt: options.prompt,
+        maxOutputTokens: options.maxOutputTokens ?? NONSTREAMING_MAX_OUTPUT_TOKENS,
+        abortSignal: options.abortSignal,
+        onChunk: (chunk) => { text += chunk; },
+        onReasoning: (chunk) => { reasoningText += chunk; },
+      });
+      const generated = {
+        text,
+        reasoningText: reasoningText || undefined,
+        finishReason: result.finishReason,
+      };
+      if (generated.reasoningText) {
+        console.log(`[litra:ai-step:${step.id}] REASONING ${step.name}`, generated.reasoningText);
+      }
+      completeAiStep(step, generated.text, generated.finishReason);
+      return generated;
+    }
     const result = await generateText(options);
     recordProviderCacheUsage(name, settings, result.providerMetadata);
     if (result.reasoningText) {
@@ -1729,6 +1756,30 @@ export async function streamRewrite({
   try {
     const s = normalizeSettings(settings);
     const runCandidate = async (emit: (chunk: string) => void): Promise<{ text: string; run: StreamRunResult }> => {
+      if (supportsRustTextProvider(s)) {
+        let text = "";
+        const result = await streamRustText(s, {
+          system: buildAssistantSystemPrompt({ toolsEnabled: false }),
+          prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold, instruction),
+          maxOutputTokens: s.maxTokens,
+          abortSignal,
+          onChunk: (chunk) => { text += chunk; emit(chunk); },
+          onReasoning,
+        });
+        return {
+          text: sanitizeDraftText(text),
+          run: {
+            ...result,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            toolErrorCount: 0,
+            stoppedAfterToolResult: false,
+            stoppedAfterToolActivity: false,
+            pendingToolCallIds: [],
+            responseMessages: [],
+          },
+        };
+      }
       const result = streamText<ToolSet>({
         model: createModel(s),
         ...buildRetryOption(s),
@@ -1791,6 +1842,26 @@ export async function streamFeedback({
 }: StreamFeedbackOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
+    if (supportsRustTextProvider(s)) {
+      const result = await streamRustText(s, {
+        system: buildAssistantSystemPrompt({ toolsEnabled: false }),
+        prompt: buildFeedbackPrompt(selection, settingsContext),
+        maxOutputTokens: s.maxTokens,
+        abortSignal,
+        onChunk,
+        onReasoning,
+      });
+      return {
+        ...result,
+        toolCallCount: 0,
+        toolResultCount: 0,
+        toolErrorCount: 0,
+        stoppedAfterToolResult: false,
+        stoppedAfterToolActivity: false,
+        pendingToolCallIds: [],
+        responseMessages: [],
+      };
+    }
     const result = streamText<ToolSet>({
       model: createModel(s),
       ...buildRetryOption(s),

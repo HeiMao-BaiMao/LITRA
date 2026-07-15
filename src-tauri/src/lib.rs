@@ -1,3 +1,4 @@
+mod ai;
 mod codex_oauth;
 mod genre_search;
 mod genre_windows;
@@ -19,8 +20,11 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(ai::AiRequestRegistry::default())
         .manage(codex_oauth::OAuthCancelFlag::new())
         .invoke_handler(tauri::generate_handler![
+            ai::ai_stream_text,
+            ai::ai_cancel,
             codex_oauth::start_codex_browser_auth,
             codex_oauth::cancel_codex_browser_auth,
             genre_search::rebuild_genre_search_index,

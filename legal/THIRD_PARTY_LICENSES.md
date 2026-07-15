@@ -27,7 +27,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | brotli | 8.0.4 | BSD-3-Clause AND MIT | [link](https://github.com/dropbox/rust-brotli) |
 | cargo | bs58 | 0.5.1 | MIT/Apache-2.0 | [link](https://github.com/Nullus157/bs58-rs) |
 | cargo | byteorder | 1.5.0 | Unlicense OR MIT | [link](https://github.com/BurntSushi/byteorder) |
-| cargo | bytes | 1.12.1 | MIT | [link](https://github.com/tokio-rs/bytes) |
+| cargo | bytes | 1.12.0 | MIT | [link](https://github.com/tokio-rs/bytes) |
 | cargo | camino | 1.2.4 | MIT OR Apache-2.0 | [link](https://github.com/camino-rs/camino) |
 | cargo | cargo_metadata | 0.19.2 | MIT | [link](https://github.com/oli-obk/cargo_metadata) |
 | cargo | cargo_toml | 0.22.3 | Apache-2.0 OR MIT | [link](https://gitlab.com/lib.rs/cargo_toml) |
@@ -44,10 +44,10 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
 | cargo | cpufeatures | 0.3.0 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
 | cargo | crc32fast | 1.5.0 | MIT OR Apache-2.0 | [link](https://github.com/srijs/rust-crc32fast) |
-| cargo | crossbeam-channel | 0.5.16 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
-| cargo | crossbeam-deque | 0.8.7 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
-| cargo | crossbeam-epoch | 0.9.20 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
-| cargo | crossbeam-utils | 0.8.22 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | crossbeam-channel | 0.5.15 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | crossbeam-deque | 0.8.6 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | crossbeam-epoch | 0.9.18 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | crossbeam-utils | 0.8.21 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
 | cargo | crunchy | 0.2.4 | MIT | [link](https://github.com/eira-fransham/crunchy) |
 | cargo | crypto-common | 0.1.7 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/traits) |
 | cargo | cssparser-macros | 0.6.1 | MPL-2.0 | [link](https://github.com/servo/rust-cssparser) |
@@ -156,7 +156,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | markup5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | markup5ever | 0.39.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | measure_time | 0.9.0 | MIT | [link](https://github.com/PSeitz/rust_measure_time) |
-| cargo | memchr | 2.8.3 | Unlicense OR MIT | [link](https://github.com/BurntSushi/memchr) |
+| cargo | memchr | 2.8.2 | Unlicense OR MIT | [link](https://github.com/BurntSushi/memchr) |
 | cargo | memmap2 | 0.9.11 | MIT OR Apache-2.0 | [link](https://github.com/RazrFalcon/memmap2-rs) |
 | cargo | mime | 0.3.17 | MIT OR Apache-2.0 | [link](https://github.com/hyperium/mime) |
 | cargo | minimal-lexical | 0.2.1 | MIT/Apache-2.0 | [link](https://github.com/Alexhuszagh/minimal-lexical) |
@@ -210,9 +210,9 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | rayon | 1.12.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/rayon) |
 | cargo | ref-cast-impl | 1.0.25 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/ref-cast) |
 | cargo | ref-cast | 1.0.25 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/ref-cast) |
-| cargo | regex-automata | 0.4.15 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
+| cargo | regex-automata | 0.4.14 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
 | cargo | regex-syntax | 0.8.11 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
-| cargo | regex | 1.13.0 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
+| cargo | regex | 1.12.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
 | cargo | reqwest | 0.12.28 | MIT OR Apache-2.0 | [link](https://github.com/seanmonstar/reqwest) |
 | cargo | ring | 0.17.14 | Apache-2.0 AND ISC | [link](https://github.com/briansmith/ring) |
 | cargo | rust-stemmers | 1.2.0 | MIT/BSD-3-Clause | [link](https://github.com/CurrySoftware/rust-stemmers) |
@@ -221,7 +221,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | rustls-pki-types | 1.15.0 | MIT OR Apache-2.0 | [link](https://github.com/rustls/pki-types) |
 | cargo | rustls-webpki | 0.103.13 | ISC | [link](https://github.com/rustls/webpki) |
 | cargo | rustls | 0.23.41 | Apache-2.0 OR ISC OR MIT | [link](https://github.com/rustls/rustls) |
-| cargo | rustversion | 1.0.23 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/rustversion) |
+| cargo | rustversion | 1.0.22 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/rustversion) |
 | cargo | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | [link](https://github.com/dtolnay/ryu) |
 | cargo | same-file | 1.0.6 | Unlicense/MIT | [link](https://github.com/BurntSushi/same-file) |
 | cargo | schemars_derive | 0.8.22 | MIT | [link](https://github.com/GREsau/schemars) |
@@ -286,7 +286,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | tauri-winres | 0.3.6 | MIT | [link](https://github.com/tauri-apps/winres) |
 | cargo | tauri | 2.11.5 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
 | cargo | tempfile | 3.27.0 | MIT OR Apache-2.0 | [link](https://github.com/Stebalien/tempfile) |
-| cargo | tendril | 0.5.1 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
+| cargo | tendril | 0.5.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | thiserror-impl | 1.0.69 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
 | cargo | thiserror-impl | 2.0.18 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
 | cargo | thiserror | 1.0.69 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
@@ -332,6 +332,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | untrusted | 0.9.0 | ISC | [link](https://github.com/briansmith/untrusted) |
 | cargo | url | 2.5.8 | MIT OR Apache-2.0 | [link](https://github.com/servo/rust-url) |
 | cargo | urlpattern | 0.3.0 | MIT | [link](https://github.com/denoland/rust-urlpattern) |
+| cargo | utf-8 | 0.7.6 | MIT OR Apache-2.0 | [link](https://github.com/SimonSapin/rust-utf8) |
 | cargo | utf8_iter | 1.0.4 | Apache-2.0 OR MIT | [link](https://github.com/hsivonen/utf8_iter) |
 | cargo | utf8-ranges | 1.0.5 | Unlicense/MIT | [link](https://github.com/BurntSushi/utf8-ranges) |
 | cargo | uuid | 1.23.4 | Apache-2.0 OR MIT | [link](https://github.com/uuid-rs/uuid) |
@@ -379,7 +380,7 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | xml5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | yoke-derive | 0.8.2 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | yoke | 0.8.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
-| cargo | zerocopy | 0.8.54 | BSD-2-Clause OR Apache-2.0 OR MIT | [link](https://github.com/google/zerocopy) |
+| cargo | zerocopy | 0.8.52 | BSD-2-Clause OR Apache-2.0 OR MIT | [link](https://github.com/google/zerocopy) |
 | cargo | zerofrom-derive | 0.1.7 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerofrom | 0.1.8 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zeroize_derive | 1.5.0 | Apache-2.0 OR MIT | [link](https://github.com/RustCrypto/utils) |

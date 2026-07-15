@@ -12,6 +12,11 @@ import {
   DEFAULT_COPILOT_BASE,
   getCopilotModelEndpoint,
 } from "../providers/copilot-auth.ts";
+import {
+  getCachedProviderConfig,
+  getProviderEntry,
+  resolveProviderConnection,
+} from "../providers/config.ts";
 
 const FLOAT_PARAMETER_KEYS = new Set([
   "temperature",
@@ -24,17 +29,6 @@ const PLAMO_API_HOST = "api.platform.preferredai.jp";
 const SAKURA_API_HOST = "api.ai.sakura.ad.jp";
 const OPENCODE_API_HOST = "opencode.ai";
 const DEEPSEEK_API_HOST = "api.deepseek.com";
-// OpenCode Go の Anthropic Messages 互換モデル(公式ドキュメント準拠)。
-// それ以外は OpenAI Chat Completions 互換。
-export const OPENCODE_GO_ANTHROPIC_MODELS = new Set([
-  "minimax-m3",
-  "minimax-m2.7",
-  "minimax-m2.5",
-  "qwen3.7-max",
-  "qwen3.7-plus",
-  "qwen3.6-plus",
-  "qwen3.5-plus",
-]);
 const PLAMO_UNSUPPORTED_SCHEMA_KEYS = new Set(["$schema", "propertyNames"]);
 const SAKURA_RETRY_STATUS_CODES = new Set([429, 439]);
 const SAKURA_MIN_REQUEST_INTERVAL_MS = 2500;
@@ -857,6 +851,11 @@ export function createModel(settings: AiSettings) {
     fetch: debugFetch,
     ...(baseURL ? { baseURL } : {}),
   };
+  const configuredConnection = resolveProviderConnection(
+    getProviderEntry(getCachedProviderConfig(), settings.provider),
+    settings.model,
+    baseURL,
+  );
 
   switch (settings.provider) {
     case "openai":
@@ -880,7 +879,7 @@ export function createModel(settings: AiSettings) {
       return openai(settings.model);
     }
     case "opencode":
-      if (OPENCODE_GO_ANTHROPIC_MODELS.has(settings.model)) {
+      if (configuredConnection?.apiType === "anthropic-messages") {
         return createAnthropic(common)(settings.model);
       }
       // OpenAI 互換経路(DeepSeek V4 / GLM / MiMo)は思考内容が delta.reasoning_content で

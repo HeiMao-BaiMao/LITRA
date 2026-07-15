@@ -32,13 +32,15 @@ dirs = "6"
 tantivy = "0.26"
 chrono = { version = "0", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
-reqwest = { version = "0", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0", default-features = false, features = ["rustls-tls", "json", "stream"] }
+futures-util = "0"
 base64 = "0"
 quick-xml = "0"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 rand = "0"
 sha2 = "0"
 tokio = { version = "1", features = ["sync", "time"] }
+tokio-util = "0"
 html2text = "0"
 htmd = "0"
 ua_generator = { version = "0", default-features = false }
