@@ -59,6 +59,9 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-save-settings" => "save-ai-settings",
                     "btn-cancel-settings" => "cancel-ai-settings",
                     "btn-direct-writing" => "toggle-direct-writing",
+                    "btn-oauth-login" => "oauth-login",
+                    "btn-oauth-logout" => "oauth-logout",
+                    "btn-oauth-cancel" => "oauth-cancel",
                     _ => "",
                 }
                 .into()
@@ -294,6 +297,18 @@ async fn handle_click(
         "open-ai-settings" => super::settings::open(document, state).await?,
         "save-ai-settings" => super::settings::save(document, state).await?,
         "cancel-ai-settings" => super::settings::cancel(document)?,
+        "oauth-login" | "oauth-logout" | "oauth-cancel" => {
+            let provider = document
+                .get_element_by_id("setting-provider")
+                .and_then(|item| item.dyn_into::<HtmlSelectElement>().ok())
+                .map(|select| select.value())
+                .unwrap_or_default();
+            match action {
+                "oauth-login" => super::settings::start_oauth(document, &provider).await?,
+                "oauth-logout" => super::settings::logout_oauth(document, &provider).await?,
+                _ => super::settings::cancel_oauth(document, &provider).await?,
+            }
+        }
         "toggle-direct-writing" => {
             let next = !state.borrow().direct_writing;
             state.borrow_mut().direct_writing = next;

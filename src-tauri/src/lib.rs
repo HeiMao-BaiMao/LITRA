@@ -32,6 +32,8 @@ pub fn run() {
             ai::config::ai_settings_snapshot,
             ai::config::ai_settings_save,
             ai::models::ai_list_models,
+            ai::auth::store::oauth_credential_status,
+            ai::auth::store::oauth_credential_delete,
             ai::oauth::copilot::start_copilot_device_auth,
             ai::oauth::copilot::cancel_copilot_device_auth,
             codex_oauth::start_codex_browser_auth,

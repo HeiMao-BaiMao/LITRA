@@ -68,3 +68,54 @@ where
     .await
     .map_err(|error| format!("OAuth credential write task failed: {error}"))?
 }
+
+fn validate_oauth_provider(provider: &str) -> Result<(), String> {
+    match provider {
+        "codex" | "github-copilot" => Ok(()),
+        _ => Err(format!("OAuth is not supported for provider: {provider}")),
+    }
+}
+
+#[tauri::command]
+pub async fn oauth_credential_status(provider: String) -> Result<bool, String> {
+    validate_oauth_provider(&provider)?;
+    let key = format!("oauth:{provider}");
+    tokio::task::spawn_blocking(move || {
+        crate::secrets::get_secret(&key).map(|value| value.is_some())
+    })
+    .await
+    .map_err(|error| format!("OAuth credential status task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn oauth_credential_delete(provider: String) -> Result<(), String> {
+    validate_oauth_provider(&provider)?;
+    let key = format!("oauth:{provider}");
+    tokio::task::spawn_blocking(move || {
+        if let Some(manifest) = crate::secrets::get_secret(&key)? {
+            if let Some(count) = manifest
+                .strip_prefix(CHUNK_PREFIX)
+                .and_then(|value| value.parse::<usize>().ok())
+            {
+                for index in 0..count.min(MAX_CHUNKS) {
+                    crate::secrets::delete_secret(&format!("{key}:{index}"))?;
+                }
+            }
+        }
+        crate::secrets::delete_secret(&key)
+    })
+    .await
+    .map_err(|error| format!("OAuth credential delete task failed: {error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_oauth_provider;
+
+    #[test]
+    fn oauth_commands_only_accept_supported_providers() {
+        assert!(validate_oauth_provider("codex").is_ok());
+        assert!(validate_oauth_provider("github-copilot").is_ok());
+        assert!(validate_oauth_provider("openai").is_err());
+    }
+}

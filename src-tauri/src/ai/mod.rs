@@ -1,4 +1,4 @@
-mod auth;
+pub(crate) mod auth;
 pub(crate) mod config;
 mod messages;
 pub(crate) mod models;
