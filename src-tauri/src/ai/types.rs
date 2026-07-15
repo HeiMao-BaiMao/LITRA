@@ -70,6 +70,19 @@ pub enum AiStreamEvent {
     ReasoningDelta {
         delta: String,
     },
+    ToolInputStart {
+        tool_call_id: String,
+        tool_name: String,
+    },
+    ToolInputDelta {
+        tool_call_id: String,
+        delta: String,
+    },
+    ToolCall {
+        tool_call_id: String,
+        tool_name: String,
+        input: Value,
+    },
     Usage {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,

@@ -1,6 +1,9 @@
 mod anthropic;
 mod google;
 mod openai;
+mod state;
+
+pub use state::StreamState;
 
 use serde_json::Value;
 use tauri::ipc::Channel;
@@ -37,6 +40,7 @@ pub fn process(
     api_type: ProviderApiType,
     raw: &str,
     channel: &Channel<AiStreamEvent>,
+    state: &mut StreamState,
 ) -> Result<(), String> {
     let mut event_name = None;
     let mut data = Vec::new();
@@ -53,10 +57,12 @@ pub fn process(
     let value: Value = serde_json::from_str(&data.join("\n"))
         .map_err(|e| format!("AI ストリーム JSON の解析に失敗しました: {e}"))?;
     match api_type {
-        ProviderApiType::OpenaiResponses => openai::parse_responses(event_name, &value, channel),
-        ProviderApiType::OpenaiChat => openai::parse_chat(&value, channel),
-        ProviderApiType::AnthropicMessages => anthropic::parse(event_name, &value, channel),
-        ProviderApiType::GoogleGenerateContent => google::parse(&value, channel),
+        ProviderApiType::OpenaiResponses => {
+            openai::parse_responses(event_name, &value, channel, state)
+        }
+        ProviderApiType::OpenaiChat => openai::parse_chat(&value, channel, state),
+        ProviderApiType::AnthropicMessages => anthropic::parse(event_name, &value, channel, state),
+        ProviderApiType::GoogleGenerateContent => google::parse(&value, channel, state),
     }
 }
 

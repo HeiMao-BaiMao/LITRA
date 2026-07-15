@@ -11,6 +11,9 @@ export type RustAiStreamEvent =
   | { type: "started"; request_id: string }
   | { type: "text_delta"; delta: string }
   | { type: "reasoning_delta"; delta: string }
+  | { type: "tool_input_start"; tool_call_id: string; tool_name: string }
+  | { type: "tool_input_delta"; tool_call_id: string; delta: string }
+  | { type: "tool_call"; tool_call_id: string; tool_name: string; input: unknown }
   | {
       type: "usage";
       input_tokens?: number;
@@ -112,6 +115,9 @@ export async function streamRustText(
         eventError = new Error(event.message);
         break;
       case "started":
+      case "tool_input_start":
+      case "tool_input_delta":
+      case "tool_call":
         break;
     }
   });

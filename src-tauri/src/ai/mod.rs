@@ -85,6 +85,7 @@ async fn stream_request(
 
     let mut body = response.bytes_stream();
     let mut buffer = Vec::new();
+    let mut stream_state = stream::StreamState::default();
     loop {
         tokio::select! {
             _ = token.cancelled() => {
@@ -95,7 +96,7 @@ async fn stream_request(
                 Some(Ok(bytes)) => {
                     buffer.extend_from_slice(&bytes);
                     for event in stream::take_events(&mut buffer) {
-                        stream::process(request.api_type, &event, channel)?;
+                        stream::process(request.api_type, &event, channel, &mut stream_state)?;
                     }
                 }
                 Some(Err(error)) => {
@@ -108,7 +109,12 @@ async fn stream_request(
         }
     }
     if !buffer.is_empty() {
-        stream::process(request.api_type, &String::from_utf8_lossy(&buffer), channel)?;
+        stream::process(
+            request.api_type,
+            &String::from_utf8_lossy(&buffer),
+            channel,
+            &mut stream_state,
+        )?;
     }
     send(
         channel,

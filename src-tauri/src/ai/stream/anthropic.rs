@@ -1,17 +1,71 @@
 use serde_json::Value;
 use tauri::ipc::Channel;
 
-use super::send;
+use super::{send, StreamState};
 use crate::ai::types::AiStreamEvent;
 
 pub fn parse(
     event_name: Option<&str>,
     value: &Value,
     channel: &Channel<AiStreamEvent>,
+    state: &mut StreamState,
 ) -> Result<(), String> {
     match event_name.or_else(|| value.get("type").and_then(Value::as_str)) {
+        Some("content_block_start")
+            if value.pointer("/content_block/type").and_then(Value::as_str) == Some("tool_use") =>
+        {
+            let key = value
+                .get("index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .to_string();
+            let id = value
+                .pointer("/content_block/id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let name = value
+                .pointer("/content_block/name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            state.start(key.clone(), id.into(), name.into());
+            if let Some(input) = value
+                .pointer("/content_block/input")
+                .filter(|input| input.as_object().is_some_and(|object| !object.is_empty()))
+            {
+                state.append(&key, &input.to_string());
+            }
+            send(
+                channel,
+                AiStreamEvent::ToolInputStart {
+                    tool_call_id: id.into(),
+                    tool_name: name.into(),
+                },
+            )?;
+        }
         Some("content_block_delta") => {
             let kind = value.pointer("/delta/type").and_then(Value::as_str);
+            if kind == Some("input_json_delta") {
+                let key = value
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .to_string();
+                let delta = value
+                    .pointer("/delta/partial_json")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                state.append(&key, delta);
+                if let Some((id, _)) = state.identity(&key) {
+                    send(
+                        channel,
+                        AiStreamEvent::ToolInputDelta {
+                            tool_call_id: id.into(),
+                            delta: delta.into(),
+                        },
+                    )?;
+                }
+                return Ok(());
+            }
             let delta = value
                 .pointer("/delta/text")
                 .or_else(|| value.pointer("/delta/thinking"))
@@ -27,6 +81,23 @@ pub fn parse(
                     }
                 };
                 send(channel, event)?;
+            }
+        }
+        Some("content_block_stop") => {
+            let key = value
+                .get("index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .to_string();
+            if let Some(call) = state.finish(&key, None) {
+                send(
+                    channel,
+                    AiStreamEvent::ToolCall {
+                        tool_call_id: call.id,
+                        tool_name: call.name,
+                        input: call.input,
+                    },
+                )?;
             }
         }
         Some("message_start") => {
