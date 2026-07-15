@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 
+mod components;
 mod runtime;
 mod windows;
 
@@ -13,6 +14,7 @@ pub fn start() -> Result<(), JsValue> {
         .and_then(|body| body.get_attribute("data-rust-window"));
 
     match window_name.as_deref() {
+        Some("memo") => windows::memo::mount(&document),
         Some("summary") => windows::summary::mount(&document),
         _ => Ok(()),
     }
