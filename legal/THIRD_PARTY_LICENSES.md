@@ -39,7 +39,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | cfg-if | 1.0.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/cfg-if) |
 | cargo | chacha20 | 0.10.1 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/stream-ciphers) |
 | cargo | chrono | 0.4.45 | MIT OR Apache-2.0 | [link](https://github.com/chronotope/chrono) |
-| cargo | cookie_store | 0.22.1 | MIT OR Apache-2.0 | [link](https://github.com/pfernie/cookie_store) |
 | cargo | cookie | 0.18.1 | MIT OR Apache-2.0 | [link](https://github.com/SergioBenitez/cookie-rs) |
 | cargo | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
 | cargo | cpufeatures | 0.3.0 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
@@ -57,7 +56,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | darling_core | 0.23.0 | MIT | [link](https://github.com/TedDriggs/darling) |
 | cargo | darling_macro | 0.23.0 | MIT | [link](https://github.com/TedDriggs/darling) |
 | cargo | darling | 0.23.0 | MIT | [link](https://github.com/TedDriggs/darling) |
-| cargo | data-url | 0.3.2 | MIT OR Apache-2.0 | [link](https://github.com/servo/rust-url) |
 | cargo | datasketches | 0.2.0 | Apache-2.0 | [link](https://github.com/apache/datasketches-rust) |
 | cargo | deranged | 0.5.8 | MIT OR Apache-2.0 | [link](https://github.com/jhpratt/deranged) |
 | cargo | derive_more-impl | 2.1.1 | MIT | [link](https://github.com/JelteF/derive_more) |
@@ -66,7 +64,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | dirs-sys | 0.5.0 | MIT OR Apache-2.0 | [link](https://github.com/dirs-dev/dirs-sys-rs) |
 | cargo | dirs | 6.0.0 | MIT OR Apache-2.0 | [link](https://github.com/soc/dirs-rs) |
 | cargo | displaydoc | 0.2.6 | MIT OR Apache-2.0 | [link](https://github.com/yaahc/displaydoc) |
-| cargo | document-features | 0.2.12 | MIT OR Apache-2.0 | [link](https://github.com/slint-ui/document-features) |
 | cargo | dom_query | 0.27.0 | MIT | [link](https://github.com/niklak/dom_query) |
 | cargo | downcast-rs | 2.0.2 | MIT OR Apache-2.0 | [link](https://github.com/marcianx/downcast-rs) |
 | cargo | dpi | 0.1.2 | Apache-2.0 AND MIT | [link](https://github.com/rust-windowing/winit) |
@@ -78,7 +75,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | dyn-clone | 1.0.20 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/dyn-clone) |
 | cargo | either | 1.16.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/either) |
 | cargo | embed-resource | 3.0.11 | MIT | [link](https://github.com/nabijaczleweli/rust-embed-resource) |
-| cargo | encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | [link](https://github.com/hsivonen/encoding_rs) |
 | cargo | equivalent | 1.0.2 | Apache-2.0 OR MIT | [link](https://github.com/indexmap-rs/equivalent) |
 | cargo | erased-serde | 0.4.10 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/erased-serde) |
 | cargo | fastdivide | 0.4.2 | zlib-acknowledgement OR MIT | [link](https://github.com/fulmicoton/fastdivide) |
@@ -102,7 +98,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | getrandom | 0.3.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/getrandom) |
 | cargo | getrandom | 0.4.3 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/getrandom) |
 | cargo | glob | 0.3.3 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/glob) |
-| cargo | h2 | 0.4.15 | MIT | [link](https://github.com/hyperium/h2) |
 | cargo | hashbrown | 0.12.3 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/hashbrown) |
 | cargo | hashbrown | 0.16.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/hashbrown) |
 | cargo | hashbrown | 0.17.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/hashbrown) |
@@ -146,7 +141,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | levenshtein_automata | 0.2.1 | MIT | [link](https://github.com/tantivy-search/levenshtein-automata) |
 | cargo | libc | 0.2.186 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/libc) |
 | cargo | litemap | 0.8.2 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
-| cargo | litrs | 1.0.0 | MIT OR Apache-2.0 | [link](https://github.com/LukasKalbertodt/litrs) |
 | cargo | lock_api | 0.4.14 | MIT OR Apache-2.0 | [link](https://github.com/Amanieu/parking_lot) |
 | cargo | log | 0.4.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/log) |
 | cargo | lru-slab | 0.1.2 | MIT OR Apache-2.0 OR Zlib | [link](https://github.com/Ralith/lru-slab) |
@@ -192,8 +186,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | precomputed-hash | 0.1.1 | MIT | [link](https://github.com/emilio/precomputed-hash) |
 | cargo | prettyplease | 0.2.37 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/prettyplease) |
 | cargo | proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/proc-macro2) |
-| cargo | psl-types | 2.0.11 | MIT/Apache-2.0 | [link](https://github.com/addr-rs/psl-types) |
-| cargo | publicsuffix | 2.3.0 | MIT/Apache-2.0 | [link](https://github.com/rushmorem/publicsuffix) |
 | cargo | quick-xml | 0.41.0 | MIT | [link](https://github.com/tafia/quick-xml) |
 | cargo | quinn-proto | 0.11.16 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
 | cargo | quinn-udp | 0.5.15 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
@@ -276,7 +268,6 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | tauri-codegen | 2.6.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
 | cargo | tauri-macros | 2.6.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
 | cargo | tauri-plugin-fs | 2.5.1 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
-| cargo | tauri-plugin-http | 2.5.9 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
 | cargo | tauri-plugin-opener | 2.5.4 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
 | cargo | tauri-plugin-store | 2.4.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
 | cargo | tauri-plugin | 2.6.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
@@ -359,11 +350,8 @@ This file lists third-party dependencies used by LITRA. It is generated from pac
 | cargo | windows-link | 0.1.3 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-link | 0.2.1 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-numerics | 0.2.0 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
-| cargo | windows-registry | 0.6.1 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-result | 0.3.4 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
-| cargo | windows-result | 0.4.1 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-strings | 0.4.2 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
-| cargo | windows-strings | 0.5.1 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-sys | 0.59.0 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-sys | 0.60.2 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows-sys | 0.61.2 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |

@@ -288,14 +288,6 @@
     },
     {
       "ecosystem": "cargo",
-      "name": "cookie_store",
-      "version": "0.22.1",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/pfernie/cookie_store",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
       "name": "cookie",
       "version": "0.18.1",
       "license": "MIT OR Apache-2.0",
@@ -432,14 +424,6 @@
     },
     {
       "ecosystem": "cargo",
-      "name": "data-url",
-      "version": "0.3.2",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/servo/rust-url",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
       "name": "datasketches",
       "version": "0.2.0",
       "license": "Apache-2.0",
@@ -501,14 +485,6 @@
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/yaahc/displaydoc",
       "homepage": "https://github.com/yaahc/displaydoc"
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "document-features",
-      "version": "0.2.12",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/slint-ui/document-features",
-      "homepage": "https://slint.rs"
     },
     {
       "ecosystem": "cargo",
@@ -597,14 +573,6 @@
       "license": "MIT",
       "source": "https://github.com/nabijaczleweli/rust-embed-resource",
       "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "encoding_rs",
-      "version": "0.8.35",
-      "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
-      "source": "https://github.com/hsivonen/encoding_rs",
-      "homepage": "https://docs.rs/encoding_rs/"
     },
     {
       "ecosystem": "cargo",
@@ -789,14 +757,6 @@
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/rust-lang/glob",
       "homepage": "https://github.com/rust-lang/glob"
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "h2",
-      "version": "0.4.15",
-      "license": "MIT",
-      "source": "https://github.com/hyperium/h2",
-      "homepage": null
     },
     {
       "ecosystem": "cargo",
@@ -1140,14 +1100,6 @@
       "version": "0.8.2",
       "license": "Unicode-3.0",
       "source": "https://github.com/unicode-org/icu4x",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "litrs",
-      "version": "1.0.0",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/LukasKalbertodt/litrs",
       "homepage": null
     },
     {
@@ -1508,22 +1460,6 @@
       "version": "1.0.106",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/dtolnay/proc-macro2",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "psl-types",
-      "version": "2.0.11",
-      "license": "MIT/Apache-2.0",
-      "source": "https://github.com/addr-rs/psl-types",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "publicsuffix",
-      "version": "2.3.0",
-      "license": "MIT/Apache-2.0",
-      "source": "https://github.com/rushmorem/publicsuffix",
       "homepage": null
     },
     {
@@ -2178,14 +2114,6 @@
       "ecosystem": "cargo",
       "name": "tauri-plugin-fs",
       "version": "2.5.1",
-      "license": "Apache-2.0 OR MIT",
-      "source": "https://github.com/tauri-apps/plugins-workspace",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "tauri-plugin-http",
-      "version": "2.5.9",
       "license": "Apache-2.0 OR MIT",
       "source": "https://github.com/tauri-apps/plugins-workspace",
       "homepage": null
@@ -2848,14 +2776,6 @@
     },
     {
       "ecosystem": "cargo",
-      "name": "windows-registry",
-      "version": "0.6.1",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/microsoft/windows-rs",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
       "name": "windows-result",
       "version": "0.3.4",
       "license": "MIT OR Apache-2.0",
@@ -2864,24 +2784,8 @@
     },
     {
       "ecosystem": "cargo",
-      "name": "windows-result",
-      "version": "0.4.1",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/microsoft/windows-rs",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
       "name": "windows-strings",
       "version": "0.4.2",
-      "license": "MIT OR Apache-2.0",
-      "source": "https://github.com/microsoft/windows-rs",
-      "homepage": null
-    },
-    {
-      "ecosystem": "cargo",
-      "name": "windows-strings",
-      "version": "0.5.1",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/microsoft/windows-rs",
       "homepage": null

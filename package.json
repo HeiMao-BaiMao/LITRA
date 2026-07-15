@@ -17,7 +17,6 @@
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-store": "^2",
-    "ai": "^6.0.208",
     "dompurify": "^3.4.11",
     "marked": "^18.0.5",
     "zod": "^4.4.3"
