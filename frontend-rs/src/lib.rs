@@ -20,6 +20,7 @@ pub fn start() -> Result<(), JsValue> {
             Some("chat") => windows::chat::mount(&document).await,
             Some("genre-library") => windows::genre_library::mount(&document).await,
             Some("genre-chat") => windows::genre_chat::mount(&document).await,
+            Some("main") => windows::main_app::mount(&document).await,
             Some("memo") => windows::memo::mount(&document).await,
             Some("project-memos") => windows::project_memos::mount(&document).await,
             Some("settings") => windows::settings::mount(&document).await,
