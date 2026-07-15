@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "bun:test";
 import { resolveForcedToolChoice } from "../service.ts";
-import { resolveProviderBaseUrl } from "../provider.ts";
+import { resolveProviderBaseUrl } from "../../providers/connection-safety.ts";
 import { extractDeepSeekCacheTokens } from "../cache-observability.ts";
 
 describe("extractDeepSeekCacheTokens", () => {

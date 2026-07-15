@@ -7,6 +7,7 @@ import {
   type ResolvedProviderConnection,
 } from "../providers/config.ts";
 import { getCopilotModelEndpoint } from "../providers/copilot-auth.ts";
+import { resolveProviderBaseUrl } from "../providers/connection-safety.ts";
 
 export type RustAiStreamEvent =
   | { type: "started"; request_id: string }
@@ -78,9 +79,10 @@ export async function streamRustText(
   const copilotEndpoint = settings.provider === "github-copilot"
     ? getCopilotModelEndpoint(settings.model)
     : undefined;
-  const configuredBaseUrl = copilotEndpoint === "messages" && settings.baseUrl
-    ? `${settings.baseUrl.replace(/\/$/, "")}/v1`.replace(/\/v1\/v1$/, "/v1")
-    : settings.baseUrl;
+  const safeBaseUrl = resolveProviderBaseUrl(settings.provider, settings.baseUrl);
+  const configuredBaseUrl = copilotEndpoint === "messages" && safeBaseUrl
+    ? `${safeBaseUrl.replace(/\/$/, "")}/v1`.replace(/\/v1\/v1$/, "/v1")
+    : safeBaseUrl;
   const connection = resolveProviderConnection(
     getProviderEntry(providerConfig, settings.provider),
     settings.model,
