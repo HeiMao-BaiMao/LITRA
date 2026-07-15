@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 mod components;
+mod data;
 mod runtime;
 mod windows;
 
@@ -17,6 +18,7 @@ pub fn start() -> Result<(), JsValue> {
     spawn_local(async move {
         let _ = match window_name.as_deref() {
             Some("chat") => windows::chat::mount(&document).await,
+            Some("genre-library") => windows::genre_library::mount(&document).await,
             Some("memo") => windows::memo::mount(&document).await,
             Some("project-memos") => windows::project_memos::mount(&document).await,
             Some("settings") => windows::settings::mount(&document).await,

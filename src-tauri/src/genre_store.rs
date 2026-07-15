@@ -2,7 +2,7 @@ use std::fs;
 
 use serde::Serialize;
 
-use crate::storage::{genre_dir, write_text};
+use crate::storage::{documents_dir, genre_dir, write_text};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +35,29 @@ fn resolve_path(genre_id: &str, relative_path: &str) -> Result<std::path::PathBu
         path.push(segment);
     }
     Ok(path)
+}
+
+fn genres_root() -> Result<std::path::PathBuf, String> {
+    Ok(documents_dir()?.join("litra").join("genres"))
+}
+
+fn genre_index_path() -> Result<std::path::PathBuf, String> {
+    Ok(genres_root()?.join("index.json"))
+}
+
+#[tauri::command]
+pub fn genre_read_index() -> Result<Option<String>, String> {
+    let path = genre_index_path()?;
+    match fs::read_to_string(&path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("Failed to read {}: {error}", path.display())),
+    }
+}
+
+#[tauri::command]
+pub fn genre_write_index(content: String) -> Result<(), String> {
+    write_text(&genre_index_path()?, &content)
 }
 
 #[tauri::command]
@@ -95,9 +118,15 @@ pub fn genre_remove_path(
     )
 }
 
+#[tauri::command]
+pub fn genre_remove(genre_id: String) -> Result<(), String> {
+    validate_segment(&genre_id, "genre ID")?;
+    crate::webdav_sync::remove_document_path(format!("litra/genres/{genre_id}"), Some(true))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_path;
+    use super::{resolve_path, validate_segment};
 
     #[test]
     fn rejects_genre_path_traversal() {
@@ -105,5 +134,12 @@ mod tests {
         assert!(resolve_path("genre", "../project.json").is_err());
         assert!(resolve_path("genre", r"sources\secret.json").is_err());
         assert!(resolve_path("genre", "sources//index.json").is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_genre_ids() {
+        for value in ["", ".", "..", "../project", r"genre\secret", "C:genre"] {
+            assert!(validate_segment(value, "genre ID").is_err());
+        }
     }
 }
