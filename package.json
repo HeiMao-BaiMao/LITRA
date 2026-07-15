@@ -13,10 +13,6 @@
     "test:unit": "bun test src/ai/__tests__"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.85",
-    "@ai-sdk/deepseek": "^2.0.39",
-    "@ai-sdk/google": "^3.0.83",
-    "@ai-sdk/openai": "^3.0.73",
     "@anthropic-ai/sdk": "^0.105.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-fs": "^2.5.1",
