@@ -2776,7 +2776,12 @@ function bindChatSettingsSelectors(): void {
 function syncChatSettingsToWindow(): void {
   const provider = currentSettings.chatProvider ?? currentSettings.provider;
   const model = currentSettings.chatModel ?? getProviderSpecificSettings(currentSettings, provider).model;
-  void emit("chat-settings-sync", { provider, model, chatSubmitShortcut: currentSettings.chatSubmitShortcut });
+  void emit("chat-settings-sync", {
+    provider,
+    model,
+    chatSubmitShortcut: currentSettings.chatSubmitShortcut,
+    providerConfig,
+  });
 }
 
 function openSettings(): void {

@@ -8,12 +8,15 @@ crate-type = ["cdylib"]
 
 [dependencies]
 js-sys = "0.3"
+ammonia = "4"
+pulldown-cmark = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
   "Document",
+  "DomTokenList",
   "CssStyleDeclaration",
   "Element",
   "Event",
@@ -21,6 +24,9 @@ web-sys = { version = "0.3", features = [
   "HtmlButtonElement",
   "HtmlElement",
   "HtmlInputElement",
+  "HtmlFormElement",
+  "HtmlSelectElement",
   "HtmlTextAreaElement",
+  "KeyboardEvent",
   "Window",
 ] }
