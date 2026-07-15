@@ -42,6 +42,7 @@ pub struct AiTextRequest {
     #[serde(default)]
     pub tools: Vec<AiToolDefinition>,
     pub tool_choice: Option<String>,
+    pub tool_choice_name: Option<String>,
     #[serde(default)]
     pub prompt: String,
     pub max_output_tokens: u64,
@@ -147,7 +148,14 @@ impl AiTextRequest {
         }
         if !self.tools.is_empty() {
             body.insert("tools".into(), Value::Array(self.responses_tools()));
-            insert_option(&mut body, "tool_choice", self.tool_choice.as_deref());
+            if let Some(name) = self.tool_choice_name.as_deref() {
+                body.insert(
+                    "tool_choice".into(),
+                    json!({ "type": "function", "name": name }),
+                );
+            } else {
+                insert_option(&mut body, "tool_choice", self.tool_choice.as_deref());
+            }
         }
         Value::Object(body)
     }
@@ -186,7 +194,14 @@ impl AiTextRequest {
         }
         if !self.tools.is_empty() {
             body.insert("tools".into(), Value::Array(self.chat_tools()));
-            insert_option(&mut body, "tool_choice", self.tool_choice.as_deref());
+            if let Some(name) = self.tool_choice_name.as_deref() {
+                body.insert(
+                    "tool_choice".into(),
+                    json!({ "type": "function", "function": { "name": name } }),
+                );
+            } else {
+                insert_option(&mut body, "tool_choice", self.tool_choice.as_deref());
+            }
         }
         Value::Object(body)
     }
@@ -225,11 +240,18 @@ impl AiTextRequest {
         }
         if !self.tools.is_empty() && self.tool_choice.as_deref() != Some("none") {
             body.insert("tools".into(), Value::Array(self.anthropic_tools()));
-            let choice = match self.tool_choice.as_deref() {
-                Some("required") => "any",
-                _ => "auto",
-            };
-            body.insert("tool_choice".into(), json!({ "type": choice }));
+            if let Some(name) = self.tool_choice_name.as_deref() {
+                body.insert(
+                    "tool_choice".into(),
+                    json!({ "type": "tool", "name": name }),
+                );
+            } else {
+                let choice = match self.tool_choice.as_deref() {
+                    Some("required") => "any",
+                    _ => "auto",
+                };
+                body.insert("tool_choice".into(), json!({ "type": choice }));
+            }
         } else if self.tool_choice.as_deref() == Some("none") {
             body.insert("tool_choice".into(), json!({ "type": "none" }));
         }
@@ -273,9 +295,14 @@ impl AiTextRequest {
                 Some("none") => "NONE",
                 _ => "AUTO",
             };
+            let function_calling_config = if let Some(name) = self.tool_choice_name.as_deref() {
+                json!({ "mode": "ANY", "allowedFunctionNames": [name] })
+            } else {
+                json!({ "mode": mode })
+            };
             body.insert(
                 "toolConfig".into(),
-                json!({ "functionCallingConfig": { "mode": mode } }),
+                json!({ "functionCallingConfig": function_calling_config }),
             );
         }
         Value::Object(body)

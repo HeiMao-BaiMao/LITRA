@@ -31,6 +31,7 @@ export interface RustTextStreamOptions {
   messages?: RustChatMessage[];
   tools?: RustToolDefinition[];
   toolChoice?: "auto" | "none" | "required";
+  toolChoiceName?: string;
   maxOutputTokens: number;
   abortSignal?: AbortSignal;
   onChunk: (chunk: string) => void;
@@ -226,6 +227,7 @@ function buildRustTextRequest(
     messages: options.messages,
     tools: options.tools,
     toolChoice: options.toolChoice,
+    toolChoiceName: options.toolChoiceName,
     prompt: options.prompt,
     maxOutputTokens: options.maxOutputTokens,
     temperature: ignoreSampling ? undefined : settings.temperature,

@@ -43,6 +43,7 @@ export async function generateStructuredObject<T>(
     prompt: options.prompt,
     tools: [tool],
     toolChoice: "required",
+    toolChoiceName: STRUCTURED_OUTPUT_TOOL_NAME,
     maxOutputTokens: options.maxOutputTokens ?? options.settings.maxTokens,
     abortSignal: options.abortSignal,
     onChunk: () => {},

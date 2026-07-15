@@ -199,6 +199,7 @@ mod tests {
             messages: Vec::new(),
             tools: Vec::new(),
             tool_choice: None,
+            tool_choice_name: None,
             prompt: "hello".into(),
             max_output_tokens: 100,
             temperature: None,
@@ -271,6 +272,31 @@ mod tests {
         assert_eq!(
             request.body()["toolConfig"]["functionCallingConfig"]["mode"],
             "ANY"
+        );
+    }
+
+    #[test]
+    fn named_tool_choice_is_converted_for_each_protocol() {
+        use super::types::AiToolDefinition;
+
+        let mut request = sample_request();
+        request.tools = vec![AiToolDefinition {
+            name: "submit".into(),
+            description: String::new(),
+            input_schema: json!({ "type": "object" }),
+        }];
+        request.tool_choice_name = Some("submit".into());
+
+        request.api_type = ProviderApiType::OpenaiResponses;
+        assert_eq!(request.body()["tool_choice"]["name"], "submit");
+        request.api_type = ProviderApiType::OpenaiChat;
+        assert_eq!(request.body()["tool_choice"]["function"]["name"], "submit");
+        request.api_type = ProviderApiType::AnthropicMessages;
+        assert_eq!(request.body()["tool_choice"]["name"], "submit");
+        request.api_type = ProviderApiType::GoogleGenerateContent;
+        assert_eq!(
+            request.body()["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"][0],
+            "submit"
         );
     }
 
