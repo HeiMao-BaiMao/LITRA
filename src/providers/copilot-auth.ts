@@ -277,6 +277,12 @@ export function invalidateCopilotModelCache(): void {
   cachedAt = 0;
 }
 
+/** Rust のモデル一覧 command が返した capability を同期キャッシュへ反映する。 */
+export function cacheCopilotModels(models: Record<string, CopilotModelCacheEntry>): void {
+  cachedModels = models;
+  cachedAt = Date.now();
+}
+
 /**
  * 同期モデルルックアップ。キャッシュが存在すればそこから model の情報を返す。
  * キャッシュが無い場合やモデルが見つからない場合は undefined。

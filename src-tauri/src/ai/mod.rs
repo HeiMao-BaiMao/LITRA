@@ -1,5 +1,6 @@
 mod auth;
 mod messages;
+pub(crate) mod models;
 mod providers;
 mod stream;
 mod transport;
