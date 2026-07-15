@@ -74,7 +74,10 @@ fn generate_pkce() -> PkceCodes {
 
     let hash = Sha256::digest(verifier.as_bytes());
     let challenge = BASE64URL.encode(hash);
-    PkceCodes { verifier, challenge }
+    PkceCodes {
+        verifier,
+        challenge,
+    }
 }
 
 /// cryptographically secure CSRF state (32 random bytes, base64url)
@@ -174,8 +177,8 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, Vec<(String, Str
         return Err("空のリクエストを受信しました".to_string());
     }
 
-    let request =
-        std::str::from_utf8(&buf[..n]).map_err(|_| "リクエストのエンコードが不正です".to_string())?;
+    let request = std::str::from_utf8(&buf[..n])
+        .map_err(|_| "リクエストのエンコードが不正です".to_string())?;
 
     // 1行目: "GET /auth/callback?code=xxx&state=yyy HTTP/1.1"
     let first_line = request
@@ -184,7 +187,10 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, Vec<(String, Str
         .ok_or_else(|| "空のリクエスト行".to_string())?;
     let parts: Vec<&str> = first_line.split_whitespace().collect();
     if parts.len() < 2 || parts[0] != "GET" {
-        return Err(format!("サポートされていないメソッド: {}", parts.first().unwrap_or(&"?")));
+        return Err(format!(
+            "サポートされていないメソッド: {}",
+            parts.first().unwrap_or(&"?")
+        ));
     }
 
     let path_and_query = parts[1];
@@ -208,12 +214,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, Vec<(String, Str
 }
 
 /// HTTP レスポンスをストリームに書き込む
-fn send_http_response(
-    stream: &mut TcpStream,
-    status: &str,
-    content_type: &str,
-    body: &str,
-) {
+fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) {
     let response = format!(
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         status,
@@ -327,7 +328,7 @@ fn extract_account_id_from_tokens(tokens: &TokenResponse) -> Option<String> {
     extract_account_id_from_jwt(&tokens.access_token)
 }
 
-fn extract_account_id_from_jwt(token: &str) -> Option<String> {
+pub(crate) fn extract_account_id_from_jwt(token: &str) -> Option<String> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
         return None;
@@ -423,7 +424,10 @@ fn save_credential_sync(tokens: &TokenResponse) -> Result<(), String> {
 
     // Remove chunks from a previous chunked credential before replacing it.
     if let Some(previous) = secrets::get_secret(BASE_KEY)? {
-        if let Some(count) = previous.strip_prefix("chunks:v1:").and_then(|v| v.parse::<usize>().ok()) {
+        if let Some(count) = previous
+            .strip_prefix("chunks:v1:")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
             for index in 0..count.min(32) {
                 secrets::delete_secret(&format!("{}:{}", BASE_KEY, index))?;
             }
@@ -520,7 +524,8 @@ pub async fn start_codex_browser_auth(
                                     "text/html; charset=utf-8",
                                     &error_html("無効なコールバックパスです。"),
                                 );
-                                let _ = result_tx.send(Err("無効なコールバックパスです。".to_string()));
+                                let _ =
+                                    result_tx.send(Err("無効なコールバックパスです。".to_string()));
                                 return;
                             }
                             let received_state = params
@@ -539,9 +544,7 @@ pub async fn start_codex_browser_auth(
                                     ),
                                 );
                                 Err("state 検証エラー: 値が一致しません".to_string())
-                            } else if let Some(error) =
-                                params.iter().find(|(k, _)| k == "error")
-                            {
+                            } else if let Some(error) = params.iter().find(|(k, _)| k == "error") {
                                 let desc = params
                                     .iter()
                                     .find(|(k, _)| k == "error_description")
@@ -603,9 +606,7 @@ pub async fn start_codex_browser_auth(
     let timeout_dur = Duration::from_secs(TIMEOUT_MINUTES * 60 + 30);
     let code = tokio::time::timeout(timeout_dur, result_rx)
         .await
-        .map_err(|_| {
-            "認証のタイムアウト (5分) になりました。もう一度お試しください。".to_string()
-        })?
+        .map_err(|_| "認証のタイムアウト (5分) になりました。もう一度お試しください。".to_string())?
         .map_err(|_| "認証がキャンセルされました。".to_string())??;
 
     // ---- 7. トークン交換 ----

@@ -1,3 +1,4 @@
+mod auth;
 mod messages;
 mod providers;
 mod stream;

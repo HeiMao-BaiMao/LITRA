@@ -76,6 +76,7 @@ export function supportsRustTextProvider(settings: AiSettings): boolean {
     settings.provider === "google" ||
     settings.provider === "deepseek" ||
     settings.provider === "llamacpp"
+    || settings.provider === "codex"
   );
 }
 

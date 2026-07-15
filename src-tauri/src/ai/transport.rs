@@ -36,7 +36,8 @@ pub async fn send_request(client: &Client, request: &AiTextRequest) -> Result<Re
         _ if request.api_key.trim().is_empty() => builder,
         _ => builder.bearer_auth(&request.api_key),
     };
-    providers::apply_request(builder, request)
+    providers::apply_request(builder, request, client)
+        .await?
         .send()
         .await
         .map_err(|e| format!("AI API への接続に失敗しました: {e}"))
