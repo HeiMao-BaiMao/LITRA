@@ -34,6 +34,12 @@ export interface RustTextStreamOptions {
   toolChoice?: "auto" | "none" | "required";
   toolChoiceName?: string;
   maxOutputTokens: number;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  thinkingEnabled?: boolean;
   abortSignal?: AbortSignal;
   onChunk: (chunk: string) => void;
   onReasoning?: (chunk: string) => void;
@@ -187,16 +193,20 @@ export async function streamRustText(
   };
 }
 
-function buildRustTextRequest(
+export function buildRustTextRequest(
   requestId: string,
   settings: AiSettings,
   connection: ResolvedProviderConnection,
   options: RustTextStreamOptions,
 ) {
   const deepSeekThinking =
-    settings.provider === "deepseek" ? settings.deepseekThinkingEnabled !== false : undefined;
+    settings.provider === "deepseek"
+      ? options.thinkingEnabled ?? settings.deepseekThinkingEnabled !== false
+      : undefined;
   const anthropicThinking =
-    settings.provider === "anthropic" ? settings.anthropicThinkingEnabled : undefined;
+    settings.provider === "anthropic"
+      ? options.thinkingEnabled ?? settings.anthropicThinkingEnabled
+      : undefined;
   const capability = settings.reasoningCapability;
   const anthropicThinkingType =
     settings.provider !== "anthropic"
@@ -232,11 +242,11 @@ function buildRustTextRequest(
     toolChoiceName: options.toolChoiceName,
     prompt: options.prompt,
     maxOutputTokens: options.maxOutputTokens,
-    temperature: ignoreSampling ? undefined : settings.temperature,
-    topP: ignoreSampling ? undefined : settings.topP,
-    topK: ignoreSampling ? undefined : settings.topK,
-    frequencyPenalty: settings.frequencyPenalty,
-    presencePenalty: settings.presencePenalty,
+    temperature: ignoreSampling ? undefined : options.temperature ?? settings.temperature,
+    topP: ignoreSampling ? undefined : options.topP ?? settings.topP,
+    topK: ignoreSampling ? undefined : options.topK ?? settings.topK,
+    frequencyPenalty: options.frequencyPenalty ?? settings.frequencyPenalty,
+    presencePenalty: options.presencePenalty ?? settings.presencePenalty,
     reasoningEffort:
       settings.provider === "deepseek"
         ? settings.deepseekReasoningEffort

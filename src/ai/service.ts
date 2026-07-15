@@ -93,6 +93,12 @@ async function generateLoggedText(
     prompt: string;
     system?: string;
     maxOutputTokens?: number;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    thinkingEnabled?: boolean;
     abortSignal?: AbortSignal;
     [key: string]: unknown;
   },
@@ -105,6 +111,12 @@ async function generateLoggedText(
       system: options.system ?? "",
       prompt: options.prompt,
       maxOutputTokens: options.maxOutputTokens ?? NONSTREAMING_MAX_OUTPUT_TOKENS,
+      temperature: options.temperature,
+      topP: options.topP,
+      topK: options.topK,
+      frequencyPenalty: options.frequencyPenalty,
+      presencePenalty: options.presencePenalty,
+      thinkingEnabled: options.thinkingEnabled,
       abortSignal: options.abortSignal,
       onChunk: (chunk) => { text += chunk; },
       onReasoning: (chunk) => { reasoningText += chunk; },
@@ -813,9 +825,7 @@ async function verifyToolCallNeed(
       // DeepSeek はサーバ既定で thinking ON のため、そのままだと推論時間で
       // 15 秒タイムアウトに達し検証が常に失敗する。この判定は軽量で良いので
       // thinking を明示的に無効化する(非 thinking なら temperature 0.1 も効く)。
-      ...(settings.provider === "deepseek" && {
-        providerOptions: { deepseek: { thinking: { type: "disabled" } } },
-      }),
+      ...(settings.provider === "deepseek" && { thinkingEnabled: false }),
       abortSignal: controller.signal,
     });
 
