@@ -78,6 +78,7 @@ export function supportsRustTextProvider(settings: AiSettings): boolean {
     settings.provider === "llamacpp" ||
     settings.provider === "sakura" ||
     settings.provider === "opencode" ||
+    settings.provider === "plamo" ||
     settings.provider === "codex" ||
     settings.provider === "github-copilot"
   );

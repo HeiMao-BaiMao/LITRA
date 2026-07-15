@@ -69,7 +69,7 @@ pub async fn send_request(
                     tokio::time::sleep(delay).await;
                     continue;
                 }
-                return Err(format!("OpenCode upstream error: {message}"));
+                return Err(format!("{} stream error: {message}", request.provider));
             }
         }
         return Ok(AiHttpResponse { response, prefix });
@@ -87,7 +87,7 @@ fn is_event_stream(response: &Response) -> bool {
 }
 
 async fn read_stream_head(response: &mut Response, prefix: &mut Vec<u8>) -> Result<(), String> {
-    while prefix.len() < STREAM_HEAD_LIMIT && !prefix.windows(2).any(|window| window == b"\n\n") {
+    while prefix.len() < STREAM_HEAD_LIMIT && !has_event_boundary(prefix) {
         let Some(chunk) = response
             .chunk()
             .await
@@ -98,6 +98,11 @@ async fn read_stream_head(response: &mut Response, prefix: &mut Vec<u8>) -> Resu
         prefix.extend_from_slice(&chunk);
     }
     Ok(())
+}
+
+fn has_event_boundary(bytes: &[u8]) -> bool {
+    bytes.windows(2).any(|window| window == b"\n\n")
+        || bytes.windows(4).any(|window| window == b"\r\n\r\n")
 }
 
 fn retry_after(response: &Response) -> Option<Duration> {

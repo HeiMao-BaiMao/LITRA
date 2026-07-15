@@ -90,12 +90,13 @@ pub(super) fn transient_error_message(text: &str) -> Option<String> {
 }
 
 fn structured_error_message(text: &str) -> Option<String> {
-    if let Ok(value) = serde_json::from_str::<Value>(text) {
+    let normalized = text.replace("\r\n", "\n");
+    if let Ok(value) = serde_json::from_str::<Value>(&normalized) {
         if let Some(message) = json_error_message(&value) {
             return Some(message.into());
         }
     }
-    for event in text.split("\n\n") {
+    for event in normalized.split("\n\n") {
         if !event.lines().any(|line| line.trim() == "event: error") {
             continue;
         }

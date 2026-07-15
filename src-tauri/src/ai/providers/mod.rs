@@ -1,6 +1,7 @@
 mod codex;
 mod copilot;
 mod opencode;
+mod plamo;
 mod sakura;
 
 use reqwest::RequestBuilder;
@@ -27,6 +28,7 @@ pub async fn apply_request(
 pub fn normalize_body(request: &AiTextRequest, body: Value) -> Value {
     match request.provider.as_str() {
         "opencode" => opencode::normalize_body(body),
+        "plamo" => plamo::normalize_body(body),
         "sakura" => sakura::normalize_body(body),
         _ => body,
     }
@@ -53,12 +55,13 @@ pub fn retry_delay(
 }
 
 pub fn requires_stream_head_inspection(request: &AiTextRequest) -> bool {
-    request.provider == "opencode"
+    matches!(request.provider.as_str(), "opencode" | "plamo")
 }
 
 pub fn stream_head_error(request: &AiTextRequest, text: &str) -> Option<String> {
     match request.provider.as_str() {
         "opencode" => opencode::transient_error_message(text),
+        "plamo" => plamo::stream_error_message(text),
         _ => None,
     }
 }
