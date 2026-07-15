@@ -5,6 +5,7 @@ mod genre_store;
 mod genre_windows;
 mod import;
 mod project_memo;
+mod project_store;
 mod search;
 mod secrets;
 mod settings;
@@ -48,6 +49,19 @@ pub fn run() {
             project_memo::create_project_memo,
             project_memo::update_project_memo,
             project_memo::delete_project_memo,
+            project_store::project_list,
+            project_store::project_create,
+            project_store::project_load,
+            project_store::project_delete,
+            project_store::project_list_episodes,
+            project_store::project_create_episode,
+            project_store::project_read_episode,
+            project_store::project_write_episode,
+            project_store::project_update_episode_title,
+            project_store::project_delete_episode,
+            project_store::project_reorder_episodes,
+            project_store::project_read_document,
+            project_store::project_write_document,
             search::rebuild_search_index,
             search::search_episodes,
             storage::migrate_legacy_app_data,
