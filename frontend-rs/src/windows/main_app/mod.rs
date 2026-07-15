@@ -1,6 +1,7 @@
 mod ai_actions;
 mod events;
 mod render;
+mod settings;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -38,6 +39,7 @@ struct State {
     current_world_entry_id: Option<String>,
     current_memo_id: Option<String>,
     current_view: String,
+    ai_settings: Value,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

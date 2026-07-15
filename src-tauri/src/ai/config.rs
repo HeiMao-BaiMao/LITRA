@@ -308,6 +308,69 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
     Ok(result)
 }
 
+#[tauri::command]
+pub fn ai_settings_snapshot(app: AppHandle) -> Result<Value, String> {
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("litra-settings.json");
+    let mut settings = read_json(path).unwrap_or_else(|| serde_json::json!({}));
+    let provider = string(&settings, "provider").unwrap_or("openai").to_owned();
+    let key = crate::secrets::get_secret(&format!("apikey:{provider}"))?.unwrap_or_default();
+    let object = settings
+        .as_object_mut()
+        .ok_or_else(|| "Settings root must be an object".to_string())?;
+    object.insert("apiKey".into(), Value::String(key));
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn ai_settings_save(app: AppHandle, mut settings: Value) -> Result<(), String> {
+    let provider = string(&settings, "provider").unwrap_or("openai").to_owned();
+    let api_key = string(&settings, "apiKey").unwrap_or_default().to_owned();
+    crate::secrets::set_or_delete_secret(&format!("apikey:{provider}"), Some(&api_key))?;
+    let object = settings
+        .as_object_mut()
+        .ok_or_else(|| "Settings root must be an object".to_string())?;
+    let base_url = object
+        .get("baseUrl")
+        .cloned()
+        .unwrap_or_else(|| Value::String(String::new()));
+    let model = object
+        .get("model")
+        .cloned()
+        .unwrap_or_else(|| Value::String(String::new()));
+    object.insert("apiKey".into(), Value::String(String::new()));
+    let configs = object
+        .entry("providerConfigs")
+        .or_insert_with(|| serde_json::json!({}));
+    let configs = configs
+        .as_object_mut()
+        .ok_or_else(|| "providerConfigs must be an object".to_string())?;
+    let specific = configs
+        .entry(provider)
+        .or_insert_with(|| serde_json::json!({}));
+    let specific = specific
+        .as_object_mut()
+        .ok_or_else(|| "provider config must be an object".to_string())?;
+    specific.insert("apiKey".into(), Value::String(String::new()));
+    specific.insert("baseUrl".into(), base_url);
+    specific.insert("model".into(), model);
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("litra-settings.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, text).map_err(|error| error.to_string())?;
+    fs::rename(&temporary, &path).map_err(|error| error.to_string())
+}
+
 fn read_json(path: std::path::PathBuf) -> Option<Value> {
     fs::read_to_string(path)
         .ok()

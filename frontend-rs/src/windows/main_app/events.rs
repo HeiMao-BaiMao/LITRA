@@ -55,12 +55,18 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-feedback" => "feedback",
                     "btn-generate-summary" => "generate-summary",
                     "btn-cancel" => "cancel-generation",
+                    "btn-settings" => "open-ai-settings",
+                    "btn-save-settings" => "save-ai-settings",
+                    "btn-cancel-settings" => "cancel-ai-settings",
                     _ => "",
                 }
                 .into()
             });
         if action.is_empty() {
             return;
+        }
+        if action == "save-ai-settings" {
+            event.prevent_default();
         }
         let id = action_target.get_attribute("data-id");
         let document = event_document.clone();
@@ -284,6 +290,9 @@ async fn handle_click(
         "feedback" => super::ai_actions::feedback_selection(document, state).await?,
         "generate-summary" => super::ai_actions::summary(document, state).await?,
         "cancel-generation" => super::ai_actions::cancel(document, state),
+        "open-ai-settings" => super::settings::open(document, state).await?,
+        "save-ai-settings" => super::settings::save(document, state).await?,
+        "cancel-ai-settings" => super::settings::cancel(document)?,
         _ => {}
     }
     Ok(())
@@ -425,7 +434,10 @@ fn bind_selectors(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
         else {
             return;
         };
-        if select.id() == "chat-provider" {
+        if select.id() == "setting-provider" {
+            let provider = select.value();
+            let _ = super::settings::provider_changed(&event_document, &state, &provider);
+        } else if select.id() == "chat-provider" {
             let provider = select.value();
             let model = state
                 .borrow()
