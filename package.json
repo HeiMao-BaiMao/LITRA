@@ -13,7 +13,6 @@
     "test:unit": "bun test src/ai/__tests__"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.105.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-http": "^2",
@@ -22,7 +21,6 @@
     "ai": "^6.0.208",
     "dompurify": "^3.4.11",
     "marked": "^18.0.5",
-    "openai": "^6.44.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
