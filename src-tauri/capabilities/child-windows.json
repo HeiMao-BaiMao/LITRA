@@ -14,15 +14,6 @@
     "core:window:allow-set-size",
     "core:webview:allow-set-webview-zoom",
     "core:webview:allow-create-webview-window",
-    {
-      "identifier": "http:default",
-      "allow": [
-        "https://*:*",
-        "https://*",
-        "http://localhost:*",
-        "http://127.0.0.1:*"
-      ]
-    },
     "store:default",
     "fs:default",
     "fs:allow-appconfig-read",
