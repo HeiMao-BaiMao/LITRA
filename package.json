@@ -5,9 +5,11 @@
   "license": "BSD-2-Clause",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "bun run frontend:dev && vite",
+    "frontend:dev": "trunk build",
+    "frontend:build": "trunk build --release",
     "generate:licenses": "node scripts/generate-licenses.mjs",
-    "build": "bun run generate:licenses && tsc && vite build",
+    "build": "bun run frontend:build && bun run generate:licenses && tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:unit": "bun test src/ai/__tests__"
