@@ -1,5 +1,4 @@
-import { isLoopFinished, stepCountIs, streamText, type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
-import { createModel } from "./provider.ts";
+import { type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
 import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provider-options.ts";
 import {
   buildAssistantSystemPrompt,
@@ -225,42 +224,6 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
-function duplicateToolCallInputCountIs(limit: number): StopCondition<any> {
-  return ({ steps }) => {
-    const counts = new Map<string, number>();
-    for (const step of steps) {
-      for (const toolCall of step.toolCalls) {
-        const key = `${toolCall.toolName}:${stableStringify(toolCall.input)}`;
-        const nextCount = (counts.get(key) ?? 0) + 1;
-        if (nextCount >= limit) {
-          console.warn("[litra:ai] stopping repeated tool call loop:", {
-            toolName: toolCall.toolName,
-            repeatedCalls: nextCount,
-          });
-          return true;
-        }
-        counts.set(key, nextCount);
-      }
-    }
-    return false;
-  };
-}
-
-function toolLoopStopConditions(
-  stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>,
-): Array<StopCondition<ToolSet>> {
-  const base = Array.isArray(stopWhen)
-    ? stopWhen
-    : stopWhen
-      ? [stopWhen]
-      : [isLoopFinished() as StopCondition<ToolSet>];
-  return [
-    ...base,
-    stepCountIs(TOOL_LOOP_MAX_STEPS) as StopCondition<ToolSet>,
-    duplicateToolCallInputCountIs(DUPLICATE_TOOL_CALL_INPUT_LIMIT) as StopCondition<ToolSet>,
-  ];
-}
-
 /**
  * continuePassage はチャットから専用執筆パイプラインへ入るための入口であり、
  * パイプライン内部で再公開すると自己呼び出しになる。呼び出し側の指定にかかわらず除外する。
@@ -332,6 +295,95 @@ function rustTextResultToRunResult(
       ? [{ role: "assistant", content: assistantText }]
       : [],
   };
+}
+
+async function streamRustToolLoop(options: {
+  settings: AiSettings;
+  system: string;
+  prompt: string;
+  tools?: ToolSet;
+  abortSignal?: AbortSignal;
+  onChunk: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
+  onToolEvent?: (event: StreamToolEvent) => void;
+}): Promise<{ text: string; run: StreamRunResult }> {
+  const { settings, system, prompt, tools, abortSignal, onChunk, onReasoning, onToolEvent } = options;
+  const toolsEnabled = hasTools(tools);
+  const rustTools = toolsEnabled ? await serializeRustTools(tools) : undefined;
+  const history: ModelMessage[] = [{ role: "user", content: prompt }];
+  const responseMessages: ModelMessage[] = [];
+  const duplicateCounts = new Map<string, number>();
+  let text = "";
+  let run: StreamRunResult | undefined;
+
+  for (let step = 0; step < TOOL_LOOP_MAX_STEPS; step++) {
+    const messages = modelMessagesForRust(history);
+    if (!messages) throw new Error("Rust AI transport が未対応のツールループ履歴です");
+    let stepText = "";
+    const result = await streamRustText(settings, {
+      system,
+      messages,
+      tools: rustTools,
+      toolChoice: toolsEnabled ? "auto" : undefined,
+      prompt: "",
+      maxOutputTokens: settings.maxTokens,
+      abortSignal,
+      onChunk: (chunk) => { stepText += chunk; text += chunk; onChunk(chunk); },
+      onReasoning,
+      onToolInputStart: ({ toolCallId, toolName }) =>
+        onToolEvent?.({ type: "input-start", toolCallId, toolName }),
+    });
+    const stepRun = rustTextResultToRunResult(result, stepText);
+    run = run ? {
+      ...stepRun,
+      textChunkCount: run.textChunkCount + stepRun.textChunkCount,
+      textCharCount: run.textCharCount + stepRun.textCharCount,
+      reasoningChunkCount: run.reasoningChunkCount + stepRun.reasoningChunkCount,
+      reasoningCharCount: run.reasoningCharCount + stepRun.reasoningCharCount,
+      toolCallCount: run.toolCallCount,
+      toolResultCount: run.toolResultCount,
+      toolErrorCount: run.toolErrorCount,
+      responseMessages,
+    } : stepRun;
+    if (!toolsEnabled || result.toolCalls.length === 0) {
+      if (responseMessages.length > 0 && stepText) {
+        responseMessages.push({ role: "assistant", content: stepText });
+        run.responseMessages = responseMessages;
+      }
+      break;
+    }
+
+    const execution = await executeRustToolCalls(
+      tools!,
+      result.toolCalls,
+      history,
+      stepText,
+      abortSignal,
+      onToolEvent,
+    );
+    history.push(...execution.responseMessages);
+    responseMessages.push(...execution.responseMessages);
+    run.toolCallCount += result.toolCalls.length;
+    run.toolResultCount += execution.resultCount;
+    run.toolErrorCount += execution.errorCount;
+    run.stoppedAfterToolResult = execution.resultCount + execution.errorCount > 0;
+    run.stoppedAfterToolActivity = true;
+    run.responseMessages = responseMessages;
+
+    let repeated = false;
+    for (const call of result.toolCalls) {
+      const key = `${call.toolName}:${stableStringify(call.input)}`;
+      const count = (duplicateCounts.get(key) ?? 0) + 1;
+      duplicateCounts.set(key, count);
+      repeated ||= count >= DUPLICATE_TOOL_CALL_INPUT_LIMIT;
+    }
+    if (repeated) {
+      console.warn("[litra:ai] stopping repeated Rust tool call loop");
+      break;
+    }
+  }
+  if (!run) throw new Error("Rust AI tool loop did not execute");
+  return { text, run };
 }
 
 export type StreamToolEvent =
@@ -484,7 +536,7 @@ function createThinkTagRouter(
   };
 }
 
-async function consumeStream(
+export async function consumeStream(
   result: {
     fullStream: AsyncIterable<TextStreamPart<ToolSet>>;
     response: PromiseLike<{
@@ -1572,29 +1624,18 @@ export async function streamContinuation({
 
       for (let attempt = 0; attempt <= CONTINUATION_LENGTH_RETRY_LIMIT; attempt++) {
         const draftStep = beginAiStep(`continuation-draft-${generationId}-segment-${attempt + 1}`, s);
-        const draftResult = streamText<ToolSet>({
-          model: createModel(s),
-          ...buildRetryOption(s),
+        const draftResult = await streamRustToolLoop({
+          settings: s,
           system: buildAssistantSystemPrompt({ toolsEnabled, toolNames }),
           prompt: buildContinuationPrompt(cumulativeContext, settingsContext, plan, relatedScenes, draftExtras),
-          ...buildTemperatureOption(s),
-          maxOutputTokens: s.maxTokens,
           abortSignal,
           tools: scopedTools,
-          stopWhen: toolsEnabled ? toolLoopStopConditions() : undefined,
-          ...buildAdvancedOptions(s),
-        });
-        let segmentText = "";
-        const segmentRun = await consumeStream(
-          draftResult,
-          (chunk) => {
-            segmentText += chunk;
-            onDraftChunk(chunk);
-          },
+          onChunk: onDraftChunk,
           onToolEvent,
           onReasoning,
-          { step: `continuation-draft-segment-${attempt + 1}`, settings: s },
-        );
+        });
+        const segmentText = draftResult.text;
+        const segmentRun = draftResult.run;
         completeAiStep(draftStep, segmentText, segmentRun.finishReason);
         text += segmentText;
         combinedRun = combinedRun ? mergeToolStats(combinedRun, segmentRun) : segmentRun;
@@ -1763,26 +1804,16 @@ export async function streamContinuation({
 
     try {
       const revisionStep = beginAiStep("full-revision", s);
-      const revisionResult = streamText<ToolSet>({
-        model: createModel(s),
-        ...buildRetryOption(s),
+      let revisedText = "";
+      const revisionResult = await streamRustText(s, {
         system: buildAssistantSystemPrompt({ toolsEnabled: false }),
         prompt: buildContinuationRevisionPrompt(draftText, review, context, settingsContext, relatedScenes, extras),
-        ...buildTemperatureOption(s),
         maxOutputTokens: s.maxTokens,
         abortSignal,
-        ...buildAdvancedOptions(s),
-      });
-      let revisedText = "";
-      const revisionRun = await consumeStream(
-        revisionResult,
-        (chunk) => {
-          revisedText += chunk;
-        },
-        undefined,
+        onChunk: (chunk) => { revisedText += chunk; },
         onReasoning,
-        { step: "continuation-full-revision", settings: s },
-      );
+      });
+      const revisionRun = rustTextResultToRunResult(revisionResult, revisedText);
       revisedText = sanitizeDraftText(revisedText);
       completeAiStep(revisionStep, revisedText, revisionRun.finishReason);
       reportStage("regression");
