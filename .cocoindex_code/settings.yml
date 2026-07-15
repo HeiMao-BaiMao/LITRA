@@ -4,6 +4,7 @@ include_patterns:
   - "package.json"
   - "tsconfig.json"
   - "vite.config.ts"
+  - "Trunk.toml"
   - "*.html"
   - "src/**/*.ts"
   - "src/**/*.tsx"
@@ -12,6 +13,9 @@ include_patterns:
   - "src-tauri/**/*.rs"
   - "src-tauri/**/*.toml"
   - "src-tauri/**/*.json"
+  - "frontend-rs/**/*.rs"
+  - "frontend-rs/**/*.toml"
+  - "frontend-rs/**/*.html"
 
 exclude_patterns:
   - "**/.*"
