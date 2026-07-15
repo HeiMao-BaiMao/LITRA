@@ -69,7 +69,6 @@ export interface RustToolCall {
   input: unknown;
 }
 
-/** OAuth付き接続は次の移行段階でRustへ統合する。 */
 export function supportsRustTextProvider(settings: AiSettings): boolean {
   return (
     settings.provider === "openai" ||
@@ -77,6 +76,7 @@ export function supportsRustTextProvider(settings: AiSettings): boolean {
     settings.provider === "google" ||
     settings.provider === "deepseek" ||
     settings.provider === "llamacpp" ||
+    settings.provider === "sakura" ||
     settings.provider === "codex" ||
     settings.provider === "github-copilot"
   );

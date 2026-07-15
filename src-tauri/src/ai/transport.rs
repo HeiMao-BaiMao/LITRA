@@ -20,25 +20,35 @@ pub fn build_client() -> Result<Client, String> {
 }
 
 pub async fn send_request(client: &Client, request: &AiTextRequest) -> Result<Response, String> {
-    let mut builder = client
-        .post(request.endpoint())
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::ACCEPT, "text/event-stream")
-        .json(&request.body());
+    for attempt in 0.. {
+        providers::wait_for_request_slot(request).await;
+        let body = providers::normalize_body(request, request.body());
+        let mut builder = client
+            .post(request.endpoint())
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "text/event-stream")
+            .json(&body);
 
-    builder = match request.api_type {
-        ProviderApiType::AnthropicMessages => builder
-            .header("x-api-key", &request.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION),
-        ProviderApiType::GoogleGenerateContent => {
-            builder.header("x-goog-api-key", &request.api_key)
-        }
-        _ if request.api_key.trim().is_empty() => builder,
-        _ => builder.bearer_auth(&request.api_key),
-    };
-    providers::apply_request(builder, request, client)
-        .await?
-        .send()
-        .await
-        .map_err(|e| format!("AI API への接続に失敗しました: {e}"))
+        builder = match request.api_type {
+            ProviderApiType::AnthropicMessages => builder
+                .header("x-api-key", &request.api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION),
+            ProviderApiType::GoogleGenerateContent => {
+                builder.header("x-goog-api-key", &request.api_key)
+            }
+            _ if request.api_key.trim().is_empty() => builder,
+            _ => builder.bearer_auth(&request.api_key),
+        };
+        let response = providers::apply_request(builder, request, client)
+            .await?
+            .send()
+            .await
+            .map_err(|e| format!("AI API への接続に失敗しました: {e}"))?;
+        let Some(delay) = providers::retry_delay(request, response.status().as_u16(), attempt)
+        else {
+            return Ok(response);
+        };
+        tokio::time::sleep(delay).await;
+    }
+    unreachable!("retry loop always returns or continues")
 }
