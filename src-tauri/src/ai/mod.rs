@@ -179,6 +179,7 @@ mod tests {
             base_url: "https://gateway.example/v1".into(),
             model: "model".into(),
             system: String::new(),
+            messages: Vec::new(),
             prompt: "hello".into(),
             max_output_tokens: 100,
             temperature: None,
@@ -193,5 +194,33 @@ mod tests {
             anthropic_thinking_effort: None,
             thinking_level: None,
         }
+    }
+
+    #[test]
+    fn message_history_is_converted_for_each_protocol() {
+        use super::types::AiInputMessage;
+
+        let mut request = sample_request();
+        request.messages = vec![
+            AiInputMessage {
+                role: "user".into(),
+                content: "first".into(),
+            },
+            AiInputMessage {
+                role: "assistant".into(),
+                content: "second".into(),
+            },
+            AiInputMessage {
+                role: "user".into(),
+                content: "third".into(),
+            },
+        ];
+
+        request.api_type = ProviderApiType::OpenaiResponses;
+        assert_eq!(request.body()["input"][1]["role"], "assistant");
+        request.api_type = ProviderApiType::AnthropicMessages;
+        assert_eq!(request.body()["messages"][2]["content"], "third");
+        request.api_type = ProviderApiType::GoogleGenerateContent;
+        assert_eq!(request.body()["contents"][1]["role"], "model");
     }
 }

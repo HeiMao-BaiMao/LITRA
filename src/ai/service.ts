@@ -34,7 +34,12 @@ import {
   recordProviderCacheUsage,
   savePersistentAiArtifact,
 } from "./cache-observability.ts";
-import { streamRustText, supportsRustTextProvider } from "./rust-transport.ts";
+import {
+  streamRustText,
+  supportsRustTextProvider,
+  type RustChatMessage,
+  type RustTextStreamResult,
+} from "./rust-transport.ts";
 
 // ビート分割生成で前ビートの生成分を文脈に継ぎ足す際、無制限に伸びないための上限
 const BEAT_CONTEXT_CHAR_BUDGET = 12000;
@@ -321,6 +326,24 @@ export interface StreamRunResult {
   stoppedAfterToolActivity: boolean;
   pendingToolCallIds: string[];
   responseMessages: ModelMessage[];
+}
+
+function rustTextResultToRunResult(
+  result: RustTextStreamResult,
+  assistantText = "",
+): StreamRunResult {
+  return {
+    ...result,
+    toolCallCount: 0,
+    toolResultCount: 0,
+    toolErrorCount: 0,
+    stoppedAfterToolResult: false,
+    stoppedAfterToolActivity: false,
+    pendingToolCallIds: [],
+    responseMessages: assistantText
+      ? [{ role: "assistant", content: assistantText }]
+      : [],
+  };
 }
 
 export type StreamToolEvent =
@@ -788,6 +811,39 @@ function getLastUserMessageContent(messages: ModelMessage[]): string {
   return "";
 }
 
+function modelMessagesForRust(messages: ModelMessage[]): RustChatMessage[] | undefined {
+  const converted: RustChatMessage[] = [];
+  for (const message of messages) {
+    if (message.role !== "system" && message.role !== "user" && message.role !== "assistant") {
+      return undefined;
+    }
+    let content: string;
+    if (typeof message.content === "string") {
+      content = message.content;
+    } else if (Array.isArray(message.content)) {
+      const textParts: string[] = [];
+      for (const part of message.content) {
+        if (
+          typeof part !== "object" ||
+          part === null ||
+          !("type" in part) ||
+          part.type !== "text" ||
+          !("text" in part) ||
+          typeof part.text !== "string"
+        ) {
+          return undefined;
+        }
+        textParts.push(part.text);
+      }
+      content = textParts.join("");
+    } else {
+      return undefined;
+    }
+    converted.push({ role: message.role, content });
+  }
+  return converted;
+}
+
 function normalizeSettings(settings: AiSettings): AiSettings {
   const normalized = { ...settings };
 
@@ -858,6 +914,22 @@ export async function streamChat({
       onChunk(chunk);
     };
     const toolNames = toolsEnabled ? Object.keys(tools) : [];
+
+    if (!toolsEnabled && supportsRustTextProvider(s)) {
+      const rustMessages = modelMessagesForRust(messages);
+      if (rustMessages) {
+        const result = await streamRustText(s, {
+          system: buildAssistantSystemPrompt({ settingsContext, toolsEnabled: false, directCreativeEdit }),
+          messages: rustMessages,
+          prompt: "",
+          maxOutputTokens: s.maxTokens,
+          abortSignal,
+          onChunk: wrappedOnChunk,
+          onReasoning,
+        });
+        return rustTextResultToRunResult(result, assistantText);
+      }
+    }
 
     const result = streamText<ToolSet>({
       model: createModel(s),
@@ -1768,16 +1840,7 @@ export async function streamRewrite({
         });
         return {
           text: sanitizeDraftText(text),
-          run: {
-            ...result,
-            toolCallCount: 0,
-            toolResultCount: 0,
-            toolErrorCount: 0,
-            stoppedAfterToolResult: false,
-            stoppedAfterToolActivity: false,
-            pendingToolCallIds: [],
-            responseMessages: [],
-          },
+          run: rustTextResultToRunResult(result, text),
         };
       }
       const result = streamText<ToolSet>({
@@ -1851,16 +1914,7 @@ export async function streamFeedback({
         onChunk,
         onReasoning,
       });
-      return {
-        ...result,
-        toolCallCount: 0,
-        toolResultCount: 0,
-        toolErrorCount: 0,
-        stoppedAfterToolResult: false,
-        stoppedAfterToolActivity: false,
-        pendingToolCallIds: [],
-        responseMessages: [],
-      };
+      return rustTextResultToRunResult(result);
     }
     const result = streamText<ToolSet>({
       model: createModel(s),

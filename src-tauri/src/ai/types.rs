@@ -10,6 +10,12 @@ pub enum ProviderApiType {
     GoogleGenerateContent,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct AiInputMessage {
+    pub role: String,
+    pub content: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiTextRequest {
@@ -22,6 +28,9 @@ pub struct AiTextRequest {
     pub model: String,
     #[serde(default)]
     pub system: String,
+    #[serde(default)]
+    pub messages: Vec<AiInputMessage>,
+    #[serde(default)]
     pub prompt: String,
     pub max_output_tokens: u64,
     pub temperature: Option<f64>,
@@ -91,9 +100,14 @@ impl AiTextRequest {
     }
 
     fn responses_body(&self) -> Value {
+        let input = if self.messages.is_empty() {
+            json!(self.prompt)
+        } else {
+            Value::Array(self.openai_messages())
+        };
         let mut body = Map::from_iter([
             ("model".into(), json!(self.model)),
-            ("input".into(), json!(self.prompt)),
+            ("input".into(), input),
             ("stream".into(), json!(true)),
             ("max_output_tokens".into(), json!(self.max_output_tokens)),
         ]);
@@ -110,11 +124,12 @@ impl AiTextRequest {
     }
 
     fn chat_body(&self) -> Value {
-        let mut messages = Vec::new();
-        if !self.system.trim().is_empty() {
-            messages.push(json!({ "role": "system", "content": self.system }));
+        let mut messages = self.system_message();
+        if self.messages.is_empty() {
+            messages.push(json!({ "role": "user", "content": self.prompt }));
+        } else {
+            messages.extend(self.openai_messages());
         }
-        messages.push(json!({ "role": "user", "content": self.prompt }));
         let mut body = Map::from_iter([
             ("model".into(), json!(self.model)),
             ("messages".into(), Value::Array(messages)),
@@ -144,12 +159,20 @@ impl AiTextRequest {
     }
 
     fn anthropic_body(&self) -> Value {
+        let messages = if self.messages.is_empty() {
+            json!([{ "role": "user", "content": self.prompt }])
+        } else {
+            Value::Array(
+                self.messages
+                    .iter()
+                    .filter(|message| matches!(message.role.as_str(), "user" | "assistant"))
+                    .map(|message| json!({ "role": message.role, "content": message.content }))
+                    .collect(),
+            )
+        };
         let mut body = Map::from_iter([
             ("model".into(), json!(self.model)),
-            (
-                "messages".into(),
-                json!([{ "role": "user", "content": self.prompt }]),
-            ),
+            ("messages".into(), messages),
             ("stream".into(), json!(true)),
             ("max_tokens".into(), json!(self.max_output_tokens)),
         ]);
@@ -188,11 +211,26 @@ impl AiTextRequest {
                 json!({ "includeThoughts": true, "thinkingLevel": self.thinking_level }),
             );
         }
+        let contents = if self.messages.is_empty() {
+            json!([{ "role": "user", "parts": [{ "text": self.prompt }] }])
+        } else {
+            Value::Array(
+                self.messages
+                    .iter()
+                    .filter(|message| matches!(message.role.as_str(), "user" | "assistant"))
+                    .map(|message| {
+                        let role = if message.role == "assistant" {
+                            "model"
+                        } else {
+                            "user"
+                        };
+                        json!({ "role": role, "parts": [{ "text": message.content }] })
+                    })
+                    .collect(),
+            )
+        };
         let mut body = Map::from_iter([
-            (
-                "contents".into(),
-                json!([{ "role": "user", "parts": [{ "text": self.prompt }] }]),
-            ),
+            ("contents".into(), contents),
             ("generationConfig".into(), Value::Object(generation)),
         ]);
         if !self.system.trim().is_empty() {
@@ -202,6 +240,27 @@ impl AiTextRequest {
             );
         }
         Value::Object(body)
+    }
+
+    fn openai_messages(&self) -> Vec<Value> {
+        self.messages
+            .iter()
+            .filter(|message| {
+                matches!(
+                    message.role.as_str(),
+                    "system" | "developer" | "user" | "assistant"
+                )
+            })
+            .map(|message| json!({ "role": message.role, "content": message.content }))
+            .collect()
+    }
+
+    fn system_message(&self) -> Vec<Value> {
+        if self.system.trim().is_empty() {
+            Vec::new()
+        } else {
+            vec![json!({ "role": "system", "content": self.system })]
+        }
     }
 }
 

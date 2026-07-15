@@ -24,10 +24,16 @@ export type RustAiStreamEvent =
 export interface RustTextStreamOptions {
   system: string;
   prompt: string;
+  messages?: RustChatMessage[];
   maxOutputTokens: number;
   abortSignal?: AbortSignal;
   onChunk: (chunk: string) => void;
   onReasoning?: (chunk: string) => void;
+}
+
+export interface RustChatMessage {
+  role: "system" | "developer" | "user" | "assistant";
+  content: string;
 }
 
 export interface RustTextStreamResult {
@@ -184,6 +190,7 @@ function buildRustTextRequest(
     baseUrl: connection.baseUrl,
     model: settings.model,
     system: options.system,
+    messages: options.messages,
     prompt: options.prompt,
     maxOutputTokens: options.maxOutputTokens,
     temperature: ignoreSampling ? undefined : settings.temperature,
