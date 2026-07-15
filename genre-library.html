@@ -7,10 +7,10 @@
   <link rel="icon" href="/src/assets/LITRA.svg" type="image/svg+xml" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ジャンルライブラリ - LITRA</title>
-  <script type="module" src="/src/genre-library-window.ts" defer></script>
+  <script type="module" src="/rust-ui/litra-frontend.js" defer></script>
 </head>
 
-<body class="detachable-window">
+<body class="detachable-window" data-rust-window="genre-library">
   <div id="genre-library-app" class="app genre-library-app">
     <header class="toolbar">
       <div class="toolbar-left">
@@ -18,14 +18,14 @@
         <span id="toolbar-genre-name" class="toolbar-project-name">ジャンルライブラリ</span>
       </div>
       <div class="toolbar-actions genre-library-toolbar-actions">
-        <button id="sidebar-toggle" type="button" title="ジャンル一覧を開閉">ジャンル一覧</button>
-        <button id="tab-overview" type="button" class="genre-tab-button active">概要</button>
-        <button id="tab-sources" type="button" class="genre-tab-button">資料</button>
-        <button id="tab-analysis" type="button" class="genre-tab-button">分析</button>
-        <button id="tab-knowledge" type="button" class="genre-tab-button">知識</button>
-        <button id="btn-import-source" type="button">＋ 資料</button>
-        <button id="btn-analyze-source" type="button">分析を実行</button>
-        <button id="btn-open-genre-chat" type="button">リトラチャット</button>
+        <button id="sidebar-toggle" data-action="toggle-sidebar" type="button" title="ジャンル一覧を開閉">ジャンル一覧</button>
+        <button id="tab-overview" data-action="tab-overview" type="button" class="genre-tab-button active">概要</button>
+        <button id="tab-sources" data-action="tab-sources" type="button" class="genre-tab-button">資料</button>
+        <button id="tab-analysis" data-action="tab-analysis" type="button" class="genre-tab-button">分析</button>
+        <button id="tab-knowledge" data-action="tab-knowledge" type="button" class="genre-tab-button">知識</button>
+        <button id="btn-import-source" data-action="import-source" type="button">＋ 資料</button>
+        <button id="btn-analyze-source" data-action="analyze-source" type="button">分析を実行</button>
+        <button id="btn-open-genre-chat" data-action="open-chat" type="button">リトラチャット</button>
       </div>
     </header>
 
@@ -37,7 +37,7 @@
             <span id="genre-count" class="genre-count">0</span>
           </div>
           <div id="genre-list" class="episode-list genre-list"></div>
-          <button id="btn-new-genre" type="button">＋ 新規ジャンル</button>
+          <button id="btn-new-genre" data-action="new-genre" type="button">＋ 新規ジャンル</button>
           <div id="genre-list-spinner" class="spinner genre-inline-spinner hidden" aria-label="読み込み中"></div>
         </div>
       </nav>

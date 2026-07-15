@@ -7,7 +7,7 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{Document, Element, Event, HtmlInputElement, HtmlTextAreaElement};
 
 use crate::{
-    data::genres::{knowledge, models::GenreUpdate, repository, sources},
+    data::genres::{analyzer, knowledge, models::GenreUpdate, repository, sources},
     runtime::{invoke, tauri},
 };
 
@@ -94,6 +94,12 @@ async fn handle_action(
     element: &Element,
 ) -> Result<(), JsValue> {
     match action {
+        "toggle-sidebar" => {
+            if let Some(sidebar) = document.get_element_by_id("sidebar") {
+                let open = !sidebar.class_list().contains("open");
+                sidebar.class_list().toggle_with_force("open", open)?;
+            }
+        }
         "new-genre" => {
             if let Some(name) = prompt("新しいジャンル名を入力してください", None)
             {
@@ -159,13 +165,13 @@ async fn handle_action(
         "view-source" => {
             if let (Some(genre_id), Some(source_id)) = (state.borrow().current_genre_id.clone(), id)
             {
-            let source = sources::load(&genre_id, &source_id).await?;
-            alert(&format!(
-                "{}（{}セグメント）\n\n{}",
-                source.metadata.title,
-                source.segments.len(),
-                source.content.chars().take(2000).collect::<String>()
-            ));
+                let source = sources::load(&genre_id, &source_id).await?;
+                alert(&format!(
+                    "{}（{}セグメント）\n\n{}",
+                    source.metadata.title,
+                    source.segments.len(),
+                    source.content.chars().take(2000).collect::<String>()
+                ));
             }
         }
         "delete-source" => {
@@ -213,7 +219,31 @@ async fn handle_action(
             }
         }
         "open-chat" => open_chat(state).await?,
-        "analyze-source" => alert("AI分析のRust接続を準備中です。"),
+        "analyze-source" => {
+            let current = state.borrow();
+            let Some(genre_id) = current.current_genre_id.clone() else {
+                return Ok(());
+            };
+            let source_id = id
+                .or_else(|| current.current_source_id.clone())
+                .or_else(|| current.sources.first().map(|source| source.id.clone()));
+            let genre_name = current
+                .genre
+                .as_ref()
+                .map(|genre| genre.name.clone())
+                .unwrap_or_default();
+            drop(current);
+            if let Some(source_id) = source_id {
+                if let Some(status) = document.get_element_by_id("analysis-status") {
+                    status.set_text_content(Some("Rust AIで分析中…"));
+                }
+                let count = analyzer::analyze(&genre_id, &source_id, &genre_name).await?;
+                if let Some(status) = document.get_element_by_id("analysis-status") {
+                    status.set_text_content(Some(&format!("分析完了: 知識候補 {count} 件")));
+                }
+                refresh_current(document, state).await?;
+            }
+        }
         _ => {}
     }
     Ok(())

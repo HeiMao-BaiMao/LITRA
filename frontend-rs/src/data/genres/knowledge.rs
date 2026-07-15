@@ -4,12 +4,21 @@ use wasm_bindgen::JsValue;
 use crate::{data::genre_store, runtime::tauri};
 
 use super::{
-    models::{KnowledgeDocument, KnowledgeItem, SCHEMA_VERSION},
+    models::{KnowledgeCandidate, KnowledgeDocument, KnowledgeItem, SCHEMA_VERSION},
     repository,
 };
 
 fn error(value: impl ToString) -> JsValue {
     JsValue::from_str(&value.to_string())
+}
+
+pub async fn append_candidates(
+    genre_id: &str,
+    mut candidates: Vec<KnowledgeCandidate>,
+) -> Result<(), JsValue> {
+    let mut document = load(genre_id).await?;
+    document.candidates.append(&mut candidates);
+    commit(document, false).await.map(|_| ())
 }
 fn now() -> String {
     Date::new_0()

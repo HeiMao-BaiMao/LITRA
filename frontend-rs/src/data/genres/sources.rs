@@ -150,6 +150,20 @@ pub async fn remove(genre_id: &str, source_id: &str) -> Result<(), JsValue> {
     repository::rebuild_counts(genre_id).await
 }
 
+pub async fn mark_analyzed(genre_id: &str, source_id: &str, run_id: &str) -> Result<(), JsValue> {
+    let mut list = load_list(genre_id).await?;
+    let source = list
+        .sources
+        .iter_mut()
+        .find(|source| source.id == source_id)
+        .ok_or_else(|| JsValue::from_str("資料が見つかりません。"))?;
+    source.analysis_status = "completed".into();
+    source.latest_analysis_run_id = Some(run_id.into());
+    source.updated_at = now();
+    save_list(genre_id, &list).await?;
+    repository::rebuild_counts(genre_id).await
+}
+
 async fn write_json<T: serde::Serialize>(
     genre_id: &str,
     path: &str,

@@ -1,4 +1,5 @@
 mod auth;
+pub(crate) mod config;
 mod messages;
 pub(crate) mod models;
 pub(crate) mod oauth;
