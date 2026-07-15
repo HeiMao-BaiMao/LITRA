@@ -6,6 +6,8 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use super::{invoke, tauri};
 
+thread_local! { static ACTIVE_REQUEST: RefCell<Option<String>> = const { RefCell::new(None) }; }
+
 #[wasm_bindgen(inline_js = r#"
 export async function streamTauriAi(request, callback) {
   const channel = new window.__TAURI__.core.Channel();
@@ -76,6 +78,11 @@ pub struct GeneratedText {
     pub model: String,
 }
 
+pub async fn selection(role: &str) -> Result<(String, String), JsValue> {
+    let config: RuntimeConfig = invoke::invoke("ai_runtime_config", &ConfigArgs { role }).await?;
+    Ok((config.provider, config.model))
+}
+
 pub async fn generate(
     role: &str,
     system: String,
@@ -84,8 +91,9 @@ pub async fn generate(
     let config: RuntimeConfig = invoke::invoke("ai_runtime_config", &ConfigArgs { role }).await?;
     let provider = config.provider.clone();
     let model = config.model.clone();
+    let request_id = format!("ai_{}", tauri::random_uuid().replace('-', ""));
     let request = Request {
-        request_id: format!("ai_{}", tauri::random_uuid().replace('-', "")),
+        request_id: request_id.clone(),
         provider: config.provider,
         api_type: config.api_type,
         api_key: config.api_key,
@@ -132,7 +140,10 @@ pub async fn generate(
             _ => {}
         }
     }) as Box<dyn FnMut(JsValue)>);
-    stream_tauri_ai(request, callback.as_ref().unchecked_ref()).await?;
+    ACTIVE_REQUEST.with(|active| *active.borrow_mut() = Some(request_id));
+    let result = stream_tauri_ai(request, callback.as_ref().unchecked_ref()).await;
+    ACTIVE_REQUEST.with(|active| active.borrow_mut().take());
+    result?;
     if let Some(message) = event_error.borrow_mut().take() {
         return Err(JsValue::from_str(&message));
     }
@@ -145,4 +156,19 @@ pub async fn generate(
         provider,
         model,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CancelArgs {
+    request_id: String,
+}
+
+pub fn cancel_active() {
+    let request_id = ACTIVE_REQUEST.with(|active| active.borrow().clone());
+    if let Some(request_id) = request_id {
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = invoke::invoke::<_, ()>("ai_cancel", &CancelArgs { request_id }).await;
+        });
+    }
 }

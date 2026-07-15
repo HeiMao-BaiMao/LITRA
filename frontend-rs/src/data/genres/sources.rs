@@ -113,6 +113,7 @@ pub async fn create(
         latest_analysis_run_id: None,
         created_at: timestamp.clone(),
         updated_at: timestamp,
+        extra: Default::default(),
     };
     genre_store::write_text(genre_id, &format!("sources/{id}.md"), content).await?;
     write_json(

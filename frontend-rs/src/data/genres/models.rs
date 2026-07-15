@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -111,9 +112,12 @@ pub struct GenreSource {
     pub character_count: usize,
     pub segment_count: usize,
     pub analysis_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_analysis_run_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -197,6 +201,7 @@ pub struct KnowledgeItem {
     pub source_references: Vec<serde_json::Value>,
     #[serde(default)]
     pub chat_references: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_from_candidate_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
