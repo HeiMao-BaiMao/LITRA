@@ -233,7 +233,8 @@ import {
 import { renderMemosEditor, type MemosEditorActions } from "./ui/memos-editor.ts";
 import type { Character, Episode, EpisodeMemoMap, EpisodeSummaryMap, WorldEntry } from "./project/schema.ts";
 import { buildRelatedScenesBlock, findMentionedCharacterNames } from "./project/related-scenes.ts";
-import { hasToolCall, type ModelMessage, type ToolSet } from "ai";
+import type { ModelMessage } from "./ai/protocol/messages.ts";
+import type { ToolSet } from "./ai/protocol/tools.ts";
 
 let currentSettings: AiSettings;
 let providerConfig: ProviderConfig;
@@ -1868,7 +1869,6 @@ async function handleGenerateSummary(episodeId: string): Promise<void> {
       messages,
       tools: summaryTools,
       toolChoice: resolveForcedToolChoice(resolvedRunSettings),
-      stopWhen: hasToolCall("saveEpisodeSummaryAndOneLiner"),
       onChunk: (chunk) => {
         appendAssistantChunk(chunk);
       },

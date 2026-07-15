@@ -1,4 +1,6 @@
-import { type ModelMessage, type StopCondition, type TextStreamPart, type ToolSet } from "ai";
+import type { ModelMessage } from "./protocol/messages.ts";
+import type { TextStreamPart } from "./protocol/stream.ts";
+import type { ToolSet } from "./protocol/tools.ts";
 import { buildProviderOptions, buildRetryOption, isGemini3Model } from "./provider-options.ts";
 import {
   buildAssistantSystemPrompt,
@@ -538,7 +540,7 @@ function createThinkTagRouter(
 
 export async function consumeStream(
   result: {
-    fullStream: AsyncIterable<TextStreamPart<ToolSet>>;
+    fullStream: AsyncIterable<TextStreamPart>;
     response: PromiseLike<{
       id: string;
       modelId: string;
@@ -724,7 +726,6 @@ export interface StreamChatOptions {
   settingsContext?: string;
   tools?: ToolSet;
   toolChoice?: "auto" | "none" | "required";
-  stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
   onToolEvent?: (event: StreamToolEvent) => void;
   directCreativeEdit?: boolean;
 }

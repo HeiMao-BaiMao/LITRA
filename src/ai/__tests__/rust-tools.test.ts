@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { tool, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod";
+import type { ModelMessage } from "../protocol/messages.ts";
+import { tool, type ToolSet } from "../protocol/tools.ts";
 import { executeRustToolCalls, serializeRustTools } from "../rust-tools.ts";
 
 const tools: ToolSet = {

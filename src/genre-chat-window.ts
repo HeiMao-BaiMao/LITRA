@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, emit } from "@tauri-apps/api/event";
-import type { ModelMessage } from "ai";
+import type { ModelMessage } from "./ai/protocol/messages.ts";
 import { applyWindowBounds, trackWindowBounds } from "./window/bounds.ts";
 import { applyStoredRatio, createVerticalResizer } from "./ui/resizable.ts";
 import { bindAutoResize } from "./ui/auto-resize.ts";

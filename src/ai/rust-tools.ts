@@ -1,4 +1,6 @@
-import { asSchema, type ModelMessage, type ToolSet } from "ai";
+import { z } from "zod";
+import type { ModelMessage } from "./protocol/messages.ts";
+import type { ToolSet } from "./protocol/tools.ts";
 import type { RustToolCall, RustToolDefinition } from "./rust-transport.ts";
 
 export async function serializeRustTools(tools: ToolSet): Promise<RustToolDefinition[]> {
@@ -6,7 +8,7 @@ export async function serializeRustTools(tools: ToolSet): Promise<RustToolDefini
     Object.entries(tools).map(async ([name, tool]) => ({
       name,
       description: tool.description ?? "",
-      inputSchema: await asSchema(tool.inputSchema).jsonSchema,
+      inputSchema: z.toJSONSchema(tool.inputSchema, { target: "draft-07" }),
     })),
   );
 }
@@ -47,14 +49,13 @@ export async function executeRustToolCalls(
     onEvent?.({ type: "call", ...call });
     try {
       if (!definition?.execute) throw new Error(`実行できないAIツールです: ${call.toolName}`);
-      const schema = asSchema(definition.inputSchema);
-      const validation = schema.validate ? await schema.validate(call.input) : { success: true as const, value: call.input };
+      const validation = await definition.inputSchema.safeParseAsync(call.input);
       if (!validation.success) throw validation.error;
       const execute = definition.execute as (
         input: unknown,
         options: { toolCallId: string; messages: ModelMessage[]; abortSignal?: AbortSignal },
       ) => unknown;
-      let output = await execute(validation.value, {
+      let output = await execute(validation.data, {
         toolCallId: call.toolCallId,
         messages: requestMessages,
         abortSignal,

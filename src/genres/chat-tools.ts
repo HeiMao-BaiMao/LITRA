@@ -1,4 +1,4 @@
-import { tool, type ToolSet } from "ai";
+import { tool, type ToolSet } from "../ai/protocol/tools.ts";
 import { z } from "zod";
 import { limitPromptText } from "../ai/prompts.ts";
 import { aiChatConclusionExtractionSchema } from "./analysis-schema.ts";

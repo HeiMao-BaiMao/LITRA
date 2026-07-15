@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { ModelMessage } from "../ai/protocol/messages.ts";
 import { limitPromptText } from "../ai/prompts.ts";
 import { buildGenreChatSystemPrompt } from "./prompts.ts";
 import type {

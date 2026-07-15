@@ -1,4 +1,4 @@
-import { tool, type ToolExecutionOptions } from "ai";
+import { tool, type ToolExecutionOptions } from "./protocol/tools.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import { checkConsistency } from "./consistency.ts";
