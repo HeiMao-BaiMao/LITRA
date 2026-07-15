@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { createModel } from "../ai/provider.ts";
-import { buildRetryOption } from "../ai/provider-options.ts";
 import { generateStructuredObject } from "../ai/structured-output.ts";
 import {
   loadCharacters,
@@ -440,8 +438,6 @@ export async function reviewAndFixImportedData(
   const episodes = episodeList.episodes;
 
   const result = await generateStructuredObject({
-    model: createModel(settings),
-    ...buildRetryOption(settings),
     schema: reviewSchema,
     system:
       "You review imported creative-writing data. Return only necessary corrections, as structured JSON that follows the schema exactly. Keep IDs and enum values unchanged. Write every natural-language value that will be persisted in Japanese. 保存する説明文は必ず日本語で書くこと。",

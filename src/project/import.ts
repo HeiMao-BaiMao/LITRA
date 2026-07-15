@@ -1,7 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
-import { createModel } from "../ai/provider.ts";
-import { buildRetryOption } from "../ai/provider-options.ts";
 import { formatPromptDataBlock, samplePromptText } from "../ai/prompts.ts";
 import { generateStructuredObject } from "../ai/structured-output.ts";
 import type { AiSettings } from "../settings.ts";
@@ -922,8 +920,6 @@ async function classifyOneFileWithAI(
     previousOutputTokens = limits.maxOutputTokens;
     try {
       const result = await generateStructuredObject({
-        model: createModel(settings),
-        ...buildRetryOption(settings),
         schema,
         system: IMPORT_SYSTEM_PROMPT,
         prompt: buildClassifyPrompt({
@@ -1228,8 +1224,6 @@ async function validateRelationshipsWithAI(
   const cappedContent =
     budget === undefined ? content : samplePromptText(content, budget);
   const result = await generateStructuredObject({
-    model: createModel(settings),
-    ...buildRetryOption(settings),
     schema: relationshipTransformSchema,
     system: IMPORT_SYSTEM_PROMPT,
     prompt: buildRelationshipContextValidationPrompt(
@@ -1311,8 +1305,6 @@ async function transformOneWithContent(
   switch (candidate.type) {
     case "character": {
       const result = await generateStructuredObject({
-        model: createModel(settings),
-        ...buildRetryOption(settings),
         schema: characterTransformSchema,
         system,
         prompt: buildCharacterTransformPrompt(candidate.title, content),
@@ -1324,8 +1316,6 @@ async function transformOneWithContent(
     }
     case "world": {
       const result = await generateStructuredObject({
-        model: createModel(settings),
-        ...buildRetryOption(settings),
         schema: worldTransformSchema,
         system,
         prompt: buildWorldTransformPrompt(candidate.title, content),
@@ -1337,8 +1327,6 @@ async function transformOneWithContent(
     }
     case "episode": {
       const result = await generateStructuredObject({
-        model: createModel(settings),
-        ...buildRetryOption(settings),
         schema: episodeTransformSchema,
         system,
         prompt: buildEpisodeTransformPrompt(candidate.title, content),
@@ -1350,8 +1338,6 @@ async function transformOneWithContent(
     }
     case "memo": {
       const result = await generateStructuredObject({
-        model: createModel(settings),
-        ...buildRetryOption(settings),
         schema: memoTransformSchema,
         system,
         prompt: buildMemoTransformPrompt(candidate.title, content),
@@ -1366,8 +1352,6 @@ async function transformOneWithContent(
     }
     case "projectMemo": {
       const result = await generateStructuredObject({
-        model: createModel(settings),
-        ...buildRetryOption(settings),
         schema: projectMemoTransformSchema,
         system,
         prompt: buildProjectMemoTransformPrompt(candidate.title, content),
@@ -1379,8 +1363,6 @@ async function transformOneWithContent(
     }
     case "relationship": {
       const result = await generateStructuredObject({
-        model: createModel(settings),
-        ...buildRetryOption(settings),
         schema: relationshipTransformSchema,
         system,
         prompt: buildRelationshipTransformPrompt(
