@@ -3,11 +3,19 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="stylesheet" href="/src/styles.css" />
-  <link rel="icon" href="/src/assets/LITRA.svg" type="image/svg+xml" />
+  <link data-trunk rel="css" href="src/styles.css" />
+  <link data-trunk rel="copy-file" href="src/assets/LITRA.svg" />
+  <link rel="icon" href="/LITRA.svg" type="image/svg+xml" />
+  <link data-trunk rel="rust" href="frontend-rs/Cargo.toml" />
+  <link data-trunk rel="copy-file" href="summary-window.html" />
+  <link data-trunk rel="copy-file" href="memo-window.html" />
+  <link data-trunk rel="copy-file" href="project-memo-window.html" />
+  <link data-trunk rel="copy-file" href="chat-window.html" />
+  <link data-trunk rel="copy-file" href="settings-window.html" />
+  <link data-trunk rel="copy-file" href="genre-library.html" />
+  <link data-trunk rel="copy-file" href="genre-chat-window.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LITRA - リトラと進める小説執筆ツール</title>
-  <script type="module" src="/rust-ui/litra-frontend.js" defer></script>
 </head>
 
 <body data-rust-window="main">

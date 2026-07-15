@@ -1,5 +1,5 @@
 [build]
-target = "frontend-rs/index.html"
-dist = "public/rust-ui"
-public_url = "/rust-ui/"
+target = "index.html"
+dist = "dist"
+public_url = "/"
 filehash = false
