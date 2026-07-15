@@ -53,6 +53,16 @@ describe("resolveProviderConnection", () => {
     ).toBe("https://custom.example/v1");
   });
 
+  test("動的モデルメタデータでconnection IDを上書きできる", () => {
+    expect(
+      resolveProviderConnection(provider, "unknown-dynamic-model", undefined, "messages"),
+    ).toEqual({
+      id: "messages",
+      apiType: "anthropic-messages",
+      baseUrl: "https://messages.gateway.example/v1",
+    });
+  });
+
   test("既定設定の全モデルが有効な接続定義へ解決される", () => {
     const config = defaultProviders as ProviderConfig;
     for (const entry of config.providers) {

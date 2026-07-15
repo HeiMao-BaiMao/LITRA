@@ -1,4 +1,5 @@
 mod codex;
+mod copilot;
 mod opencode;
 
 use reqwest::RequestBuilder;
@@ -14,6 +15,7 @@ pub async fn apply_request(
 ) -> Result<RequestBuilder, String> {
     match request.provider.as_str() {
         "codex" => codex::apply_request(builder, client).await,
+        "github-copilot" => copilot::apply_request(builder, request).await,
         "opencode" => Ok(opencode::apply_request(builder)),
         _ => Ok(builder),
     }

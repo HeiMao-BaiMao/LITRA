@@ -284,10 +284,11 @@ export function resolveProviderConnection(
   provider: ProviderEntry | undefined,
   modelId: string,
   configuredBaseUrl?: string,
+  connectionOverride?: string,
 ): ResolvedProviderConnection | undefined {
   if (!provider) return undefined;
   const model = getProviderModelDefaults(provider, modelId);
-  const connectionId = model?.connection ?? provider.defaultConnection;
+  const connectionId = connectionOverride ?? model?.connection ?? provider.defaultConnection;
   const configured = connectionId
     ? provider.connections?.find((connection) => connection.id === connectionId)
     : provider.connections?.[0];

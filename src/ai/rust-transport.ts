@@ -6,6 +6,7 @@ import {
   resolveProviderConnection,
   type ResolvedProviderConnection,
 } from "../providers/config.ts";
+import { getCopilotModelEndpoint } from "../providers/copilot-auth.ts";
 
 export type RustAiStreamEvent =
   | { type: "started"; request_id: string }
@@ -75,8 +76,9 @@ export function supportsRustTextProvider(settings: AiSettings): boolean {
     settings.provider === "anthropic" ||
     settings.provider === "google" ||
     settings.provider === "deepseek" ||
-    settings.provider === "llamacpp"
-    || settings.provider === "codex"
+    settings.provider === "llamacpp" ||
+    settings.provider === "codex" ||
+    settings.provider === "github-copilot"
   );
 }
 
@@ -85,10 +87,17 @@ export async function streamRustText(
   options: RustTextStreamOptions,
 ): Promise<RustTextStreamResult> {
   const providerConfig = await loadProviderConfig();
+  const copilotEndpoint = settings.provider === "github-copilot"
+    ? getCopilotModelEndpoint(settings.model)
+    : undefined;
+  const configuredBaseUrl = copilotEndpoint === "messages" && settings.baseUrl
+    ? `${settings.baseUrl.replace(/\/$/, "")}/v1`.replace(/\/v1\/v1$/, "/v1")
+    : settings.baseUrl;
   const connection = resolveProviderConnection(
     getProviderEntry(providerConfig, settings.provider),
     settings.model,
-    settings.baseUrl,
+    configuredBaseUrl,
+    copilotEndpoint,
   );
   if (!connection) {
     throw new Error(`AI接続定義が見つかりません: ${settings.provider}/${settings.model}`);
