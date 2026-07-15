@@ -64,16 +64,21 @@ async fn stream_request(
         },
     )?;
     let client = transport::build_client()?;
-    let response = tokio::select! {
+    let prepared = tokio::select! {
         _ = token.cancelled() => {
             send(channel, AiStreamEvent::Cancelled)?;
             return Ok(());
         }
         response = transport::send_request(&client, request) => response?,
     };
+    let transport::AiHttpResponse {
+        response,
+        mut prefix,
+    } = prepared;
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        let body = response.text().await.unwrap_or_default();
+        let mut body = String::from_utf8_lossy(&prefix).into_owned();
+        body.push_str(&response.text().await.unwrap_or_default());
         let message = format!("AI API エラー ({status}): {}", truncate(&body, 1000));
         let _ = send(
             channel,
@@ -86,8 +91,11 @@ async fn stream_request(
     }
 
     let mut body = response.bytes_stream();
-    let mut buffer = Vec::new();
+    let mut buffer = std::mem::take(&mut prefix);
     let mut stream_state = stream::StreamState::default();
+    for event in stream::take_events(&mut buffer) {
+        stream::process(request.api_type, &event, channel, &mut stream_state)?;
+    }
     loop {
         tokio::select! {
             _ = token.cancelled() => {
