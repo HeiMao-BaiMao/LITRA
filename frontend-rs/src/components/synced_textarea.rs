@@ -13,7 +13,6 @@ pub struct SyncedTextareaConfig {
     pub selector: &'static str,
     pub sync_event: &'static str,
     pub update_event: &'static str,
-    pub ready_event: &'static str,
     pub enabled_placeholder: &'static str,
     pub disabled_placeholder: &'static str,
 }
@@ -29,7 +28,7 @@ impl SyncedTextareaHandle {
     }
 }
 
-pub fn mount(
+pub async fn mount(
     document: &Document,
     config: SyncedTextareaConfig,
 ) -> Result<SyncedTextareaHandle, JsValue> {
@@ -37,7 +36,6 @@ pub fn mount(
         selector,
         sync_event,
         update_event,
-        ready_event,
         enabled_placeholder,
         disabled_placeholder,
     } = config;
@@ -71,7 +69,8 @@ pub fn mount(
                     disabled_placeholder
                 });
             }) as Box<dyn FnMut(JsValue)>),
-        );
+        )
+        .await?;
     }
 
     {
@@ -106,6 +105,5 @@ pub fn mount(
         on_input.forget();
     }
 
-    tauri::emit(ready_event, &Object::new());
     Ok(SyncedTextareaHandle { episode_id })
 }

@@ -7,7 +7,7 @@ use crate::{
     runtime::tauri,
 };
 
-pub fn mount(document: &Document) -> Result<(), JsValue> {
+pub async fn mount(document: &Document) -> Result<(), JsValue> {
     tauri::listen_dpi_zoom();
     let textarea = synced_textarea::mount(
         document,
@@ -15,11 +15,11 @@ pub fn mount(document: &Document) -> Result<(), JsValue> {
             selector: "#summary-textarea",
             sync_event: "summary-sync",
             update_event: "summary-update",
-            ready_event: "summary-ready",
             enabled_placeholder: "このエピソードの要約を入力...",
             disabled_placeholder: "エピソードを選択してください...",
         },
-    )?;
+    )
+    .await?;
     let generate_button = document
         .query_selector("#btn-generate-summary")?
         .ok_or_else(|| JsValue::from_str("summary generate button is missing"))?
@@ -36,7 +36,8 @@ pub fn mount(document: &Document) -> Result<(), JsValue> {
                     .is_some();
                 generate_button.set_disabled(!enabled);
             }) as Box<dyn FnMut(JsValue)>),
-        );
+        )
+        .await?;
     }
 
     {
@@ -53,5 +54,6 @@ pub fn mount(document: &Document) -> Result<(), JsValue> {
         on_click.forget();
     }
 
+    tauri::emit("summary-ready", &Object::new());
     Ok(())
 }

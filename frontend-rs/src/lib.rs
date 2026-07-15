@@ -1,4 +1,5 @@
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 mod components;
 mod runtime;
@@ -13,9 +14,12 @@ pub fn start() -> Result<(), JsValue> {
         .body()
         .and_then(|body| body.get_attribute("data-rust-window"));
 
-    match window_name.as_deref() {
-        Some("memo") => windows::memo::mount(&document),
-        Some("summary") => windows::summary::mount(&document),
-        _ => Ok(()),
-    }
+    spawn_local(async move {
+        let _ = match window_name.as_deref() {
+            Some("memo") => windows::memo::mount(&document).await,
+            Some("summary") => windows::summary::mount(&document).await,
+            _ => Ok(()),
+        };
+    });
+    Ok(())
 }

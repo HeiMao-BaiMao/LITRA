@@ -41,13 +41,14 @@ extern "C" {
     async fn start_dpi_zoom_listener() -> Result<JsValue, JsValue>;
 }
 
-pub fn listen(event_name: &'static str, callback: Closure<dyn FnMut(JsValue)>) {
-    spawn_local(async move {
-        let function = callback.as_ref().unchecked_ref::<Function>();
-        if listen_tauri_event(event_name, function).await.is_ok() {
-            callback.forget();
-        }
-    });
+pub async fn listen(
+    event_name: &str,
+    callback: Closure<dyn FnMut(JsValue)>,
+) -> Result<(), JsValue> {
+    let function = callback.as_ref().unchecked_ref::<Function>();
+    listen_tauri_event(event_name, function).await?;
+    callback.forget();
+    Ok(())
 }
 
 pub fn emit(event_name: &str, payload: &JsValue) {
