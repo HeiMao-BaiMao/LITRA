@@ -69,21 +69,6 @@ export interface RustToolCall {
   input: unknown;
 }
 
-export function supportsRustTextProvider(settings: AiSettings): boolean {
-  return (
-    settings.provider === "openai" ||
-    settings.provider === "anthropic" ||
-    settings.provider === "google" ||
-    settings.provider === "deepseek" ||
-    settings.provider === "llamacpp" ||
-    settings.provider === "sakura" ||
-    settings.provider === "opencode" ||
-    settings.provider === "plamo" ||
-    settings.provider === "codex" ||
-    settings.provider === "github-copilot"
-  );
-}
-
 export async function streamRustText(
   settings: AiSettings,
   options: RustTextStreamOptions,

@@ -36,7 +36,6 @@ import {
 } from "./cache-observability.ts";
 import {
   streamRustText,
-  supportsRustTextProvider,
   type RustChatMessage,
   type RustTextStreamResult,
 } from "./rust-transport.ts";
@@ -1831,40 +1830,19 @@ export async function streamRewrite({
   try {
     const s = normalizeSettings(settings);
     const runCandidate = async (emit: (chunk: string) => void): Promise<{ text: string; run: StreamRunResult }> => {
-      if (supportsRustTextProvider(s)) {
-        let text = "";
-        const result = await streamRustText(s, {
-          system: buildAssistantSystemPrompt({ toolsEnabled: false }),
-          prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold, instruction),
-          maxOutputTokens: s.maxTokens,
-          abortSignal,
-          onChunk: (chunk) => { text += chunk; emit(chunk); },
-          onReasoning,
-        });
-        return {
-          text: sanitizeDraftText(text),
-          run: rustTextResultToRunResult(result, text),
-        };
-      }
-      const result = streamText<ToolSet>({
-        model: createModel(s),
-        ...buildRetryOption(s),
+      let text = "";
+      const result = await streamRustText(s, {
         system: buildAssistantSystemPrompt({ toolsEnabled: false }),
         prompt: buildRewritePrompt(selection, context, settingsContext, s.promptScaffold, instruction),
-        ...buildTemperatureOption(s),
         maxOutputTokens: s.maxTokens,
         abortSignal,
-        ...buildAdvancedOptions(s),
-      });
-      let text = "";
-      const run = await consumeStream(
-        result,
-        (chunk) => { text += chunk; emit(chunk); },
-        undefined,
+        onChunk: (chunk) => { text += chunk; emit(chunk); },
         onReasoning,
-        { step: "rewrite-candidate", settings: s },
-      );
-      return { text: sanitizeDraftText(text), run };
+      });
+      return {
+        text: sanitizeDraftText(text),
+        run: rustTextResultToRunResult(result, text),
+      };
     };
 
     if (!s.continuationBestOfTwo || !judgmentSettings) {
@@ -1908,32 +1886,15 @@ export async function streamFeedback({
 }: StreamFeedbackOptions): Promise<StreamRunResult> {
   try {
     const s = normalizeSettings(settings);
-    if (supportsRustTextProvider(s)) {
-      const result = await streamRustText(s, {
-        system: buildAssistantSystemPrompt({ toolsEnabled: false }),
-        prompt: buildFeedbackPrompt(selection, settingsContext),
-        maxOutputTokens: s.maxTokens,
-        abortSignal,
-        onChunk,
-        onReasoning,
-      });
-      return rustTextResultToRunResult(result);
-    }
-    const result = streamText<ToolSet>({
-      model: createModel(s),
-      ...buildRetryOption(s),
+    const result = await streamRustText(s, {
       system: buildAssistantSystemPrompt({ toolsEnabled: false }),
       prompt: buildFeedbackPrompt(selection, settingsContext),
-      ...buildTemperatureOption(s),
       maxOutputTokens: s.maxTokens,
       abortSignal,
-      ...buildAdvancedOptions(s),
+      onChunk,
+      onReasoning,
     });
-
-    return await consumeStream(result, onChunk, undefined, onReasoning, {
-      step: "feedback",
-      settings: s,
-    });
+    return rustTextResultToRunResult(result);
   } catch (error) {
     console.error("streamFeedback error:", error);
     throw error;
