@@ -103,12 +103,62 @@ pub fn ai_runtime_config(
 
     let role = role.as_deref().unwrap_or("main");
     let main_provider = string(&settings, "provider").unwrap_or("openai");
-    let configured_provider_id = match role {
-        "chat" => string(&settings, "chatProvider").unwrap_or(main_provider),
-        "background" => string(&settings, "backgroundProvider")
-            .or_else(|| string(&settings, "chatProvider"))
-            .unwrap_or(main_provider),
-        _ => main_provider,
+    let chat_provider = string(&settings, "chatProvider").unwrap_or(main_provider);
+    let background_provider = string(&settings, "backgroundProvider").unwrap_or(chat_provider);
+    let (configured_provider_id, configured_role_model, role_overrides) = match role {
+        "chat" => (
+            chat_provider,
+            string(&settings, "chatModel").map(str::to_owned),
+            None,
+        ),
+        "background" => (
+            background_provider,
+            string(&settings, "backgroundModel")
+                .or_else(|| string(&settings, "chatModel"))
+                .map(str::to_owned),
+            None,
+        ),
+        "writing" => match string(&settings, "writingModelSource").unwrap_or("main") {
+            "background" => (
+                background_provider,
+                string(&settings, "backgroundModel")
+                    .or_else(|| string(&settings, "chatModel"))
+                    .map(str::to_owned),
+                settings.get("writingOverrides"),
+            ),
+            "custom" => (
+                string(&settings, "writingProvider").unwrap_or(main_provider),
+                string(&settings, "writingModel").map(str::to_owned),
+                settings.get("writingOverrides"),
+            ),
+            _ => (main_provider, None, settings.get("writingOverrides")),
+        },
+        "judgment" => match string(&settings, "judgmentModelSource").unwrap_or_else(|| {
+            if settings
+                .get("continuationUseBackgroundModel")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                "background"
+            } else {
+                "main"
+            }
+        }) {
+            "background" => (
+                background_provider,
+                string(&settings, "backgroundModel")
+                    .or_else(|| string(&settings, "chatModel"))
+                    .map(str::to_owned),
+                settings.get("judgmentOverrides"),
+            ),
+            "custom" => (
+                string(&settings, "judgmentProvider").unwrap_or(main_provider),
+                string(&settings, "judgmentModel").map(str::to_owned),
+                settings.get("judgmentOverrides"),
+            ),
+            _ => (main_provider, None, settings.get("judgmentOverrides")),
+        },
+        _ => (main_provider, None, None),
     };
     let provider_id = provider_override
         .as_deref()
@@ -130,13 +180,6 @@ pub fn ai_runtime_config(
     let specific_model = specific
         .and_then(|value| string(value, "model"))
         .map(str::to_owned);
-    let role_model = match role {
-        "chat" => string(&settings, "chatModel").map(str::to_owned),
-        "background" => string(&settings, "backgroundModel")
-            .or_else(|| string(&settings, "chatModel"))
-            .map(str::to_owned),
-        _ => None,
-    };
     let provider_default_model = if provider.default_model.trim().is_empty() {
         fallback
             .map(|item| item.default_model.clone())
@@ -146,7 +189,7 @@ pub fn ai_runtime_config(
     };
     let model_id = model_override
         .filter(|value| !value.trim().is_empty())
-        .or(role_model)
+        .or(configured_role_model)
         .or(specific_model)
         .filter(|value| !value.is_empty())
         .unwrap_or(provider_default_model);
@@ -198,6 +241,7 @@ pub fn ai_runtime_config(
     });
     let api_key = crate::secrets::get_secret(&format!("apikey:{provider_id}"))?.unwrap_or_default();
     let setting_number = |key: &str| settings.get(key).and_then(Value::as_f64);
+    let role_number = |key: &str| role_overrides.and_then(|value| value.get(key)?.as_f64());
 
     Ok(RuntimeAiConfig {
         provider: provider_id.into(),
@@ -212,9 +256,12 @@ pub fn ai_runtime_config(
             .and_then(Value::as_u64)
             .or_else(|| model.and_then(|item| item.max_tokens))
             .unwrap_or(8192),
-        temperature: setting_number("temperature")
+        temperature: role_number("temperature")
+            .or_else(|| setting_number("temperature"))
             .or_else(|| model.and_then(|item| item.temperature)),
-        top_p: setting_number("topP").or_else(|| model.and_then(|item| item.top_p)),
+        top_p: role_number("topP")
+            .or_else(|| setting_number("topP"))
+            .or_else(|| model.and_then(|item| item.top_p)),
         top_k: settings
             .get("topK")
             .and_then(Value::as_u64)
@@ -233,9 +280,21 @@ pub fn ai_runtime_config(
                         .or(item.deepseek_reasoning_effort.clone())
                 })
             }),
-        thinking_enabled: settings
-            .get("anthropicThinkingEnabled")
+        thinking_enabled: role_overrides
+            .and_then(|value| value.get("deepseekThinkingEnabled"))
             .and_then(Value::as_bool)
+            .or_else(|| {
+                if provider_id == "deepseek" {
+                    settings
+                        .get("deepseekThinkingEnabled")
+                        .and_then(Value::as_bool)
+                        .or(Some(true))
+                } else {
+                    settings
+                        .get("anthropicThinkingEnabled")
+                        .and_then(Value::as_bool)
+                }
+            })
             .or_else(|| model.and_then(|item| item.anthropic_thinking_enabled)),
         thinking_budget: settings
             .get("anthropicThinkingBudget")
@@ -257,6 +316,8 @@ pub struct ProviderCatalogEntry {
     name: String,
     models: Vec<Model>,
     fixed_models: bool,
+    default_base_url: String,
+    default_model: String,
 }
 
 #[tauri::command]
@@ -299,6 +360,16 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
                 .map(|item| item.model_selection.as_str())
                 .unwrap_or(&default.model_selection)
                 == "fixed",
+            default_base_url: custom
+                .and_then(|item| {
+                    (!item.default_base_url.is_empty()).then_some(item.default_base_url.clone())
+                })
+                .unwrap_or_else(|| default.default_base_url.clone()),
+            default_model: custom
+                .and_then(|item| {
+                    (!item.default_model.is_empty()).then_some(item.default_model.clone())
+                })
+                .unwrap_or_else(|| default.default_model.clone()),
         });
     }
     for custom in configured.providers.iter().filter(|item| {
@@ -312,6 +383,8 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
             name: custom.name.clone(),
             models: custom.models.clone(),
             fixed_models: custom.model_selection == "fixed",
+            default_base_url: custom.default_base_url.clone(),
+            default_model: custom.default_model.clone(),
         });
     }
     Ok(result)
@@ -366,6 +439,24 @@ pub fn ai_settings_save(app: AppHandle, mut settings: Value) -> Result<(), Strin
     specific.insert("apiKey".into(), Value::String(String::new()));
     specific.insert("baseUrl".into(), base_url);
     specific.insert("model".into(), model);
+    for (provider_id, config) in configs.iter_mut() {
+        let Some(config) = config.as_object_mut() else {
+            continue;
+        };
+        let key = config
+            .get("apiKey")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let key_changed = config
+            .remove("apiKeyChanged")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if key_changed || !key.is_empty() {
+            crate::secrets::set_or_delete_secret(&format!("apikey:{provider_id}"), Some(&key))?;
+        }
+        config.insert("apiKey".into(), Value::String(String::new()));
+    }
     let path = app
         .path()
         .app_data_dir()

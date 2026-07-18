@@ -24,7 +24,7 @@ pub async fn continue_story(
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let result = generate(state, "あなたは日本語小説の執筆者です。既存本文の文体・視点・時制を維持し、説明や前置きを付けず本文の続きだけを書いてください。".into(), context).await;
+    let result = generate(state, "writing", "あなたは日本語小説の執筆者です。既存本文の文体・視点・時制を維持し、説明や前置きを付けず本文の続きだけを書いてください。".into(), context).await;
     generating(document, state, false)?;
     let generated = result?;
     let addition = generated.text.trim_start();
@@ -57,7 +57,13 @@ pub async fn rewrite_selection(
     let selected = &text[start..end];
     let prompt = format!("次の小説本文を、意味と事実を保ちながらより自然で魅力的な日本語に書き直してください。本文だけを返してください。\n\n{selected}");
     generating(document, state, true)?;
-    let result = generate(state, "あなたは日本語小説の編集者です。".into(), prompt).await;
+    let result = generate(
+        state,
+        "writing",
+        "あなたは日本語小説の編集者です。".into(),
+        prompt,
+    )
+    .await;
     generating(document, state, false)?;
     let generated = result?;
     let mut next = text[..start].to_owned();
@@ -92,6 +98,7 @@ pub async fn feedback_selection(
     generating(document, state, true)?;
     let result = generate(
         state,
+        "judgment",
         "あなたは率直で建設的な小説編集者です。".into(),
         prompt,
     )
@@ -144,7 +151,7 @@ pub async fn chat(
     } else {
         "あなたは小説制作アプリLITRAの相談AIです。日本語で具体的に答えてください。"
     };
-    let result = generate(state, system.into(), prompt).await;
+    let result = generate(state, "chat", system.into(), prompt).await;
     generating(document, state, false)?;
     let result = result?;
     if direct {
@@ -168,7 +175,7 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let result = generate(state, "あなたは小説の要約者です。本文にない事実を加えず、日本語で簡潔なあらすじだけを返してください。".into(), text).await;
+    let result = generate(state, "background", "あなたは小説の要約者です。本文にない事実を加えず、日本語で簡潔なあらすじだけを返してください。".into(), text).await;
     generating(document, state, false)?;
     let (project_id, episode_id) = {
         let current = state.borrow();
@@ -202,21 +209,19 @@ pub fn cancel(document: &Document, state: &Rc<RefCell<State>>) {
 
 async fn generate(
     state: &Rc<RefCell<State>>,
+    role: &str,
     system: String,
     prompt: String,
 ) -> Result<ai::GeneratedText, JsValue> {
     let current = state.borrow();
-    let provider = current.selected_provider.clone();
-    let model = current.selected_model.clone();
+    let provider = (role == "chat")
+        .then(|| current.selected_provider.clone())
+        .flatten();
+    let model = (role == "chat")
+        .then(|| current.selected_model.clone())
+        .flatten();
     drop(current);
-    ai::generate_with(
-        "chat",
-        system,
-        prompt,
-        provider.as_deref(),
-        model.as_deref(),
-    )
-    .await
+    ai::generate_with(role, system, prompt, provider.as_deref(), model.as_deref()).await
 }
 async fn push_assistant(
     document: &Document,

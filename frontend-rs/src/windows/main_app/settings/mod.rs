@@ -8,6 +8,7 @@ use web_sys::{Document, HtmlInputElement, HtmlSelectElement};
 use super::State;
 use crate::runtime::invoke;
 
+pub(super) mod form;
 pub(super) mod integrations;
 mod licenses;
 mod models;
@@ -19,6 +20,11 @@ struct Empty {}
 #[derive(Serialize)]
 struct SaveArgs<'a> {
     settings: &'a Value,
+}
+
+#[derive(Serialize)]
+struct SecretArgs<'a> {
+    key: &'a str,
 }
 
 pub async fn open(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
@@ -68,8 +74,19 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
             "anthropicThinkingBudget",
         ),
     ] {
-        if let Some(value) = control_value(document, id).and_then(|value| value.parse::<f64>().ok())
+        let raw = control_value(document, id).unwrap_or_default();
+        if raw.trim().is_empty()
+            && matches!(
+                key,
+                "topP"
+                    | "topK"
+                    | "frequencyPenalty"
+                    | "presencePenalty"
+                    | "anthropicThinkingBudget"
+            )
         {
+            object.remove(key);
+        } else if let Ok(value) = raw.parse::<f64>() {
             if let Some(number) = serde_json::Number::from_f64(value) {
                 object.insert(key.into(), Value::Number(number));
             }
@@ -108,6 +125,7 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
             object.insert(key.into(), Value::Bool(input.checked()));
         }
     }
+    form::capture(document, object)?;
     invoke::invoke::<_, ()>(
         "ai_settings_save",
         &SaveArgs {
@@ -118,6 +136,26 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
     integrations::save(document).await?;
     state.borrow_mut().ai_settings = settings;
     set_hidden(document, true)
+}
+
+pub async fn save_chat_selection(provider: &str, model: Option<&str>) -> Result<(), JsValue> {
+    let mut settings: Value = invoke::invoke("ai_settings_snapshot", &Empty {}).await?;
+    let object = settings
+        .as_object_mut()
+        .ok_or_else(|| JsValue::from_str("settings invalid"))?;
+    object.insert("chatProvider".into(), Value::String(provider.into()));
+    if let Some(model) = model.filter(|model| !model.trim().is_empty()) {
+        object.insert("chatModel".into(), Value::String(model.into()));
+    } else {
+        object.remove("chatModel");
+    }
+    invoke::invoke::<_, ()>(
+        "ai_settings_save",
+        &SaveArgs {
+            settings: &settings,
+        },
+    )
+    .await
 }
 
 pub fn cancel(document: &Document) -> Result<(), JsValue> {
@@ -199,8 +237,158 @@ pub fn provider_changed(
             .unwrap_or_default();
         list.set_inner_html(&options);
     }
+    let fixed = provider.is_some_and(|provider| provider.fixed_models);
+    if let Some(input) = document.get_element_by_id("setting-model") {
+        input.class_list().toggle_with_force("hidden", fixed)?;
+    }
+    if let Some(select) = document
+        .get_element_by_id("setting-model-select")
+        .and_then(|item| item.dyn_into::<HtmlSelectElement>().ok())
+    {
+        select.class_list().toggle_with_force("hidden", !fixed)?;
+        if let Some(provider) = provider {
+            select.set_inner_html(
+                &provider
+                    .models
+                    .iter()
+                    .map(|model| {
+                        format!(
+                            r#"<option value="{}">{}</option>"#,
+                            escape(&model.id),
+                            escape(model.label.as_deref().unwrap_or(&model.id))
+                        )
+                    })
+                    .collect::<String>(),
+            );
+            select.set_value(&control_value(document, "setting-model").unwrap_or_default());
+        }
+    }
     models::update_button(document, provider.map(|provider| provider.fixed_models))?;
+    for (selector, visible) in [
+        (
+            ".provider-field-openai",
+            matches!(provider_id, "openai" | "codex" | "github-copilot"),
+        ),
+        (".provider-field-deepseek", provider_id == "deepseek"),
+        (".provider-field-anthropic", provider_id == "anthropic"),
+        (
+            ".provider-field-anthropic-adaptive",
+            provider_id == "anthropic",
+        ),
+        (".provider-field-google", provider_id == "google"),
+    ] {
+        if let Some(element) = document.query_selector(selector)? {
+            element.class_list().toggle_with_force("hidden", !visible)?;
+        }
+    }
     oauth_ui::provider_changed(document, provider_id)
+}
+
+pub async fn switch_provider(
+    document: &Document,
+    state: &Rc<RefCell<State>>,
+    provider_id: &str,
+) -> Result<(), JsValue> {
+    let mut settings = state.borrow().ai_settings.clone();
+    let previous = settings
+        .get("provider")
+        .and_then(Value::as_str)
+        .unwrap_or("openai")
+        .to_owned();
+    capture_provider(document, &mut settings, &previous)?;
+    let catalog = state.borrow().catalog.clone();
+    let fallback = catalog.iter().find(|provider| provider.id == provider_id);
+    let config = settings
+        .get("providerConfigs")
+        .and_then(Value::as_object)
+        .and_then(|configs| configs.get(provider_id))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let key_changed = config
+        .get("apiKeyChanged")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut api_key = config
+        .get("apiKey")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    if api_key.is_empty() && !key_changed {
+        api_key = invoke::invoke::<_, Option<String>>(
+            "secret_get",
+            &SecretArgs {
+                key: &format!("apikey:{provider_id}"),
+            },
+        )
+        .await?
+        .unwrap_or_default();
+    }
+    let base_url = config
+        .get("baseUrl")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| fallback.map(|provider| provider.default_base_url.clone()))
+        .unwrap_or_default();
+    let model = config
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| fallback.map(|provider| provider.default_model.clone()))
+        .unwrap_or_default();
+    if let Some(object) = settings.as_object_mut() {
+        object.insert("provider".into(), Value::String(provider_id.into()));
+        object.insert("apiKey".into(), Value::String(api_key.clone()));
+        object.insert("baseUrl".into(), Value::String(base_url.clone()));
+        object.insert("model".into(), Value::String(model.clone()));
+    }
+    state.borrow_mut().ai_settings = settings;
+    set_control(document, "setting-api-key", api_key);
+    set_control(document, "setting-base-url", base_url);
+    set_control(document, "setting-model", model.clone());
+    provider_changed(document, state, provider_id)?;
+    if let Some(select) = document
+        .get_element_by_id("setting-model-select")
+        .and_then(|item| item.dyn_into::<HtmlSelectElement>().ok())
+    {
+        select.set_value(&model);
+    }
+    Ok(())
+}
+
+fn capture_provider(
+    document: &Document,
+    settings: &mut Value,
+    provider_id: &str,
+) -> Result<(), JsValue> {
+    let object = settings
+        .as_object_mut()
+        .ok_or_else(|| JsValue::from_str("settings invalid"))?;
+    let configs = object
+        .entry("providerConfigs")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| JsValue::from_str("providerConfigs invalid"))?;
+    let config = configs
+        .entry(provider_id)
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| JsValue::from_str("provider config invalid"))?;
+    config.insert(
+        "apiKey".into(),
+        Value::String(control_value(document, "setting-api-key").unwrap_or_default()),
+    );
+    config.insert("apiKeyChanged".into(), Value::Bool(true));
+    config.insert(
+        "baseUrl".into(),
+        Value::String(control_value(document, "setting-base-url").unwrap_or_default()),
+    );
+    config.insert(
+        "model".into(),
+        Value::String(control_value(document, "setting-model").unwrap_or_default()),
+    );
+    Ok(())
 }
 
 fn populate(document: &Document, state: &State) -> Result<(), JsValue> {
@@ -264,6 +452,7 @@ fn populate(document: &Document, state: &State) -> Result<(), JsValue> {
             .and_then(Value::as_str)
             .unwrap_or("openai"),
     )?;
+    form::populate(document, settings, &state.catalog)?;
     Ok(())
 }
 

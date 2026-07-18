@@ -465,7 +465,26 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
     bind_chat_form(document, Rc::clone(&state))?;
     bind_selectors(document, Rc::clone(&state))?;
     bind_webdav_toggle(document)?;
-    bind_import_controls(document, state)?;
+    bind_import_controls(document, Rc::clone(&state))?;
+    bind_settings_preview(document, Rc::clone(&state))?;
+    Ok(())
+}
+
+fn bind_settings_preview(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let event_document = document.clone();
+    let handler = Closure::wrap(Box::new(move |event: Event| {
+        let Some(target) = event
+            .target()
+            .and_then(|target| target.dyn_into::<Element>().ok())
+        else {
+            return;
+        };
+        if target.id().starts_with("setting-") {
+            let _ = super::settings::form::render_preview(&event_document, &state.borrow().catalog);
+        }
+    }) as Box<dyn FnMut(Event)>);
+    document.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
+    handler.forget();
     Ok(())
 }
 
@@ -568,7 +587,22 @@ fn bind_selectors(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
         };
         if select.id() == "setting-provider" {
             let provider = select.value();
-            let _ = super::settings::provider_changed(&event_document, &state, &provider);
+            let document = event_document.clone();
+            let state = Rc::clone(&state);
+            spawn_local(async move {
+                if let Err(error) =
+                    super::settings::switch_provider(&document, &state, &provider).await
+                {
+                    report(error);
+                }
+            });
+            return;
+        } else if select.id().starts_with("setting-") {
+            let _ = super::settings::form::control_changed(
+                &event_document,
+                &state.borrow().catalog,
+                &select.id(),
+            );
         } else if select.id() == "chat-provider" {
             let provider = select.value();
             let model = state
@@ -581,8 +615,28 @@ fn bind_selectors(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
             let mut current = state.borrow_mut();
             current.selected_provider = Some(provider);
             current.selected_model = model;
+            let provider = current.selected_provider.clone().unwrap_or_default();
+            let model = current.selected_model.clone();
+            spawn_local(async move {
+                if let Err(error) =
+                    super::settings::save_chat_selection(&provider, model.as_deref()).await
+                {
+                    report(error);
+                }
+            });
         } else if select.id() == "chat-model" {
             state.borrow_mut().selected_model = Some(select.value());
+            let current = state.borrow();
+            let provider = current.selected_provider.clone().unwrap_or_default();
+            let model = current.selected_model.clone();
+            drop(current);
+            spawn_local(async move {
+                if let Err(error) =
+                    super::settings::save_chat_selection(&provider, model.as_deref()).await
+                {
+                    report(error);
+                }
+            });
         } else {
             return;
         }
@@ -984,6 +1038,11 @@ async fn apply_child(
             if let Some(model) = payload.get("model").and_then(|value| value.as_str()) {
                 state.borrow_mut().selected_model = Some(model.into());
             }
+            let current = state.borrow();
+            let provider = current.selected_provider.clone().unwrap_or_default();
+            let model = current.selected_model.clone();
+            drop(current);
+            super::settings::save_chat_selection(&provider, model.as_deref()).await?;
         }
     }
     super::render::all(document, &state.borrow())?;
