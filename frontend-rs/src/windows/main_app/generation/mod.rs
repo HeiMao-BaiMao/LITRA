@@ -76,6 +76,44 @@ pub async fn continue_story(settings: &Value, context: &str) -> Result<ai::Gener
     Ok(selected)
 }
 
+pub async fn rewrite_passage(
+    settings: &Value,
+    context: &str,
+    passage: &str,
+) -> Result<ai::GeneratedText, JsValue> {
+    let first = rewrite_candidate(context, passage).await?;
+    let mut selected = if enabled(settings, "continuationBestOfTwo") {
+        let second = rewrite_candidate(context, passage).await?;
+        if review::choose(&first.text, &second.text).await? {
+            second
+        } else {
+            first
+        }
+    } else {
+        first
+    };
+    if enabled(settings, "continuationReviewEnabled") {
+        let findings = review::inspect(context, &selected.text).await?;
+        let revised = ai::generate(
+            "writing",
+            "あなたは日本語小説の改稿者です。対象範囲の修正後本文だけを返してください。".into(),
+            prompts::revise(
+                context,
+                &selected.text,
+                &findings,
+                enabled(settings, "continuationTargetedRevision"),
+            ),
+        )
+        .await?;
+        if !revised.text.trim().is_empty()
+            && review::prefer_revision(context, &selected.text, &revised.text).await?
+        {
+            selected = revised;
+        }
+    }
+    Ok(selected)
+}
+
 async fn draft(
     context: &str,
     plan: &str,
@@ -86,6 +124,15 @@ async fn draft(
         "writing",
         "あなたは日本語小説の執筆者です。既存本文の文体・視点・時制を維持し、説明や前置きを付けず本文の続きだけを書いてください。".into(),
         prompts::draft(context, plan, scene, voices),
+    )
+    .await
+}
+
+async fn rewrite_candidate(context: &str, passage: &str) -> Result<ai::GeneratedText, JsValue> {
+    ai::generate(
+        "writing",
+        "あなたは日本語小説の編集者です。指定範囲の書き直し本文だけを返してください。".into(),
+        prompts::rewrite(context, passage),
     )
     .await
 }
@@ -121,5 +168,6 @@ mod tests {
         assert!(prompts::draft(context, "", "", "").contains(context));
         assert!(prompts::review(context, "候補").contains(context));
         assert!(prompts::regression(context, "前", "後").contains(context));
+        assert!(prompts::rewrite(context, "対象").contains(context));
     }
 }

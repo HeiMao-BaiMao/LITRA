@@ -55,3 +55,9 @@ pub fn regression(context: &str, original: &str, revised: &str) -> String {
         "修正前と修正後を比較し、修正によって新しい矛盾、欠落、文体悪化が生じていない方を選んでください。返答は修正前なら 1、修正後なら 2 の一文字だけにしてください。\n\n既存本文末尾:\n{context}\n\n修正前:\n{original}\n\n修正後:\n{revised}"
     )
 }
+
+pub fn rewrite(context: &str, passage: &str) -> String {
+    format!(
+        "【対象】の意味、事実、視点、時制を保ちながら、周辺本文と自然につながる魅力的な日本語へ書き直してください。対象外の出来事を追加せず、説明や引用符を付けず、書き直した対象本文だけを返してください。\n\n【周辺本文】\n{context}\n\n【対象】\n{passage}"
+    )
+}

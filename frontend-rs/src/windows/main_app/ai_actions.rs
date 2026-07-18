@@ -56,15 +56,19 @@ pub async fn rewrite_selection(
         return Err(JsValue::from_str("書き直す範囲を選択してください。"));
     }
     let selected = &text[start..end];
-    let prompt = format!("次の小説本文を、意味と事実を保ちながらより自然で魅力的な日本語に書き直してください。本文だけを返してください。\n\n{selected}");
+    let before = text[..start]
+        .chars()
+        .rev()
+        .take(6_000)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    let after = text[end..].chars().take(3_000).collect::<String>();
+    let context = format!("【直前】\n{before}\n\n【対象直後】\n{after}");
+    let settings = state.borrow().ai_settings.clone();
     generating(document, state, true)?;
-    let result = generate(
-        state,
-        "writing",
-        "あなたは日本語小説の編集者です。".into(),
-        prompt,
-    )
-    .await;
+    let result = super::generation::rewrite_passage(&settings, &context, selected).await;
     generating(document, state, false)?;
     let generated = result?;
     let mut next = text[..start].to_owned();
