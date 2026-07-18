@@ -151,7 +151,11 @@ pub async fn chat(
     } else {
         "あなたは小説制作アプリLITRAの相談AIです。日本語で具体的に答えてください。"
     };
-    let result = generate(state, "chat", system.into(), prompt).await;
+    let result = if direct {
+        generate(state, "chat", system.into(), prompt).await
+    } else {
+        super::agent_tools::run(state, system.into(), prompt).await
+    };
     generating(document, state, false)?;
     let result = result?;
     if direct {

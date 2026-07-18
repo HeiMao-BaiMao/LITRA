@@ -1,3 +1,4 @@
+mod agent_tools;
 mod ai_actions;
 mod events;
 mod imports;
