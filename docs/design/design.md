@@ -31,6 +31,6 @@ Derive OpenAI and Anthropic fallback model IDs/limits from the checked-in OpenCo
 - Reset deletes OAuth secrets too.
 
 ## Acceptance
-- `bun run build`
+- `trunk build --release`
 - `cargo check --manifest-path src-tauri/Cargo.toml`
 - Provider selection, settings save/load/reset, model listing, protocol routing, and auth wrappers compile and are reviewable without real credentials.

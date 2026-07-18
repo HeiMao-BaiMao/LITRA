@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
-const DEFAULT_PROVIDERS: &str = include_str!("../../../src/providers/default-providers.json");
+const DEFAULT_PROVIDERS: &str = include_str!("../../../config/default-providers.json");
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

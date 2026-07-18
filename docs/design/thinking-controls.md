@@ -29,4 +29,4 @@ Visibility and request generation are keyed only by provider. This fails for mix
 - Existing curated model IDs unchanged.
 - Selecting every curated reasoning-capable model shows only valid controls and sends matching provider options.
 - Settings round-trip preserves selected effort/on state.
-- `bun run build`, `cargo check`, `git diff --check` pass.
+- `trunk build --release`, `cargo test --manifest-path src-tauri/Cargo.toml`, `git diff --check` pass.
