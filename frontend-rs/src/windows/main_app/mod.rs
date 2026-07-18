@@ -6,7 +6,8 @@ mod settings;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{cell::RefCell, rc::Rc};
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{closure::Closure, JsValue};
+use wasm_bindgen_futures::future_to_promise;
 use web_sys::Document;
 
 use crate::{
@@ -61,6 +62,7 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
         ..Default::default()
     }));
     state.borrow_mut().catalog = crate::runtime::ai::catalog().await.unwrap_or_default();
+    settings::integrations::pull_on_start(document).await?;
     if let Ok((provider, model)) = crate::runtime::ai::selection("chat").await {
         let mut current = state.borrow_mut();
         current.selected_provider = Some(provider);
@@ -69,8 +71,35 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     refresh_projects(document, &state).await?;
     events::bind(document, Rc::clone(&state))?;
     events::listen_children(document.clone(), Rc::clone(&state)).await?;
+    bind_close_sync(Rc::clone(&state)).await?;
     let result = render::all(document, &state.borrow());
     result
+}
+
+async fn bind_close_sync(state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let callback = Closure::wrap(Box::new(move || {
+        let editor = {
+            let current = state.borrow();
+            current.current_project.as_ref().and_then(|project| {
+                let episode_id = current.current_episode_id.as_ref()?;
+                let file_name = current
+                    .episodes
+                    .iter()
+                    .find(|episode| &episode.id == episode_id)?
+                    .file_name
+                    .clone();
+                Some((project.id.clone(), file_name, current.editor_text.clone()))
+            })
+        };
+        future_to_promise(async move {
+            if let Some((project_id, file_name, content)) = editor {
+                projects::write_episode(&project_id, &file_name, &content).await?;
+            }
+            settings::integrations::push_on_close().await?;
+            Ok(JsValue::UNDEFINED)
+        })
+    }) as Box<dyn FnMut() -> js_sys::Promise>);
+    tauri::listen_close(callback).await
 }
 
 async fn refresh_projects(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {

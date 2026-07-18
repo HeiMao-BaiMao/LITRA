@@ -62,6 +62,8 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-oauth-login" => "oauth-login",
                     "btn-oauth-logout" => "oauth-logout",
                     "btn-oauth-cancel" => "oauth-cancel",
+                    "btn-show-licenses" => "show-licenses",
+                    "btn-close-licenses" => "close-licenses",
                     _ => "",
                 }
                 .into()
@@ -309,6 +311,8 @@ async fn handle_click(
                 _ => super::settings::cancel_oauth(document, &provider).await?,
             }
         }
+        "show-licenses" => super::settings::show_licenses(document)?,
+        "close-licenses" => super::settings::close_licenses(document)?,
         "toggle-direct-writing" => {
             let next = !state.borrow().direct_writing;
             state.borrow_mut().direct_writing = next;
@@ -411,6 +415,23 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
     handler.forget();
     bind_chat_form(document, Rc::clone(&state))?;
     bind_selectors(document, state)?;
+    bind_webdav_toggle(document)?;
+    Ok(())
+}
+
+fn bind_webdav_toggle(document: &Document) -> Result<(), JsValue> {
+    let Some(input) = document
+        .get_element_by_id("setting-webdav-enabled")
+        .and_then(|item| item.dyn_into::<HtmlInputElement>().ok())
+    else {
+        return Ok(());
+    };
+    let event_document = document.clone();
+    let handler = Closure::wrap(Box::new(move |_event: Event| {
+        let _ = super::settings::integrations::update_enabled(&event_document);
+    }) as Box<dyn FnMut(Event)>);
+    input.add_event_listener_with_callback("change", handler.as_ref().unchecked_ref())?;
+    handler.forget();
     Ok(())
 }
 

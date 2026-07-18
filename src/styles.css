@@ -3121,3 +3121,16 @@ textarea.genre-form-input {
     transform: translateX(0);
   }
 }
+.sync-status-overlay {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 10000;
+  max-width: min(32rem, calc(100vw - 2rem));
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color, #4b5563);
+  border-radius: 0.5rem;
+  background: var(--panel-bg, #20242b);
+  color: var(--text-color, #f3f4f6);
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 30%);
+}

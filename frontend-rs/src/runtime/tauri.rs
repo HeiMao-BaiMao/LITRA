@@ -33,6 +33,21 @@ export async function startDpiZoomListener() {
   await apply();
   return window.__TAURI__.window.getCurrentWindow().onScaleChanged(apply);
 }
+
+export async function listenMainClose(callback) {
+  const currentWindow = window.__TAURI__.window.getCurrentWindow();
+  let closing = false;
+  return currentWindow.onCloseRequested(async (event) => {
+    if (closing) return;
+    event.preventDefault();
+    closing = true;
+    try {
+      await callback();
+    } finally {
+      await currentWindow.destroy();
+    }
+  });
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(catch, js_name = listenTauriEvent)]
@@ -46,6 +61,9 @@ extern "C" {
 
     #[wasm_bindgen(catch, js_name = startDpiZoomListener)]
     async fn start_dpi_zoom_listener() -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(catch, js_name = listenMainClose)]
+    async fn listen_main_close(callback: &Function) -> Result<JsValue, JsValue>;
 }
 
 pub async fn listen(
@@ -66,4 +84,13 @@ pub fn listen_dpi_zoom() {
     spawn_local(async {
         let _ = start_dpi_zoom_listener().await;
     });
+}
+
+pub async fn listen_close(
+    callback: Closure<dyn FnMut() -> js_sys::Promise>,
+) -> Result<(), JsValue> {
+    let function = callback.as_ref().unchecked_ref::<Function>();
+    listen_main_close(function).await?;
+    callback.forget();
+    Ok(())
 }
