@@ -1,6 +1,7 @@
 mod agent_tools;
 mod ai_actions;
 mod events;
+mod generation;
 mod imports;
 mod render;
 mod settings;

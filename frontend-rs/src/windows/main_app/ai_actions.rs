@@ -24,7 +24,8 @@ pub async fn continue_story(
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let result = generate(state, "writing", "あなたは日本語小説の執筆者です。既存本文の文体・視点・時制を維持し、説明や前置きを付けず本文の続きだけを書いてください。".into(), context).await;
+    let settings = state.borrow().ai_settings.clone();
+    let result = super::generation::continue_story(&settings, &context).await;
     generating(document, state, false)?;
     let generated = result?;
     let addition = generated.text.trim_start();
