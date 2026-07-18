@@ -11,6 +11,9 @@ use crate::{
 
 const MAX_TOOL_ROUNDS: usize = 8;
 
+mod genre;
+mod project;
+
 pub async fn run(
     state: &Rc<RefCell<State>>,
     mut system: String,
@@ -103,6 +106,12 @@ async fn execute(
     name: &str,
     input: Value,
 ) -> Result<Value, JsValue> {
+    if genre::handles(name) {
+        return genre::execute(name, input).await;
+    }
+    if project::handles(name) {
+        return project::execute(state, project_id, current_episode, name, input).await;
+    }
     let mut input = input.as_object().cloned().unwrap_or_default();
     let value: Value = match name {
         "listEpisodes" => {
@@ -117,6 +126,22 @@ async fn execute(
         }
         "webSearch" => invoke::invoke("web_search", &json!({"req":input.clone()})).await?,
         "webFetch" => invoke::invoke("web_fetch", &json!({"req":input.clone()})).await?,
+        "saveEpisodeSummaryAndOneLiner" => {
+            let episode_id = input.get("episodeId").cloned().unwrap_or(Value::Null);
+            let content = input.get("content").cloned().unwrap_or(Value::Null);
+            let one_liner = input.get("oneLiner").cloned().unwrap_or(Value::Null);
+            invoke::invoke::<_, ()>(
+                "save_episode_summary",
+                &json!({"req":{"projectId":project_id,"episodeId":episode_id.clone(),"content":content}}),
+            )
+            .await?;
+            invoke::invoke::<_, ()>(
+                "save_episode_one_liner",
+                &json!({"req":{"projectId":project_id,"episodeId":episode_id,"oneLiner":one_liner}}),
+            )
+            .await?;
+            json!({"success":true})
+        }
         command => {
             input.insert("projectId".into(), Value::String(project_id.into()));
             if matches!(
@@ -156,7 +181,10 @@ async fn execute(
             .await
             .unwrap_or(Value::Null);
     }
-    if matches!(name, "saveEpisodeSummary" | "saveEpisodeOneLiner") {
+    if matches!(
+        name,
+        "saveEpisodeSummary" | "saveEpisodeOneLiner" | "saveEpisodeSummaryAndOneLiner"
+    ) {
         state.borrow_mut().summaries = projects::read_document(project_id, "summaries")
             .await?
             .unwrap_or_else(|| json!({"summaries":{}}));
@@ -165,7 +193,7 @@ async fn execute(
 }
 
 fn definitions() -> Vec<Value> {
-    vec![
+    let mut definitions = vec![
         tool(
             "listEpisodes",
             "Lists episodes with IDs, order, titles and one-line summaries.",
@@ -250,6 +278,15 @@ fn definitions() -> Vec<Value> {
             object([("episodeId", string()), ("oneLiner", string())]),
         ),
         tool(
+            "saveEpisodeSummaryAndOneLiner",
+            "Saves the detailed and one-line episode summaries together.",
+            object([
+                ("episodeId", string()),
+                ("content", string()),
+                ("oneLiner", string()),
+            ]),
+        ),
+        tool(
             "webSearch",
             "Searches the web for current factual information.",
             object([("query", string()), ("numResults", integer())]),
@@ -262,7 +299,10 @@ fn definitions() -> Vec<Value> {
                 ("format", enum_string(&["text", "markdown", "html"])),
             ]),
         ),
-    ]
+    ];
+    definitions.extend(project::definitions());
+    definitions.extend(genre::definitions());
+    definitions
 }
 
 fn tool(name: &str, description: &str, input_schema: Value) -> Value {
