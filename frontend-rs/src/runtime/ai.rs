@@ -62,6 +62,8 @@ pub struct CatalogProvider {
     pub name: String,
     #[serde(default)]
     pub models: Vec<CatalogModel>,
+    #[serde(default)]
+    pub fixed_models: bool,
 }
 
 pub async fn catalog() -> Result<Vec<CatalogProvider>, JsValue> {

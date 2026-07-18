@@ -13,6 +13,14 @@ use types::SettingsState;
 
 pub async fn mount(document: &Document) -> Result<(), JsValue> {
     tauri::listen_dpi_zoom();
+    mount_editor(document, true).await
+}
+
+pub async fn mount_inline(document: &Document) -> Result<(), JsValue> {
+    mount_editor(document, false).await
+}
+
+async fn mount_editor(document: &Document, bind_tabs: bool) -> Result<(), JsValue> {
     let container = required(document, "#settings-container")?;
     let state = Rc::new(RefCell::new(SettingsState::default()));
 
@@ -35,9 +43,11 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
         .await?;
     }
 
-    bind_tab(document, "#tab-characters", "characters")?;
-    bind_tab(document, "#tab-world", "world")?;
-    bind_tab(document, "#tab-relationships", "relationships")?;
+    if bind_tabs {
+        bind_tab(document, "#tab-characters", "characters")?;
+        bind_tab(document, "#tab-world", "world")?;
+        bind_tab(document, "#tab-relationships", "relationships")?;
+    }
     events::bind(document, &container, state)?;
     tauri::emit("settings-ready", &Object::new());
     Ok(())

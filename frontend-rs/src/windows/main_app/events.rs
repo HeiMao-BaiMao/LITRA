@@ -46,9 +46,13 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-popout-memo" => "popout-memo",
                     "btn-popout-chat" => "popout-chat",
                     "btn-popout-settings" => "popout-settings",
-                    "nav-characters" | "nav-world" | "nav-relationships" => "popout-settings",
+                    "nav-characters" => "view-characters",
+                    "nav-world" => "view-world",
+                    "nav-relationships" => "view-relationships",
                     "btn-popout-memos" => "popout-memos",
-                    "nav-memos" => "popout-memos",
+                    "nav-memos" => "view-memos",
+                    "btn-toggle-memo" => "toggle-memo",
+                    "btn-toggle-chat" => "toggle-chat",
                     "btn-genre-library" => "open-genres",
                     "btn-continue" => "continue",
                     "btn-rewrite" => "rewrite",
@@ -67,6 +71,9 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-oauth-cancel" => "oauth-cancel",
                     "btn-show-licenses" => "show-licenses",
                     "btn-close-licenses" => "close-licenses",
+                    "btn-fetch-models" => "fetch-models",
+                    "btn-initialize-settings" => "initialize-settings",
+                    "advanced-settings-toggle" => "toggle-advanced-settings",
                     _ => "",
                 }
                 .into()
@@ -316,6 +323,9 @@ async fn handle_click(
         }
         "show-licenses" => super::settings::show_licenses(document)?,
         "close-licenses" => super::settings::close_licenses(document)?,
+        "fetch-models" => super::settings::fetch_models(document, state).await?,
+        "initialize-settings" => super::settings::reset(document, state).await?,
+        "toggle-advanced-settings" => super::settings::toggle_advanced(document)?,
         "choose-import-folder" => {
             if state.borrow().current_project.is_none() {
                 alert("プロジェクトを選択または作成してください。");
@@ -337,6 +347,21 @@ async fn handle_click(
             }
         }
         "cancel-import" => super::imports::cancel(document, state)?,
+        "view-characters" | "view-world" | "view-relationships" | "view-memos" => {
+            state.borrow_mut().current_view = action.trim_start_matches("view-").into();
+            super::render::all(document, &state.borrow())?;
+            sync_children(&state.borrow());
+        }
+        "toggle-memo" => {
+            let collapsed = state.borrow().memo_collapsed;
+            state.borrow_mut().memo_collapsed = !collapsed;
+            super::render::all(document, &state.borrow())?;
+        }
+        "toggle-chat" => {
+            let collapsed = state.borrow().chat_collapsed;
+            state.borrow_mut().chat_collapsed = !collapsed;
+            super::render::all(document, &state.borrow())?;
+        }
         "toggle-direct-writing" => {
             let next = !state.borrow().direct_writing;
             state.borrow_mut().direct_writing = next;

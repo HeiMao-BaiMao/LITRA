@@ -47,6 +47,8 @@ struct Provider {
     connections: Vec<Connection>,
     #[serde(default)]
     models: Vec<Model>,
+    #[serde(default)]
+    model_selection: String,
 }
 
 #[derive(Default, Deserialize)]
@@ -254,6 +256,7 @@ pub struct ProviderCatalogEntry {
     id: String,
     name: String,
     models: Vec<Model>,
+    fixed_models: bool,
 }
 
 #[tauri::command]
@@ -291,6 +294,11 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
                 .map(|item| item.name.clone())
                 .unwrap_or_else(|| default.name.clone()),
             models,
+            fixed_models: custom
+                .filter(|item| !item.model_selection.is_empty())
+                .map(|item| item.model_selection.as_str())
+                .unwrap_or(&default.model_selection)
+                == "fixed",
         });
     }
     for custom in configured.providers.iter().filter(|item| {
@@ -303,6 +311,7 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
             id: custom.id.clone(),
             name: custom.name.clone(),
             models: custom.models.clone(),
+            fixed_models: custom.model_selection == "fixed",
         });
     }
     Ok(result)
@@ -369,6 +378,40 @@ pub fn ai_settings_save(app: AppHandle, mut settings: Value) -> Result<(), Strin
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, text).map_err(|error| error.to_string())?;
     fs::rename(&temporary, &path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_settings_reset(app: AppHandle) -> Result<(), String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let app_config = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())?;
+    for path in [
+        app_data.join("litra-settings.json"),
+        app_config.join("providers.json"),
+    ] {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Failed to remove {}: {error}", path.display())),
+        }
+    }
+    let defaults: ProviderDocument = serde_json::from_str(DEFAULT_PROVIDERS)
+        .map_err(|error| format!("Default provider config is invalid: {error}"))?;
+    for provider in defaults.providers {
+        crate::secrets::delete_secret(&format!("apikey:{}", provider.id))?;
+    }
+    for key in ["webdav:password", "websearch:exaApiKey"] {
+        crate::secrets::delete_secret(key)?;
+    }
+    super::auth::store::oauth_credential_delete("codex".into()).await?;
+    super::auth::store::oauth_credential_delete("github-copilot".into()).await?;
+    crate::webdav_sync::save_webdav_sync_config(Default::default())?;
+    Ok(())
 }
 
 fn read_json(path: std::path::PathBuf) -> Option<Value> {

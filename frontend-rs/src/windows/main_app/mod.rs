@@ -44,6 +44,8 @@ struct State {
     ai_settings: Value,
     direct_writing: bool,
     import: imports::ImportState,
+    memo_collapsed: bool,
+    chat_collapsed: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -73,6 +75,8 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     refresh_projects(document, &state).await?;
     events::bind(document, Rc::clone(&state))?;
     events::listen_children(document.clone(), Rc::clone(&state)).await?;
+    crate::windows::settings::mount_inline(document).await?;
+    crate::windows::project_memos::mount_inline(document).await?;
     bind_close_sync(Rc::clone(&state)).await?;
     let result = render::all(document, &state.borrow());
     result

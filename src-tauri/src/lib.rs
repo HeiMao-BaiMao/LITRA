@@ -31,6 +31,7 @@ pub fn run() {
             ai::config::ai_provider_catalog,
             ai::config::ai_settings_snapshot,
             ai::config::ai_settings_save,
+            ai::config::ai_settings_reset,
             ai::models::ai_list_models,
             ai::auth::store::oauth_credential_status,
             ai::auth::store::oauth_credential_delete,

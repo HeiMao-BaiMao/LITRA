@@ -35,6 +35,14 @@ struct ProjectMemosState {
 
 pub async fn mount(document: &Document) -> Result<(), JsValue> {
     tauri::listen_dpi_zoom();
+    mount_editor(document).await
+}
+
+pub async fn mount_inline(document: &Document) -> Result<(), JsValue> {
+    mount_editor(document).await
+}
+
+async fn mount_editor(document: &Document) -> Result<(), JsValue> {
     let container = document
         .query_selector("#memos-container")?
         .ok_or_else(|| JsValue::from_str("project memos container is missing"))?;

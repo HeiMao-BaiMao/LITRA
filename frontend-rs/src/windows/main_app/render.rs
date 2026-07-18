@@ -43,6 +43,66 @@ pub fn all(document: &Document, state: &State) -> Result<(), JsValue> {
         state.current_episode_id.is_none(),
     )?;
     render_chat(document, state)?;
+    render_view(document, state)?;
+    render_collapsible(document, state)?;
+    if let Some(button) = document.get_element_by_id("btn-generate-summary") {
+        if state.current_episode_id.is_some() && !state.is_generating {
+            button.remove_attribute("disabled")?;
+        } else {
+            button.set_attribute("disabled", "")?;
+        }
+    }
+    Ok(())
+}
+
+fn render_view(document: &Document, state: &State) -> Result<(), JsValue> {
+    let view = if state.current_view.is_empty() {
+        "episode"
+    } else {
+        state.current_view.as_str()
+    };
+    for (id, visible) in [
+        ("editor-section", view == "episode"),
+        (
+            "settings-panel",
+            matches!(view, "characters" | "world" | "relationships"),
+        ),
+        ("memos-panel", view == "memos"),
+    ] {
+        if let Some(element) = document.get_element_by_id(id) {
+            element.class_list().toggle_with_force("hidden", !visible)?;
+        }
+    }
+    for (id, target) in [
+        ("nav-characters", "characters"),
+        ("nav-world", "world"),
+        ("nav-relationships", "relationships"),
+        ("nav-memos", "memos"),
+    ] {
+        if let Some(element) = document.get_element_by_id(id) {
+            element
+                .class_list()
+                .toggle_with_force("active", view == target)?;
+        }
+    }
+    Ok(())
+}
+
+fn render_collapsible(document: &Document, state: &State) -> Result<(), JsValue> {
+    for (section_id, button_id, collapsed) in [
+        ("memo-section", "btn-toggle-memo", state.memo_collapsed),
+        ("chat-panel", "btn-toggle-chat", state.chat_collapsed),
+    ] {
+        if let Some(section) = document.get_element_by_id(section_id) {
+            section
+                .class_list()
+                .toggle_with_force("collapsed", collapsed)?;
+        }
+        if let Some(button) = document.get_element_by_id(button_id) {
+            button.set_text_content(Some(if collapsed { "＋" } else { "−" }));
+            button.set_attribute("aria-expanded", if collapsed { "false" } else { "true" })?;
+        }
+    }
     Ok(())
 }
 

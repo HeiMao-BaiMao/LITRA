@@ -10,6 +10,7 @@ use crate::runtime::invoke;
 
 pub(super) mod integrations;
 mod licenses;
+mod models;
 mod oauth_ui;
 pub(super) use oauth_ui::{cancel_oauth, logout_oauth, start_oauth};
 
@@ -131,6 +132,45 @@ pub fn close_licenses(document: &Document) -> Result<(), JsValue> {
     licenses::close(document)
 }
 
+pub async fn fetch_models(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
+    models::fetch(document, state).await
+}
+
+pub fn toggle_advanced(document: &Document) -> Result<(), JsValue> {
+    let Some(section) = document.get_element_by_id("advanced-settings") else {
+        return Ok(());
+    };
+    let hidden = !section.class_list().contains("hidden");
+    section.class_list().toggle_with_force("hidden", hidden)?;
+    if let Some(button) = document.get_element_by_id("advanced-settings-toggle") {
+        button.set_attribute("aria-expanded", if hidden { "false" } else { "true" })?;
+    }
+    Ok(())
+}
+
+pub async fn reset(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let confirmed = web_sys::window()
+        .and_then(|window| {
+            window
+                .confirm_with_message("AI・同期・ウィンドウ設定を初期化しますか？")
+                .ok()
+        })
+        .unwrap_or(false);
+    if !confirmed {
+        return Ok(());
+    }
+    invoke::invoke::<_, ()>("ai_settings_reset", &Empty {}).await?;
+    let settings: Value = invoke::invoke("ai_settings_snapshot", &Empty {}).await?;
+    let catalog = crate::runtime::ai::catalog().await?;
+    {
+        let mut current = state.borrow_mut();
+        current.ai_settings = settings;
+        current.catalog = catalog;
+    }
+    populate(document, &state.borrow())?;
+    integrations::populate(document).await
+}
+
 pub fn provider_changed(
     document: &Document,
     state: &Rc<RefCell<State>>,
@@ -159,6 +199,7 @@ pub fn provider_changed(
             .unwrap_or_default();
         list.set_inner_html(&options);
     }
+    models::update_button(document, provider.map(|provider| provider.fixed_models))?;
     oauth_ui::provider_changed(document, provider_id)
 }
 
