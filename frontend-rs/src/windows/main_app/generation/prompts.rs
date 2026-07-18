@@ -10,20 +10,26 @@ pub fn character_voices(context: &str) -> String {
     )
 }
 
-pub fn plan(context: &str, beat_split: bool, scene: &str, voices: &str) -> String {
+pub fn plan(
+    context: &str,
+    instruction: &str,
+    beat_split: bool,
+    scene: &str,
+    voices: &str,
+) -> String {
     let format = if beat_split {
         "3〜6個の番号付きビートに分けること。"
     } else {
         "短い箇条書きで示すこと。"
     };
     format!(
-        "次の本文の直後に置く場面の執筆計画を作ってください。既存の視点・時制・因果関係を守り、本文にない設定を確定しないでください。{format}\n\n現在状態:\n{scene}\n\n人物の声:\n{voices}\n\n本文末尾:\n{context}"
+        "次の本文の直後に置く場面の執筆計画を作ってください。既存の視点・時制・因果関係を守り、本文にない設定を確定しないでください。{format}\n\n作者指示:\n{instruction}\n\n現在状態:\n{scene}\n\n人物の声:\n{voices}\n\n本文末尾:\n{context}"
     )
 }
 
-pub fn draft(context: &str, plan: &str, scene: &str, voices: &str) -> String {
+pub fn draft(context: &str, instruction: &str, plan: &str, scene: &str, voices: &str) -> String {
     format!(
-        "以下の本文の続きを執筆してください。説明、見出し、計画、注釈を出力せず、小説本文だけを返してください。文体・視点・時制・改行密度・固有名詞・呼称を維持し、既出事実と矛盾させないでください。\n\n執筆計画:\n{plan}\n\n現在状態:\n{scene}\n\n人物の声:\n{voices}\n\n既存本文末尾:\n{context}"
+        "以下の本文の続きを執筆してください。説明、見出し、計画、注釈を出力せず、小説本文だけを返してください。文体・視点・時制・改行密度・固有名詞・呼称を維持し、既出事実と矛盾させないでください。\n\n作者指示:\n{instruction}\n\n執筆計画:\n{plan}\n\n現在状態:\n{scene}\n\n人物の声:\n{voices}\n\n既存本文末尾:\n{context}"
     )
 }
 

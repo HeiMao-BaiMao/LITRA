@@ -13,6 +13,7 @@ const MAX_TOOL_ROUNDS: usize = 8;
 
 mod genre;
 mod project;
+mod writing;
 
 pub async fn run(
     state: &Rc<RefCell<State>>,
@@ -106,6 +107,9 @@ async fn execute(
     name: &str,
     input: Value,
 ) -> Result<Value, JsValue> {
+    if writing::handles(name) {
+        return writing::execute(state, project_id, current_episode, name, input).await;
+    }
     if genre::handles(name) {
         return genre::execute(name, input).await;
     }
@@ -302,6 +306,7 @@ fn definitions() -> Vec<Value> {
     ];
     definitions.extend(project::definitions());
     definitions.extend(genre::definitions());
+    definitions.extend(writing::definitions());
     definitions
 }
 

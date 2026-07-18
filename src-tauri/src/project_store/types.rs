@@ -39,6 +39,7 @@ pub enum ProjectDocumentKind {
     Summaries,
     Memos,
     Relationships,
+    PassageProposals,
 }
 
 impl ProjectDocumentKind {
@@ -48,6 +49,20 @@ impl ProjectDocumentKind {
             Self::Summaries => "summaries.json",
             Self::Memos => "memos.json",
             Self::Relationships => "relationships.json",
+            Self::PassageProposals => "passage-proposals.json",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProjectDocumentKind;
+
+    #[test]
+    fn passage_proposals_have_a_dedicated_document() {
+        assert_eq!(
+            ProjectDocumentKind::PassageProposals.file_name(),
+            "passage-proposals.json"
+        );
     }
 }

@@ -7,6 +7,14 @@ use wasm_bindgen::JsValue;
 use crate::runtime::ai;
 
 pub async fn continue_story(settings: &Value, context: &str) -> Result<ai::GeneratedText, JsValue> {
+    continue_story_with_instruction(settings, context, "自然に続きを執筆する").await
+}
+
+pub async fn continue_story_with_instruction(
+    settings: &Value,
+    context: &str,
+    instruction: &str,
+) -> Result<ai::GeneratedText, JsValue> {
     let scene = if enabled(settings, "continuationSceneStateEnabled") {
         optional_judgment(
             "あなたは小説の連続性を管理する編集者です。",
@@ -31,6 +39,7 @@ pub async fn continue_story(settings: &Value, context: &str) -> Result<ai::Gener
             "あなたは日本語小説の構成担当です。計画だけを返してください。".into(),
             prompts::plan(
                 context,
+                instruction,
                 enabled(settings, "continuationBeatSplitEnabled"),
                 &scene,
                 &voices,
@@ -42,9 +51,9 @@ pub async fn continue_story(settings: &Value, context: &str) -> Result<ai::Gener
         String::new()
     };
 
-    let first = draft(context, &plan, &scene, &voices).await?;
+    let first = draft(context, instruction, &plan, &scene, &voices).await?;
     let mut selected = if enabled(settings, "continuationBestOfTwo") {
-        let second = draft(context, &plan, &scene, &voices).await?;
+        let second = draft(context, instruction, &plan, &scene, &voices).await?;
         if review::choose(&first.text, &second.text).await? {
             second
         } else {
@@ -116,6 +125,7 @@ pub async fn rewrite_passage(
 
 async fn draft(
     context: &str,
+    instruction: &str,
     plan: &str,
     scene: &str,
     voices: &str,
@@ -123,7 +133,7 @@ async fn draft(
     ai::generate(
         "writing",
         "あなたは日本語小説の執筆者です。既存本文の文体・視点・時制を維持し、説明や前置きを付けず本文の続きだけを書いてください。".into(),
-        prompts::draft(context, plan, scene, voices),
+        prompts::draft(context, instruction, plan, scene, voices),
     )
     .await
 }
@@ -165,7 +175,7 @@ mod tests {
     #[test]
     fn every_prompt_keeps_original_context() {
         let context = "固有の本文末尾";
-        assert!(prompts::draft(context, "", "", "").contains(context));
+        assert!(prompts::draft(context, "", "", "", "").contains(context));
         assert!(prompts::review(context, "候補").contains(context));
         assert!(prompts::regression(context, "前", "後").contains(context));
         assert!(prompts::rewrite(context, "対象").contains(context));
