@@ -1,5 +1,6 @@
 mod ai_actions;
 mod events;
+mod imports;
 mod render;
 mod settings;
 
@@ -42,6 +43,7 @@ struct State {
     current_view: String,
     ai_settings: Value,
     direct_writing: bool,
+    import: imports::ImportState,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

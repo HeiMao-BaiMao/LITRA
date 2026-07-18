@@ -59,6 +59,9 @@ fn bind_click(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsVa
                     "btn-save-settings" => "save-ai-settings",
                     "btn-cancel-settings" => "cancel-ai-settings",
                     "btn-direct-writing" => "toggle-direct-writing",
+                    "btn-import" | "btn-import-folder" => "choose-import-folder",
+                    "btn-confirm-import" => "confirm-import",
+                    "btn-cancel-import" => "cancel-import",
                     "btn-oauth-login" => "oauth-login",
                     "btn-oauth-logout" => "oauth-logout",
                     "btn-oauth-cancel" => "oauth-cancel",
@@ -313,6 +316,27 @@ async fn handle_click(
         }
         "show-licenses" => super::settings::show_licenses(document)?,
         "close-licenses" => super::settings::close_licenses(document)?,
+        "choose-import-folder" => {
+            if state.borrow().current_project.is_none() {
+                alert("プロジェクトを選択または作成してください。");
+                set_modal(document, false)?;
+            } else {
+                super::imports::choose_folder(document)?;
+            }
+        }
+        "confirm-import" => {
+            let project_id = state
+                .borrow()
+                .current_project
+                .as_ref()
+                .map(|project| project.id.clone());
+            if let Some(project_id) = project_id {
+                if super::imports::confirm(document, state, &project_id).await? {
+                    open_project(document, state, project_id).await?;
+                }
+            }
+        }
+        "cancel-import" => super::imports::cancel(document, state)?,
         "toggle-direct-writing" => {
             let next = !state.borrow().direct_writing;
             state.borrow_mut().direct_writing = next;
@@ -414,8 +438,48 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
     document.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
     handler.forget();
     bind_chat_form(document, Rc::clone(&state))?;
-    bind_selectors(document, state)?;
+    bind_selectors(document, Rc::clone(&state))?;
     bind_webdav_toggle(document)?;
+    bind_import_controls(document, state)?;
+    Ok(())
+}
+
+fn bind_import_controls(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    if let Some(input) = document.get_element_by_id("folder-import-input") {
+        let event_document = document.clone();
+        let event_state = Rc::clone(&state);
+        let handler = Closure::wrap(Box::new(move |_event: Event| {
+            let document = event_document.clone();
+            let state = Rc::clone(&event_state);
+            spawn_local(async move {
+                if let Err(error) = super::imports::files_selected(&document, &state).await {
+                    report(error);
+                }
+            });
+        }) as Box<dyn FnMut(Event)>);
+        input.add_event_listener_with_callback("change", handler.as_ref().unchecked_ref())?;
+        handler.forget();
+    }
+    for id in [
+        "radio-import-body-and-settings",
+        "radio-import-settings-only",
+    ] {
+        if let Some(input) = document.get_element_by_id(id) {
+            let event_document = document.clone();
+            let event_state = Rc::clone(&state);
+            let handler = Closure::wrap(Box::new(move |_event: Event| {
+                let document = event_document.clone();
+                let state = Rc::clone(&event_state);
+                spawn_local(async move {
+                    if let Err(error) = super::imports::mode_changed(&document, &state).await {
+                        report(error);
+                    }
+                });
+            }) as Box<dyn FnMut(Event)>);
+            input.add_event_listener_with_callback("change", handler.as_ref().unchecked_ref())?;
+            handler.forget();
+        }
+    }
     Ok(())
 }
 
@@ -918,4 +982,10 @@ fn confirm(message: &str) -> bool {
     web_sys::window()
         .and_then(|window| window.confirm_with_message(message).ok())
         .unwrap_or(false)
+}
+
+fn alert(message: &str) {
+    if let Some(window) = web_sys::window() {
+        let _ = window.alert_with_message(message);
+    }
 }
