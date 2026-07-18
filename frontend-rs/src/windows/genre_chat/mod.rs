@@ -1,5 +1,6 @@
 mod events;
 mod render;
+mod tools;
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -142,8 +143,10 @@ async fn send(
             current.selected_model.clone(),
         )
     };
-    let generated = ai::generate_with(
-        "chat",
+    let generated = tools::run(
+        state,
+        &genre_id,
+        &thread_id,
         system,
         history,
         provider.as_deref(),
