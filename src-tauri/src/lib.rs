@@ -5,6 +5,7 @@ mod genre_store;
 mod genre_windows;
 mod import;
 mod project_memo;
+mod layout_store;
 mod project_store;
 mod search;
 mod secrets;
@@ -51,6 +52,9 @@ pub fn run() {
             genre_store::genre_remove,
             genre_windows::open_genre_chat_window,
             import::import_files,
+            layout_store::layout_load,
+            layout_store::layout_save,
+            layout_store::layout_clear,
             project_memo::list_project_memos,
             project_memo::create_project_memo,
             project_memo::update_project_memo,
@@ -66,6 +70,10 @@ pub fn run() {
             project_store::project_update_episode_title,
             project_store::project_delete_episode,
             project_store::project_reorder_episodes,
+            project_store::project_move_episode_to_index,
+            project_store::project_move_episode_up,
+            project_store::project_move_episode_down,
+            project_store::project_migrate_from_manuscript,
             project_store::project_read_document,
             project_store::project_write_document,
             search::rebuild_search_index,
@@ -79,6 +87,7 @@ pub fn run() {
             settings::create_world_entry,
             settings::update_world_entry,
             settings::delete_world_entry,
+            settings::reset_all_settings,
             secrets::secret_get,
             secrets::secret_set,
             secrets::secret_delete,
@@ -103,6 +112,7 @@ pub fn run() {
             window_state::save_window_bounds,
             window_state::load_window_detached,
             window_state::save_window_detached,
+            window_state::clear_window_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

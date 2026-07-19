@@ -81,3 +81,10 @@ pub fn save_window_detached(app: AppHandle, label: String, detached: bool) -> Re
     state.detached.insert(label, detached);
     write_state(&app, &state)
 }
+
+/// ウィンドウ状態（位置・サイズ・分離フラグ）を全て削除する。
+/// 旧TS `clearWindowState()` の移植。
+#[tauri::command]
+pub fn clear_window_state(app: AppHandle) -> Result<(), String> {
+    write_state(&app, &WindowStateFile::default())
+}

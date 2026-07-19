@@ -3,6 +3,7 @@ use crate::storage::{
     write_json,
 };
 use serde_json::{json, Map, Value};
+use tauri::AppHandle;
 
 fn merge_updates(target: &mut Value, updates: Map<String, Value>) {
     if let Some(obj) = target.as_object_mut() {
@@ -317,4 +318,62 @@ pub fn delete_world_entry(req: DeleteWorldEntryRequest) -> Result<Value, String>
     entries.retain(|entry| entry["id"].as_str() != Some(&req.entry_id));
     write_json(&path, &data)?;
     Ok(data)
+}
+/// 旧TS `resetAllSettings()` の完全移植。
+/// 設定・パネル比率・ウィンドウ状態・全プロバイダの API キー・
+/// WebDAV パスワードを全て削除する。
+#[tauri::command]
+pub async fn reset_all_settings(
+    app: AppHandle,
+) -> Result<Value, String> {
+    use tauri::Manager;
+
+    // 1. 設定本体を空に初期化
+    let settings_path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("app config dir not found: {e}"))?
+        .join("litra-settings.json");
+    let empty_settings = serde_json::json!({});
+    let _ = std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&empty_settings).unwrap_or_default(),
+    );
+    let providers_path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("app config dir not found: {e}"))?
+        .join("providers.json");
+    let _ = std::fs::remove_file(&providers_path);
+
+    // 2. パネル比率を削除
+    let _ = crate::layout_store::layout_clear();
+
+    // 3. ウィンドウ状態を削除
+    let _ = super::window_state::clear_window_state(app.clone());
+
+    // 4. 全プロバイダの API キーを削除
+    let api_key_names = [
+        "provider:openai",
+        "provider:anthropic",
+        "provider:deepseek",
+        "provider:google",
+        "provider:llamacpp",
+        "provider:sakura",
+        "provider:plamo",
+        "provider:opencode",
+        "provider:exa",
+    ];
+    for name in api_key_names {
+        let _ = crate::secrets::delete_secret(name);
+    }
+
+    // 5. WebDAV パスワード削除
+    let _ = crate::secrets::delete_secret("webdav:password");
+
+    // 6. OAuth 認証情報を削除
+    let _ = crate::ai::auth::store::oauth_credential_delete("codex".to_string());
+    let _ = crate::ai::auth::store::oauth_credential_delete("github-copilot".to_string());
+
+    Ok(empty_settings)
 }

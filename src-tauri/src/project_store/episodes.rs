@@ -100,31 +100,146 @@ pub fn remove(project_id: &str, episode_id: &str) -> Result<(), String> {
 }
 
 pub fn reorder(project_id: &str, ordered_ids: Vec<String>) -> Result<(), String> {
-    let list = load_list(project_id)?;
-    if ordered_ids.len() != list.episodes.len() {
-        return Err("Episode reorder list length mismatch".into());
-    }
-    let mut reordered = Vec::with_capacity(list.episodes.len());
-    for id in ordered_ids {
-        validate_id(&id, "episode ID")?;
-        let mut episode = list
-            .episodes
-            .iter()
-            .find(|episode| episode.id == id)
-            .cloned()
-            .ok_or_else(|| format!("Episode not found: {id}"))?;
-        if reordered.iter().any(|existing: &Episode| existing.id == id) {
-            return Err(format!("Duplicate episode ID: {id}"));
+    let mut list = load_list(project_id)?;
+    let mut new_episodes = Vec::with_capacity(list.episodes.len());
+    for (new_order, id) in ordered_ids.iter().enumerate() {
+        if let Some(mut ep) = list.episodes.iter().find(|e| &e.id == id).cloned() {
+            ep.order = new_order;
+            new_episodes.push(ep);
         }
-        episode.order = reordered.len();
-        reordered.push(episode);
     }
-    save_list(
-        project_id,
-        &EpisodeList {
-            episodes: reordered,
-        },
-    )
+    for ep in list.episodes.drain(..) {
+        if !ordered_ids.contains(&ep.id) {
+            new_episodes.push(ep);
+        }
+    }
+    list.episodes = new_episodes;
+    save_list(project_id, &list)
+}
+
+/// 単一エピソードを `target_index` の位置へ移動する。
+/// 旧TS `moveEpisodeToIndex` の移植。
+pub fn move_to_index(project_id: &str, episode_id: &str, target_index: usize) -> Result<(), String> {
+    let mut list = load_list(project_id)?;
+    let pos = list
+        .episodes
+        .iter()
+        .position(|e| e.id == episode_id)
+        .ok_or_else(|| format!("Episode not found: {episode_id}"))?;
+    let item = list.episodes.remove(pos);
+    let target = target_index.min(list.episodes.len());
+    list.episodes.insert(target, item);
+    for (i, ep) in list.episodes.iter_mut().enumerate() {
+        ep.order = i;
+    }
+    save_list(project_id, &list)
+}
+
+/// 単一エピソードを1つ上へ移動する。
+/// 旧TS `moveEpisode` の移植。
+pub fn move_up(project_id: &str, episode_id: &str) -> Result<(), String> {
+    let list = load_list(project_id)?;
+    let pos = list
+        .episodes
+        .iter()
+        .position(|e| e.id == episode_id)
+        .ok_or_else(|| format!("Episode not found: {episode_id}"))?;
+    if pos == 0 {
+        return Ok(());
+    }
+    move_to_index(project_id, episode_id, pos - 1)
+}
+
+pub fn move_down(project_id: &str, episode_id: &str) -> Result<(), String> {
+    let list = load_list(project_id)?;
+    let pos = list
+        .episodes
+        .iter()
+        .position(|e| e.id == episode_id)
+        .ok_or_else(|| format!("Episode not found: {episode_id}"))?;
+    if pos + 1 >= list.episodes.len() {
+        return Ok(());
+    }
+    move_to_index(project_id, episode_id, pos + 1)
+}
+
+/// 旧「単一manuscript」形式から分割してエピソード化する。
+/// 旧TS `migrateFromManuscript` の移植。
+/// `documents_dir()/litra/projects/{project_id}/manuscript.md` を読み込み、
+/// 見出し（`# ` または `## `）で分割してエピソードにする。
+pub fn migrate_from_manuscript(project_id: &str) -> Result<usize, String> {
+    validate_id(project_id, "project ID")?;
+    let manuscript_path = crate::storage::project_dir(project_id)?.join("manuscript.md");
+    if !manuscript_path.exists() {
+        return Ok(0);
+    }
+    let content = std::fs::read_to_string(&manuscript_path)
+        .map_err(|e| format!("Failed to read manuscript: {e}"))?;
+    let sections = split_manuscript(&content);
+    if sections.is_empty() {
+        return Ok(0);
+    }
+    let mut list = load_list(project_id)?;
+    let next_order = list.episodes.len();
+    for (i, (title, body)) in sections.into_iter().enumerate() {
+        let id = uuid::Uuid::new_v4().to_string();
+        let safe_title: String = title
+            .chars()
+            .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ' ' | '　'))
+            .take(60)
+            .collect();
+        let file_name = format!("{}.md", if safe_title.is_empty() {
+            id.clone()
+        } else {
+            safe_title.replace(' ', "_")
+        });
+        let episode = Episode {
+            id: id.clone(),
+            title: title.clone(),
+            order: next_order + i,
+            file_name: file_name.clone(),
+        };
+        let path = project_episodes_dir(project_id)?.join(&file_name);
+        crate::storage::ensure_parent_dir(&path)?;
+        std::fs::write(&path, body)
+            .map_err(|e| format!("Failed to write episode: {e}"))?;
+        list.episodes.push(episode);
+    }
+    save_list(project_id, &list)?;
+    // 移行成功後は旧manuscriptをバックアップとして残す
+    let backup = crate::storage::project_dir(project_id)?.join("manuscript.migrated.md");
+    let _ = std::fs::rename(&manuscript_path, &backup);
+    Ok(list.episodes.len())
+}
+
+/// 単一原稿を `# ` または `## ` で見出し分割する。
+/// 旧TS `migrateFromManuscript` の分割ロジック。
+fn split_manuscript(content: &str) -> Vec<(String, String)> {
+    let mut sections: Vec<(String, String)> = Vec::new();
+    let mut current_title: Option<String> = None;
+    let mut current_body = String::new();
+    for line in content.lines() {
+        if let Some(stripped) = line.strip_prefix("# ") {
+            if let Some(prev_title) = current_title.take() {
+                sections.push((prev_title, std::mem::take(&mut current_body)));
+            }
+            current_title = Some(stripped.trim().to_string());
+        } else if let Some(stripped) = line.strip_prefix("## ") {
+            if let Some(prev_title) = current_title.take() {
+                sections.push((prev_title, std::mem::take(&mut current_body)));
+            }
+            current_title = Some(stripped.trim().to_string());
+        } else {
+            current_body.push_str(line);
+            current_body.push('\n');
+        }
+    }
+    if let Some(title) = current_title {
+        sections.push((title, current_body));
+    } else if !current_body.trim().is_empty() {
+        sections.push(("無題".to_string(), current_body));
+    }
+    sections
 }
 
 #[cfg(test)]

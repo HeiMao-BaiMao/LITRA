@@ -188,3 +188,33 @@ mod tests {
         }
     }
 }
+
+#[tauri::command]
+pub fn project_move_episode_to_index(
+    project_id: String,
+    episode_id: String,
+    target_index: usize,
+) -> Result<(), String> {
+    episodes::move_to_index(&project_id, &episode_id, target_index)
+}
+
+#[tauri::command]
+pub fn project_move_episode_up(
+    project_id: String,
+    episode_id: String,
+) -> Result<(), String> {
+    episodes::move_up(&project_id, &episode_id)
+}
+
+#[tauri::command]
+pub fn project_move_episode_down(
+    project_id: String,
+    episode_id: String,
+) -> Result<(), String> {
+    episodes::move_down(&project_id, &episode_id)
+}
+
+#[tauri::command]
+pub fn project_migrate_from_manuscript(project_id: String) -> Result<usize, String> {
+    episodes::migrate_from_manuscript(&project_id)
+}
