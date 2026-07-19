@@ -5,10 +5,14 @@ use web_sys::{Document, HtmlTextAreaElement};
 
 use super::{sync_children, ChatMessage, State};
 use crate::{
+    ai::cache_observability,
     data::projects,
     runtime::{ai, tauri},
 };
 
+/// 旧TS `systemPrompt` — 編集パートナーの役割定義。完成・洗礼済み。
+pub(crate) const EDITORIAL_PARTNER_SYSTEM_PROMPT: &str =
+    include_str!("system_prompt.txt");
 pub async fn continue_story(
     document: &Document,
     state: &Rc<RefCell<State>>,
@@ -99,9 +103,17 @@ pub async fn feedback_selection(
     if start >= end {
         return Err(JsValue::from_str("講評する範囲を選択してください。"));
     }
-    let prompt = format!(
-        "次の小説本文を、文体、視点、構成、読みやすさの観点から具体的に講評してください。\n\n{}",
-        &text[start..end]
+    let settings_context = {
+        let current = state.borrow();
+        format!(
+            "プロジェクト: {}\nエピソード: {}\n",
+            current.current_project.as_ref().map(|p| p.title.as_str()).unwrap_or(""),
+            current.current_episode_id.as_deref().unwrap_or(""),
+        )
+    };
+    let prompt = crate::windows::main_app::generation::old_prompts::feedback(
+        &text[start..end],
+        &settings_context,
     );
     generating(document, state, true)?;
     let result = generate(
@@ -141,7 +153,10 @@ pub async fn chat(
         role: "user".into(),
         content,
         thinking: None,
-        extra: BTreeMap::new(),
+        exclude_from_context: false,
+        id: None,
+        created_at: None,
+        transport: None,
     });
     save_chat(&state.borrow()).await?;
     super::render::all(document, &state.borrow())?;
@@ -171,28 +186,33 @@ pub async fn chat(
     drop(current);
     let prompt = format!("現在の本文末尾:\n{editor_context}\n\n会話:\n{history}");
     generating(document, state, true)?;
+    // 直接執筆モードでもツールパイプラインを経由する。
+    // システムプロンプトで AI に editEpisode ツールを使った本文編集を指示し、
+    // 自動追記（auto-append）は行わない。AI が editEpisode を呼んで適用するか、
+    // チャット上で編集案を提示する。TS版 directCreativeEdit の設計意図に準拠。
     let system = if direct {
-        "あなたは日本語小説の執筆者です。最後のユーザー指示に従って、現在の本文へ追記する小説本文だけを返してください。説明や前置きは禁止です。"
+        "あなたは小説制作アプリLITRAの執筆者です。最後のユーザー指示に従って本文を編集または追記してください。\n\nDIRECT CREATIVE EDITING MODE — ACTIVE:\n- 新しい本文を書く/既存本文を編集する依頼には、editEpisode ツールを使って正確に本文へ反映すること。\n- まず getEpisodeLines または findEpisodeLines で正確な行番号と現在のテキストを取得する。\n- expectedText には取得した行のテキストをそのまま（行番号プレフィックスを除いて）コピーする。\n- 末尾への追記の場合は、最終行を expectedText に指定し replacementText に「最終行 + 新規本文」を渡す。\n- 本文以外の出力（案文の提示だけ、説明）は禁止。完了は editEpisode が success を返してからのみ。\n- editEpisode が exact-text mismatch で失敗したら、影響範囲を再読込してもう一度だけ試行する。\n- 純然たる相談・質問には editEpisode を呼ばず、通常の回答を返してよい。".to_string()
     } else {
-        "あなたは小説制作アプリLITRAの相談AIです。日本語で具体的に答えてください。"
+        EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string()
     };
-    let result = if direct {
-        generate(state, "chat", system.into(), prompt).await
-    } else {
-        super::agent_tools::run(state, system.into(), prompt).await
-    };
+    // 両モードともツールパイプライン経由で生成する。
+    // direct モードでは AI が editEpisode を呼んで本文に反映する。
+    let result = super::agent_tools::run(state, system.into(), prompt).await;
     generating(document, state, false)?;
     let result = result?;
     if direct {
-        {
-            let mut current = state.borrow_mut();
-            if !current.editor_text.ends_with('\n') {
-                current.editor_text.push('\n');
-            }
-            current.editor_text.push_str(result.text.trim_start());
-        }
-        save_editor(&state.borrow()).await?;
-        push_assistant(document, state, "本文へ直接反映しました。".into()).await
+        // 自動追記は行わない。AI の応答をそのまま表示し、
+        // editEpisode が呼ばれた場合はその結果が本文に保存されている。
+        push_assistant(
+            document,
+            state,
+            if result.text.trim().is_empty() {
+                "本文を編集しました。".to_string()
+            } else {
+                result.text
+            },
+        )
+        .await
     } else {
         push_assistant(document, state, result.text).await
     }
@@ -204,8 +224,8 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let result = generate(state, "background", "あなたは小説の要約者です。本文にない事実を加えず、日本語で簡潔なあらすじだけを返してください。".into(), text).await;
-    generating(document, state, false)?;
+    let prompt = crate::windows::main_app::generation::old_prompts::summary_episode(&text);
+    let result = generate(state, "background", super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(), prompt).await;
     let (project_id, episode_id) = {
         let current = state.borrow();
         (
@@ -234,6 +254,10 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
 
 pub fn cancel(document: &Document, state: &Rc<RefCell<State>>) {
     ai::cancel_active();
+    // 進行中の AbortController を解放
+    if let Some(controller) = state.borrow_mut().abort_controller.take() {
+        let _ = controller.abort();
+    }
     state.borrow_mut().is_generating = false;
     let _ = super::render::all(document, &state.borrow());
     sync_children(&state.borrow());
@@ -253,7 +277,15 @@ async fn generate(
         .then(|| current.selected_model.clone())
         .flatten();
     drop(current);
-    ai::generate_with(role, system, prompt, provider.as_deref(), model.as_deref()).await
+    let result = ai::generate_with(role, system, prompt, provider.as_deref(), model.as_deref()).await?;
+    // キャッシュ使用量を記録（非同期・ベストエフォート）
+    let _ = cache_observability::record_provider_cache_usage(
+        role,
+        &result.provider,
+        &result.model,
+        &serde_json::Value::Null, // provider_metadata は現状の ai::generate_with では取得不可
+    );
+    Ok(result)
 }
 async fn push_assistant(
     document: &Document,
@@ -264,9 +296,11 @@ async fn push_assistant(
         role: "assistant".into(),
         content,
         thinking: None,
-        extra: BTreeMap::new(),
+        exclude_from_context: false,
+        id: None,
+        created_at: None,
+        transport: None,
     });
-    save_chat(&state.borrow()).await?;
     super::render::all(document, &state.borrow())?;
     sync_children(&state.borrow());
     Ok(())

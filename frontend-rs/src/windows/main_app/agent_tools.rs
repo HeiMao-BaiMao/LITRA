@@ -9,7 +9,10 @@ use crate::{
     runtime::{ai, invoke},
 };
 
-const MAX_TOOL_ROUNDS: usize = 8;
+const MAX_TOOL_ROUNDS: usize = 16;
+
+/// 重複するツール呼び出しを検出した場合に中断するためのしきい値
+const MAX_DUPLICATE_CALLS: usize = 2;
 
 mod genre;
 mod project;
@@ -45,6 +48,8 @@ pub async fn run(
     };
     let mut messages = vec![json!({"role":"user","content":prompt})];
     let definitions = definitions();
+    // 直前のラウンドで同じツール+同じ引数での呼び出しを検出し、ループ暴走を防ぐ
+    let mut recent_calls: Vec<(String, String)> = Vec::new();
     for _ in 0..MAX_TOOL_ROUNDS {
         let turn = ai::agent_turn(
             "chat",
@@ -62,6 +67,32 @@ pub async fn run(
                 model: turn.model,
             });
         }
+        // 重複ツール呼び出し検出
+        for call in &turn.tool_calls {
+            let input_str = serde_json::to_string(&call.input).unwrap_or_default();
+            let signature = (call.name.clone(), input_str);
+            let duplicate_count = recent_calls
+                .iter()
+                .filter(|s| s.0 == signature.0 && s.1 == signature.1)
+                .count();
+            if duplicate_count >= MAX_DUPLICATE_CALLS {
+                return Err(JsValue::from_str(&format!(
+                    "AI tool loop aborted: tool '{}' called repeatedly with the same input (likely stuck)",
+                    call.name
+                )));
+            }
+        }
+        recent_calls.extend(
+            turn.tool_calls
+                .iter()
+                .map(|c| (c.name.clone(), serde_json::to_string(&c.input).unwrap_or_default())),
+        );
+        // 直近 8 件の呼び出しだけ保持してメモリ肥大化を防ぐ
+        if recent_calls.len() > 8 {
+            let drop_count = recent_calls.len() - 8;
+            recent_calls.drain(0..drop_count);
+        }
+
         let mut assistant_parts = Vec::new();
         if !turn.text.trim().is_empty() {
             assistant_parts.push(json!({"type":"text","text":turn.text}));
@@ -99,7 +130,6 @@ pub async fn run(
         "AI tool loop exceeded the maximum number of rounds",
     ))
 }
-
 async fn execute(
     state: &Rc<RefCell<State>>,
     project_id: &str,
@@ -341,19 +371,34 @@ fn js_error(error: &JsValue) -> String {
 }
 
 const TOOL_GUIDANCE: &str = r#"
+TOOL USE — follow these steps in this exact order for every request:
 
-利用可能なツールは、説明ではなく実際の操作に使ってください。ツール実行に失敗した操作を成功したと報告してはいけません。保存する自然言語、編集理由、最終回答は日本語にしてください。ただしID、列挙値、URL、ファイル名、本文からの完全一致引用は変更しません。
+STEP 1 — DECIDE:
+- IF the request needs current application data or a data change (retrieve, search, verify, edit, save, update, create, delete, consistency check) AND a capable tool is listed below → you MUST actually call that tool.
+- Writing a plan, a procedure, or tool arguments as plain text is NOT execution. A reply that only describes what should be done is an unfinished task.
+- IF no tool is needed → answer directly and skip the remaining steps.
 
-本文編集の規則:
-1. 編集前に必ず getEpisodeLines または findEpisodeLines で最新本文と行番号を取得し、行番号を推測しないこと。
-2. expectedText は取得した本文から行番号部分だけを除いた完全一致文字列にすること。
-3. 連続した一範囲は editEpisode を一度だけ、離れた複数範囲は同じ編集前本文を基準に editEpisodeBatch を一度だけ使うこと。
-4. expectedText 不一致時は失敗範囲だけを再取得して一度再試行すること。
-5. reason には将来のセッションが意図を復元できる具体的な編集目的を書くこと。
+STEP 2 — READ BEFORE WRITE:
+- Before changing data, first read the target's ID and current values with the matching list/get/search tool.
+- NEVER invent or guess an ID. Use only IDs returned by a tool or given by the user.
+- Do not repeat a read whose reliable result you already have in this run.
 
-過去話は、対象が不明なら listEpisodes または searchEpisodes で特定し、要旨で足りる場合は retrieveEpisode の summary、正確な文言が必要な場合だけ fullText を使ってください。検索結果が明らかに古い場合だけ rebuildSearchIndex を実行してください。編集履歴や過去の変更意図を問われた場合は getEditLog を使ってください。
+STEP 3 — WRITE EXACTLY ONCE:
+- Change only what the user asked for. Nothing extra.
+- Execute each change exactly once. After a write tool returns success, NEVER call the same write tool again with the same input.
+- NEVER overwrite a value you do not know with a guess or an empty string.
 
-要約の保存を依頼された場合は本文を確認してから saveEpisodeSummary または saveEpisodeOneLiner を必要な分だけ一度ずつ呼んでください。実在情報の調査・検証を依頼された場合は webSearch を使い、webFetch はユーザー指定または検索結果の実在URLだけに使ってください。物語内の設定をウェブで検索してはいけません。
+STEP 4 — IF A CALL FAILS:
+- NEVER report success for a failed call.
+- State the cause briefly in Japanese. Then retry only the failed part. IF the same call fails twice with the same error → stop retrying and report the situation honestly in Japanese.
+
+STEP 5 — REPORT AND STOP:
+- When the tools that answer the request have succeeded, give exactly one short Japanese report. Then stop calling tools.
+- In the report, use editSummary or editedLineRanges when provided. Do not restate expectedText, replacementText, or other raw tool arguments.
+
+JAPANESE DATA CHECK — run before every create/update/save call:
+1. Every natural-language field value MUST be Japanese. 保存する説明文・メモ・要約は必ず日本語で書くこと。IF a value is ordinary descriptive English → translate it into natural Japanese first.
+2. Keep unchanged: IDs, field names, enum values, exact quotations, exact-match source text, code, URLs, filenames, and established foreign proper nouns.
 "#;
 
 #[cfg(test)]

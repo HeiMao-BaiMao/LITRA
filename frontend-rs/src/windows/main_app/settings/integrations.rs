@@ -122,8 +122,26 @@ pub async fn pull_on_start(document: &Document) -> Result<(), JsValue> {
 pub async fn push_on_close() -> Result<(), JsValue> {
     let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
     if config.enabled && !config.base_url.trim().is_empty() {
-        let summary: SyncSummary = invoke::invoke("push_webdav_all", &Empty {}).await?;
-        let _ = (summary.files_processed, summary.files_failed);
+        // 旧TS版と同じ: 同期オーバーレイでユーザに進捗を見せる
+        web_sys::window().map(|w| {
+            let _ = w.alert_with_message("WebDAVに同期中...");
+        });
+        match invoke::invoke::<_, SyncSummary>("push_webdav_all", &Empty {}).await {
+            Ok(summary) => {
+                web_sys::console::log_1(
+                    &format!(
+                        "[litra] WebDAV push complete: {} processed, {} failed",
+                        summary.files_processed, summary.files_failed
+                    )
+                    .into(),
+                );
+            }
+            Err(error) => {
+                web_sys::console::error_1(
+                    &format!("[litra] WebDAV push failed: {error:?}").into(),
+                );
+            }
+        }
     }
     Ok(())
 }

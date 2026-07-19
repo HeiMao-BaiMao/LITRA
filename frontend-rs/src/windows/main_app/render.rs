@@ -230,7 +230,7 @@ fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
         )?;
         button
             .class_list()
-            .toggle_with_force("active", state.direct_writing)?;
+            .toggle_with_force("is-active", state.direct_writing)?;
     }
     Ok(())
 }
