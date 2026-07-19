@@ -101,19 +101,34 @@ pub async fn pull_on_start(document: &Document) -> Result<(), JsValue> {
     if !config.enabled || config.base_url.trim().is_empty() {
         return Ok(());
     }
-    show_status(document, "WebDAV から同期中…")?;
+    if let Some(window) = web_sys::window() {
+        show_sync_modal(&window, "WebDAV から同期中…");
+    }
     let result: Result<SyncSummary, JsValue> = invoke::invoke("pull_webdav_all", &Empty {}).await;
     match result {
-        Ok(summary) => show_status_transient(
-            document,
-            &format!(
-                "WebDAV 同期完了: {} 件処理、{} 件失敗",
-                summary.files_processed, summary.files_failed
-            ),
-            5_000,
-        )?,
+        Ok(summary) => {
+            if let Some(window) = web_sys::window() {
+                update_sync_modal(&window, &format!(
+                    "WebDAV 同期完了: {} 件処理、{} 件失敗",
+                    summary.files_processed, summary.files_failed
+                ));
+                // 完了表示後に非表示
+                let window_clone = window.clone();
+                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    Closure::once_into_js(move || hide_sync_modal(&window_clone)).unchecked_ref(),
+                    3000,
+                );
+            }
+        }
         Err(error) => {
-            show_status_transient(document, &format!("WebDAV 同期失敗: {error:?}"), 8_000)?
+            if let Some(window) = web_sys::window() {
+                update_sync_modal(&window, &format!("WebDAV 同期失敗: {error:?}"));
+                let window_clone = window.clone();
+                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    Closure::once_into_js(move || hide_sync_modal(&window_clone)).unchecked_ref(),
+                    8000,
+                );
+            }
         }
     }
     Ok(())
@@ -122,12 +137,17 @@ pub async fn pull_on_start(document: &Document) -> Result<(), JsValue> {
 pub async fn push_on_close() -> Result<(), JsValue> {
     let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
     if config.enabled && !config.base_url.trim().is_empty() {
-        // 旧TS版と同じ: 同期オーバーレイでユーザに進捗を見せる
-        web_sys::window().map(|w| {
-            let _ = w.alert_with_message("WebDAVに同期中...");
-        });
+        if let Some(window) = web_sys::window() {
+            show_sync_modal(&window, "WebDAVに同期中...");
+        }
         match invoke::invoke::<_, SyncSummary>("push_webdav_all", &Empty {}).await {
             Ok(summary) => {
+                if let Some(window) = web_sys::window() {
+                    update_sync_modal(&window, &format!(
+                        "完了: {}件処理、{}件失敗",
+                        summary.files_processed, summary.files_failed
+                    ));
+                }
                 web_sys::console::log_1(
                     &format!(
                         "[litra] WebDAV push complete: {} processed, {} failed",
@@ -137,6 +157,9 @@ pub async fn push_on_close() -> Result<(), JsValue> {
                 );
             }
             Err(error) => {
+                if let Some(window) = web_sys::window() {
+                    update_sync_modal(&window, &format!("失敗: {error:?}"));
+                }
                 web_sys::console::error_1(
                     &format!("[litra] WebDAV push failed: {error:?}").into(),
                 );
@@ -193,6 +216,88 @@ fn show_status_transient(document: &Document, message: &str, timeout_ms: i32) ->
         timeout_ms,
     )?;
     Ok(())
+}
+
+// ---- 同期モーダル (旧TS createSyncOverlay の移植) ----
+
+fn show_sync_modal(window: &web_sys::Window, message: &str) {
+    let document = window.document().unwrap();
+    // 既存のオーバーレイがあれば再利用
+    if let Some(overlay) = document.get_element_by_id("litra-sync-overlay") {
+        if let Some(msg_el) = document.get_element_by_id("litra-sync-message") {
+            msg_el.set_text_content(Some(message));
+        }
+        // プログレスバーをリセット
+        if let Some(fill) = document.get_element_by_id("litra-sync-progress-fill") {
+            let _ = fill.set_attribute("style", "width: 0%");
+        }
+        if let Some(count) = document.get_element_by_id("litra-sync-count") {
+            count.set_text_content(Some(""));
+        }
+        let _ = overlay.set_attribute("style", "display: flex");
+        return;
+    }
+    // 新規作成
+    let overlay = document.create_element("div").unwrap();
+    overlay.set_id("litra-sync-overlay");
+    let _ = overlay.set_attribute("style",
+        "position: fixed; top: 0; left: 0; width: 100%; height: 100%; \
+         background: rgba(0,0,0,0.5); display: flex; align-items: center; \
+         justify-content: center; z-index: 10000;");
+
+    let card = document.create_element("div").unwrap();
+    let _ = card.set_attribute("style",
+        "background: var(--surface, #1e1e2e); color: var(--text-primary, #cdd6f4); \
+         padding: 2rem 3rem; border-radius: 12px; \
+         box-shadow: 0 4px 24px rgba(0,0,0,0.3); \
+         text-align: center; min-width: 320px;");
+
+    let msg_el = document.create_element("div").unwrap();
+    msg_el.set_id("litra-sync-message");
+    let _ = msg_el.set_attribute("style",
+        "font-size: 1.1rem; margin-bottom: 1rem;");
+    msg_el.set_text_content(Some(message));
+
+    let bar = document.create_element("div").unwrap();
+    bar.set_id("litra-sync-progress-bar");
+    let _ = bar.set_attribute("style",
+        "width: 100%; height: 6px; background: var(--surface-hover, #313244); \
+         border-radius: 3px; overflow: hidden;");
+
+    let fill = document.create_element("div").unwrap();
+    fill.set_id("litra-sync-progress-fill");
+    let _ = fill.set_attribute("style",
+        "width: 0%; height: 100%; background: var(--accent, #89b4fa); \
+         transition: width 0.3s;");
+
+    let count = document.create_element("div").unwrap();
+    count.set_id("litra-sync-count");
+    let _ = count.set_attribute("style",
+        "margin-top: 0.5rem; font-size: 0.85rem; \
+         color: var(--text-secondary, #a6adc8);");
+
+    let _ = bar.append_child(&fill);
+    let _ = card.append_child(&msg_el);
+    let _ = card.append_child(&bar);
+    let _ = card.append_child(&count);
+    let _ = overlay.append_child(&card);
+    let _ = document.body().unwrap().append_child(&overlay);
+}
+
+fn update_sync_modal(window: &web_sys::Window, message: &str) {
+    if let Some(document) = window.document() {
+        if let Some(msg_el) = document.get_element_by_id("litra-sync-message") {
+            msg_el.set_text_content(Some(message));
+        }
+    }
+}
+
+fn hide_sync_modal(window: &web_sys::Window) {
+    if let Some(document) = window.document() {
+        if let Some(overlay) = document.get_element_by_id("litra-sync-overlay") {
+            let _ = overlay.set_attribute("style", "display: none");
+        }
+    }
 }
 
 fn non_empty(value: String) -> Option<String> {
