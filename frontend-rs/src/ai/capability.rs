@@ -4,6 +4,7 @@
 //! プロトコルオプションを決定する。
 //!
 //! TypeScript `capability.ts` の Rust 移植。
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 

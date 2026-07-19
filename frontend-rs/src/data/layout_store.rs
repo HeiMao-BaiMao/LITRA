@@ -11,8 +11,11 @@ use crate::runtime::invoke;
 
 pub const PANEL_PROJECT_NAV: &str = "projectNav";
 pub const PANEL_CHAT_PANEL: &str = "chatPanel";
+#[allow(dead_code)]
 pub const PANEL_SETTINGS_SIDEBAR: &str = "settingsSidebar";
+#[allow(dead_code)]
 pub const PANEL_GENRE_SIDEBAR: &str = "genreSidebar";
+#[allow(dead_code)]
 pub const PANEL_GENRE_CHAT_SIDEBAR: &str = "genreChatSidebar";
 
 const MIN_RATIO: f64 = 0.1;
@@ -60,6 +63,7 @@ pub async fn save_panel_ratio(key: &str, ratio: f64) {
 
 /// すべてのレイアウト状態をクリアする。
 /// 設定リセット時に呼ぶ。
+#[allow(dead_code)]
 pub async fn clear_layout() {
     let empty = json!({ "schemaVersion": 1, "panelRatios": {} });
     save_raw(&empty).await;

@@ -208,7 +208,7 @@ fn metacognition_section(operation: &str) -> &'static str {
 
 pub fn plan(
     context: &str,
-    instruction: &str,
+    _instruction: &str,
     beat_split: bool,
     _scene: &str,
     _voices: &str,
@@ -598,6 +598,7 @@ pub fn summary_episode(text: &str, title: Option<&str>, _episode_id: Option<&str
 
 // ---- 執筆指示 ------------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn author_instruction(instruction: &str) -> String {
     if instruction.trim().is_empty() {
         return String::new();
@@ -607,6 +608,7 @@ pub fn author_instruction(instruction: &str) -> String {
 
 // ---- ライン編集 ----------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn line_edit_review(
     passage: &str,
     context: &str,
@@ -650,6 +652,7 @@ pub fn line_edit_review(
     s
 }
 
+#[allow(dead_code)]
 pub fn line_edit_revision(
     passage: &str,
     review: &str,
@@ -695,6 +698,7 @@ pub fn line_edit_revision(
 
 // ---- ツール関連 ----------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn tool_call_need(
     user_request: &str,
     assistant_response: Option<&str>,
@@ -728,6 +732,7 @@ pub fn tool_call_need(
 
 // ---- ヘルパー ------------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn style_fingerprint_section(
     average_sentence_length: f64,
     kanji_ratio: f64,

@@ -41,5 +41,6 @@ pub struct DraftCheckFindings {
     /// 破棄すべき重大違反
     pub hard: Vec<String>,
     /// 査読で修正可能な軽微違反
+    #[allow(dead_code)]
     pub soft: Vec<String>,
 }

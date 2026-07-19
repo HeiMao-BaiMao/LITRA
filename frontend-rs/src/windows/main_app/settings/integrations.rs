@@ -96,7 +96,7 @@ pub fn update_enabled(document: &Document) -> Result<(), JsValue> {
     Ok(())
 }
 
-pub async fn pull_on_start(document: &Document) -> Result<(), JsValue> {
+pub async fn pull_on_start(_document: &Document) -> Result<(), JsValue> {
     let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
     if !config.enabled || config.base_url.trim().is_empty() {
         return Ok(());
@@ -182,45 +182,6 @@ fn read(document: &Document) -> WebDavConfig {
         password: non_empty(value(document, "setting-webdav-password")),
         remote_folder: value(document, "setting-webdav-folder").trim().into(),
     }
-}
-
-fn show_status(document: &Document, message: &str) -> Result<(), JsValue> {
-    let id = "litra-sync-status";
-    let element = if let Some(element) = document.get_element_by_id(id) {
-        element
-    } else {
-        let element = document.create_element("div")?;
-        element.set_id(id);
-        element.set_attribute("class", "sync-status-overlay")?;
-        document
-            .body()
-            .ok_or_else(|| JsValue::from_str("document body is missing"))?
-            .append_child(&element)?;
-        element
-    };
-    element.set_text_content(Some(message));
-    Ok(())
-}
-
-fn show_status_transient(document: &Document, message: &str, timeout_ms: i32) -> Result<(), JsValue> {
-    show_status(document, message)?;
-    let Some(window) = web_sys::window() else {
-        return Ok(());
-    };
-    let document = document.clone();
-    let message = message.to_owned();
-    let callback = Closure::once_into_js(move || {
-        if let Some(element) = document.get_element_by_id("litra-sync-status") {
-            if element.text_content().as_deref() == Some(message.as_str()) {
-                element.remove();
-            }
-        }
-    });
-    window.set_timeout_with_callback_and_timeout_and_arguments_0(
-        callback.unchecked_ref(),
-        timeout_ms,
-    )?;
-    Ok(())
 }
 
 // ---- 同期モーダル (旧TS createSyncOverlay の移植) ----

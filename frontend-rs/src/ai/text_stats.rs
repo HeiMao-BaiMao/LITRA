@@ -2,6 +2,7 @@
 //! LLM 非依存。文体指紋・ドラフト機械検査の両方から利用される。
 //!
 //! TypeScript `text-stats.ts` の Rust 移植。
+#![allow(dead_code)]
 
 use std::collections::HashSet;
 

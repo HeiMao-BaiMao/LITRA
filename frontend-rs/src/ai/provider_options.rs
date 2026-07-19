@@ -3,6 +3,7 @@
 //! サポートされているオプションのみをプロトコルに送出する。
 //!
 //! TypeScript `provider-options.ts` の Rust 移植。
+#![allow(dead_code)]
 
 use serde_json::{Map, Value};
 

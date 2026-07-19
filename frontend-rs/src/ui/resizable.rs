@@ -13,6 +13,7 @@ use crate::data::layout_store;
 pub enum ResizerPosition {
     Left,
     Right,
+    #[allow(dead_code)]
     Inside,
 }
 
@@ -99,9 +100,9 @@ pub fn create_vertical_resizer(
     resizer_div.set_class_name(&format!(
         "resizer resizer-vertical resizer-{position_class}"
     ));
-    resizer_div.set_attribute("role", "separator");
-    resizer_div.set_attribute("aria-orientation", "vertical");
-    resizer_div.set_attribute("aria-label", "パネル幅を調整");
+    let _ = resizer_div.set_attribute("role", "separator");
+    let _ = resizer_div.set_attribute("aria-orientation", "vertical");
+    let _ = resizer_div.set_attribute("aria-label", "パネル幅を調整");
 
     let line = document.create_element("div")?;
     line.set_class_name("resizer-line");

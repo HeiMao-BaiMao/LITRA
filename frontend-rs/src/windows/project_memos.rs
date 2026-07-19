@@ -37,7 +37,7 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     tauri::listen_dpi_zoom();
     mount_editor(document).await
 }
-
+#[allow(dead_code)]
 pub async fn mount_inline(document: &Document) -> Result<(), JsValue> {
     mount_editor(document).await
 }

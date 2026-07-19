@@ -3,6 +3,7 @@
 //! 接続・ストリーム解析は Rust core に集約する。
 //!
 //! TypeScript `structured-output.ts` の Rust 移植。
+#![allow(dead_code)]
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;

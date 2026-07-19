@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Document, HtmlTextAreaElement};

@@ -3,6 +3,7 @@
 //!
 //! TypeScript `role-settings.ts` の Rust 移植。
 
+#![allow(dead_code)]
 use serde_json::{Map, Value};
 
 use super::capability::{self, ReasoningCapability};

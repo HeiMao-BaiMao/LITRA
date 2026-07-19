@@ -2,6 +2,7 @@
 //! キャッシュヒット率をステップ・プロバイダ・モデルごとに記録・永続化する。
 //!
 //! TypeScript `cache-observability.ts` の Rust 移植。
+#![allow(dead_code)]
 
 use std::cell::RefCell;
 

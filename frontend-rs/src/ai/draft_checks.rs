@@ -3,6 +3,7 @@
 //! 弱いモデルに「良い/悪い」の判断そのものをさせない。
 //!
 //! TypeScript `draft-checks.ts` の Rust 移植。
+#![allow(dead_code)]
 
 use regex::Regex;
 use std::{collections::HashMap, sync::LazyLock};

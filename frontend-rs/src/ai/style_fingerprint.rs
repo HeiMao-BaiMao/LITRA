@@ -2,6 +2,7 @@
 //!
 //! TypeScript `style-fingerprint.ts` の Rust 移植。
 
+#![allow(dead_code)]
 use std::collections::HashMap;
 
 use super::text_stats::{split_japanese_sentences, split_paragraphs};

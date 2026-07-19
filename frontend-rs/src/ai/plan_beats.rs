@@ -3,6 +3,7 @@
 //! （呼び出し側は一括生成へフォールバックする）。
 //!
 //! TypeScript `plan-beats.ts` の Rust 移植。
+#![allow(dead_code)]
 
 use regex::Regex;
 use std::sync::LazyLock;
