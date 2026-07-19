@@ -22,10 +22,11 @@ pub async fn run(
     state: &Rc<RefCell<State>>,
     mut system: String,
     prompt: String,
+    direct_creative_edit: bool,
 ) -> Result<ai::GeneratedText, JsValue> {
     let definitions = definitions();
     let tool_names: Vec<&str> = definitions.iter().filter_map(|d| d["name"].as_str()).collect();
-    system.push_str(&build_tool_guidance(&tool_names));
+    system.push_str(&build_tool_guidance(&tool_names, direct_creative_edit));
     let (project_id, current_episode, provider, model) = {
         let current = state.borrow();
         (
@@ -375,13 +376,13 @@ fn js_error(error: &JsValue) -> String {
 // ============================================================
 
 /// 利用可能なツールに応じて動的にツールガイダンスを生成する。
-/// TS版 `buildToolGuidancePrompt` の移植。
-fn build_tool_guidance(tool_names: &[&str]) -> String {
+/// TS版 `buildToolGuidancePrompt` の完全移植。
+fn build_tool_guidance(tool_names: &[&str], direct_creative_edit: bool) -> String {
     use std::collections::BTreeSet;
     let available: BTreeSet<&str> = tool_names.iter().copied().collect();
     let mut s = String::from(BASE_TOOL_GUIDANCE);
 
-    // EPISODE TEXT EDITING — TS版の条件分岐を移植
+    // EPISODE TEXT EDITING
     let has_episode_tools = available.contains("findEpisodeLines")
         || available.contains("getEpisodeLines")
         || available.contains("editEpisode")
@@ -389,22 +390,62 @@ fn build_tool_guidance(tool_names: &[&str]) -> String {
     if has_episode_tools {
         s.push_str(r#"
 
-EPISODE TEXT EDITING — follow in this order:
-1. WHEN THE USER ASKS YOU TO WRITE FICTION: 「〜を書いて」「本文に追加して」「小説の続きを書いて」「物語を作って」「以下の内容を反映して」など、ユーザーが明示的に本文執筆・追記・編集を依頼した場合 → あなたは相談だけで終わらず、必ずツールを使って実際に本文に書き込むこと。執筆依頼をチャットの相談にすり替えてツールを呼ばないことは禁止。
+EPISODE TEXT EDITING - follow in this order:
+1. WHEN THE USER ASKS YOU TO WRITE FICTION: 「〜を書いて」「本文に追加して」「小説の続きを書いて」「物語を作って」「以下の内容を反映して」など、ユーザーが明示的に本文執筆・追記・編集を依頼した場合 → 相談だけで終わらず、必ずツールを使って実際に本文に書き込むこと。執筆依頼をチャットの相談にすり替えてツールを呼ばないことは禁止。
 2. Before editing, ALWAYS read the current text and line numbers with findEpisodeLines or getEpisodeLines. NEVER guess line numbers or current text from memory.
 3. expectedText MUST be a character-for-character copy of the text you just read, with the line-number prefixes removed. Change nothing else in it.
 4. replacementText must be Japanese, unless the user explicitly asked for another language.
-5. IF the edit is one contiguous range → call editEpisode once. IF multiple separate ranges → collect ALL from the same pre-edit text and call editEpisodeBatch exactly once.
-6. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range or the change is ambiguous.
+5. IF the edit is one contiguous range → call editEpisode once. IF multiple separate ranges → collect ALL from the same pre-edit text and call editEpisodeBatch exactly once. NEVER chain editEpisode calls range by range.
+6. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range, the intended change, or the canon impact is ambiguous or high-risk.
 7. IF the tool reports an expectedText mismatch → re-read only the failed range, then retry with the latest exact text.
-8. After a successful edit, report editSummary or editedLineRanges once. Do not print expectedText or replacementText unless asked.
-9. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」.
+8. After a successful edit, report editSummary or editedLineRanges once. Do not print expectedText or replacementText unless the user asks.
+9. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read.
+"#);
+    }
+
+    // NEW FICTION GENERATION (continuePassage)
+    if available.contains("continuePassage") {
+        s.push_str(r#"
+
+NEW FICTION GENERATION (continuePassage):
+- IF the user asks you to write a new continuation, scene, passage, dialogue sequence, or other manuscript prose → you MUST call continuePassage. Do NOT compose the prose in the chat model and do NOT place prose you invented directly into editEpisode/editEpisodeBatch.
+- Put the complete author request into instruction: desired event, mood, length, viewpoint constraints, and anything that must or must not happen.
+- The tool uses the dedicated writing settings and, when enabled, multiple candidates, judgment-model selection, review, and deterministic checks.
+- The result is saved in the proposal cache and does NOT modify the manuscript by itself. If the user explicitly requested writing/application now, immediately call applyPassageProposal with the returned proposalId. Do not copy generatedText into editEpisode.
+- IF the tool fails → report the failure honestly. Do not silently replace it with chat-model prose.
+"#);
+    }
+
+    // DIRECT CREATIVE EDITING MODE
+    if direct_creative_edit && available.contains("editEpisode") {
+        s.push_str(r#"
+
+DIRECT CREATIVE EDITING MODE - ACTIVE:
+- This mode replaces the multi-stage continuePassage pipeline. For a request to write new fiction, you MUST write the final Japanese prose yourself and apply it with editEpisode in this same turn. Do not call continuePassage, rewritePassage, lineEditPassage, or any proposal-selection/review pipeline.
+- Read the exact target with getEpisodeLines or findEpisodeLines first. For a continuation at the end, replace the final line with that exact line followed by the newly written continuation in replacementText. Preserve the original final line character-for-character.
+- Do not merely print or propose the prose in chat. The requested result is complete only after editEpisode returns success.
+- Keep canon, viewpoint, tense, voice, and the user's requested length, but perform no separate planning, candidate generation, literary review, or regression comparison.
+- If editEpisode rejects an exact-text mismatch, re-read the affected range and retry once. If it still fails, report the failure without claiming that the manuscript changed.
+"#);
+    }
+
+    // CACHED PASSAGE PROPOSALS
+    let has_proposal_tools = available.contains("listPassageProposals")
+        || available.contains("getPassageProposal")
+        || available.contains("applyPassageProposal");
+    if has_proposal_tools {
+        s.push_str(r#"
+
+CACHED PASSAGE PROPOSALS:
+- Previously generated continuation proposals persist outside chat history. Use listPassageProposals when the user asks what was generated earlier or no proposalId is available in the current context.
+- Use getPassageProposal to quote or inspect the exact full cached text.
+- Use applyPassageProposal when the user asks to write/apply a cached proposal. It inserts the cached text directly at the current editor cursor and saves the episode; do not reconstruct the text with editEpisode.
+- Never apply an already-applied proposal again unless the user explicitly requests a duplicate, in which case generate a new proposal.
 "#);
     }
 
     s
 }
-
 const BASE_TOOL_GUIDANCE: &str = r#"
 TOOL USE — follow these steps in this exact order for every request:
 

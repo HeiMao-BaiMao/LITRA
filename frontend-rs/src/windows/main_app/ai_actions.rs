@@ -198,7 +198,7 @@ pub async fn chat(
     } else {
         EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string()
     };
-    let result = super::agent_tools::run(state, system, prompt).await;
+    let result = super::agent_tools::run(state, system, prompt, direct).await;
     generating(document, state, false)?;
     let result = result?;
     if direct {
