@@ -33,6 +33,10 @@ struct State {
     episodes: Vec<Episode>,
     current_episode_id: Option<String>,
     editor_text: String,
+    /// テキストエリア内の選択範囲の開始位置（UTF-16 コード単位）
+    selection_start: u32,
+    /// テキストエリア内の選択範囲の終了位置（UTF-16 コード単位）
+    selection_end: u32,
     summaries: Value,
     memos: Value,
     chat: Vec<ChatMessage>,
@@ -56,9 +60,30 @@ struct State {
     memo_collapsed_before_detach: bool,
     chat_collapsed_before_detach: bool,
     detached: HashSet<String>,
+    /// AI 生成を中断するための AbortController。None のとき未生成。
+    abort_controller: Option<web_sys::AbortController>,
 }
 
 pub static MAIN_CLOSING: AtomicBool = AtomicBool::new(false);
+
+/// AI 応答のトランスポート情報。
+/// TypeScript `ChatTransportMetadata` に相当。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatTransportMetadata {
+    provider: Option<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+    protocol: Option<String>,
+    response_id: Option<String>,
+    response_model_id: Option<String>,
+    finish_reason: Option<String>,
+    max_tokens: Option<u64>,
+    max_context_tokens: Option<u64>,
+    created_at: Option<String>,
+    /// "chat" | "feedback" | "summary" | "continuation" | "rewrite"
+    kind: Option<String>,
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 struct ChatMessage {
@@ -66,8 +91,15 @@ struct ChatMessage {
     content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<String>,
-    #[serde(flatten)]
-    extra: std::collections::BTreeMap<String, Value>,
+    /// チャット文脈に含めない（表示だけする）中間メッセージか
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    exclude_from_context: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transport: Option<ChatTransportMetadata>,
 }
 
 pub async fn mount(document: &Document) -> Result<(), JsValue> {
@@ -78,6 +110,8 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
         ..Default::default()
     }));
     state.borrow_mut().catalog = crate::runtime::ai::catalog().await.unwrap_or_default();
+    // メインウィンドウの前回位置を復元
+    let _ = crate::runtime::windows::apply_window_bounds_main("main").await;
     settings::integrations::pull_on_start(document).await?;
     if let Ok((provider, model)) = crate::runtime::ai::selection("chat").await {
         let mut current = state.borrow_mut();
@@ -88,13 +122,119 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     events::bind(document, Rc::clone(&state))?;
     events::listen_children(document.clone(), Rc::clone(&state)).await?;
     crate::windows::settings::mount_inline(document).await?;
-    crate::windows::project_memos::mount_inline(document).await?;
+    bind_resizable_panels(document)?;
+    bind_selection_tracking(document, Rc::clone(&state))?;
     bind_close_sync(Rc::clone(&state)).await?;
     let result = render::all(document, &state.borrow());
     events::restore_detached_windows(document, &state).await;
+    // メインウィンドウの移動・リサイズを追跡開始
+    let _ = crate::runtime::windows::track_window_bounds_main("main");
     result
 }
 
+/// リサイズ可能なパネルを初期化する。
+/// 旧TS版と同じ実装: resizer は `.main` コンテナに追加し、
+/// CSS の `position: absolute; left: var(--xxx-width)` で配置する。
+/// （子要素として追加すると、`.project-nav` 等が `position: relative`
+/// を持たないため absolute 配置が効かない）
+fn bind_resizable_panels(document: &Document) -> Result<(), JsValue> {
+    use crate::ui::resizable::{
+        apply_stored_ratio, create_vertical_resizer, ResizerConfig, ResizerPosition,
+    };
+    use crate::data::layout_store;
+    use wasm_bindgen::JsCast;
+
+    // resizer を入れる親は `.main`（position: relative）
+    let Ok(main_opt) = document.query_selector(".main") else {
+        return Ok(());
+    };
+    let Some(main_el) = main_opt else {
+        return Ok(());
+    };
+    let Ok(main) = main_el.dyn_into::<web_sys::HtmlElement>() else {
+        return Ok(());
+    };
+
+    // プロジェクトナビゲーション（左サイドバー）
+    apply_stored_ratio(
+        main.clone(),
+        "--project-nav-width",
+        layout_store::PANEL_PROJECT_NAV,
+        0.18,
+    );
+    let _ = create_vertical_resizer(
+        document,
+        ResizerConfig::new(
+            main.clone(),
+            "--project-nav-width",
+            ResizerPosition::Left,
+            layout_store::PANEL_PROJECT_NAV,
+        ),
+    )?;
+
+    // チャットパネル（右サイドバー）
+    apply_stored_ratio(
+        main.clone(),
+        "--chat-panel-width",
+        layout_store::PANEL_CHAT_PANEL,
+        0.25,
+    );
+    let _ = create_vertical_resizer(
+        document,
+        ResizerConfig::new(
+            main.clone(),
+            "--chat-panel-width",
+            ResizerPosition::Right,
+            layout_store::PANEL_CHAT_PANEL,
+        ),
+    )?;
+
+    Ok(())
+}
+
+/// テキストエリアの選択範囲を state に追跡する。
+/// `select` / `click` / `keyup` / `focus` イベントで selectionStart / selectionEnd を更新する。
+fn bind_selection_tracking(
+    document: &Document,
+    state: Rc<RefCell<State>>,
+) -> Result<(), JsValue> {
+    use wasm_bindgen::JsCast;
+    let element_ids = ["editor", "chat-input"];
+    for id in element_ids {
+        let Some(textarea_el) = document
+            .get_element_by_id(id)
+            .and_then(|el| el.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+        else {
+            continue;
+        };
+        let textarea = textarea_el.clone();
+        let state_clone = Rc::clone(&state);
+        let textarea_for_closure = textarea.clone();
+        let on_change = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            let start = textarea_for_closure
+                .selection_start()
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+            let end = textarea_for_closure
+                .selection_end()
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+            let mut current = state_clone.borrow_mut();
+            current.selection_start = start;
+            current.selection_end = end;
+        }) as Box<dyn FnMut(web_sys::Event)>);
+        for event_name in &["select", "click", "keyup", "focus"] {
+            textarea.add_event_listener_with_callback(
+                event_name,
+                on_change.as_ref().unchecked_ref(),
+            )?;
+        }
+        on_change.forget();
+    }
+    Ok(())
+}
 async fn bind_close_sync(state: Rc<RefCell<State>>) -> Result<(), JsValue> {
     let callback = Closure::wrap(Box::new(move || {
         let editor = {
