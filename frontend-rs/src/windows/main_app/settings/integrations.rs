@@ -139,6 +139,8 @@ pub async fn push_on_close() -> Result<(), JsValue> {
     if config.enabled && !config.base_url.trim().is_empty() {
         if let Some(window) = web_sys::window() {
             show_sync_modal(&window, "WebDAVに同期中...");
+            // ブラウザがDOMを描画するまで待機（必須: さもなくば非同期処理が先に始まり表示されない）
+            sleep_ms(150).await;
         }
         match invoke::invoke::<_, SyncSummary>("push_webdav_all", &Empty {}).await {
             Ok(summary) => {
@@ -147,6 +149,8 @@ pub async fn push_on_close() -> Result<(), JsValue> {
                         "完了: {}件処理、{}件失敗",
                         summary.files_processed, summary.files_failed
                     ));
+                    // 完了表示をユーザーが見られるように待機（この直後にウィンドウ破棄）
+                    sleep_ms(2000).await;
                 }
                 web_sys::console::log_1(
                     &format!(
@@ -159,6 +163,7 @@ pub async fn push_on_close() -> Result<(), JsValue> {
             Err(error) => {
                 if let Some(window) = web_sys::window() {
                     update_sync_modal(&window, &format!("失敗: {error:?}"));
+                    sleep_ms(5000).await;
                 }
                 web_sys::console::error_1(
                     &format!("[litra] WebDAV push failed: {error:?}").into(),
@@ -299,6 +304,23 @@ fn hide_sync_modal(window: &web_sys::Window) {
         }
     }
 }
+
+/// 指定ミリ秒間だけ待機する。DOM描画の待機や完了表示に使う。
+async fn sleep_ms(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                &resolve,
+                ms,
+            );
+        } else {
+            // window がない場合は即座に解決
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
 
 fn non_empty(value: String) -> Option<String> {
     let value = value.trim().to_owned();
