@@ -1,11 +1,12 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+mod ai;
 mod components;
 mod data;
 mod runtime;
+mod ui;
 mod windows;
-
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     let document = web_sys::window()
