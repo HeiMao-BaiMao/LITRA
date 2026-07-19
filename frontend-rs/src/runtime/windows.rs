@@ -119,3 +119,62 @@ pub async fn on_destroyed(
     callback.forget();
     Ok(())
 }
+#[wasm_bindgen(inline_js = r#"
+export async function applyWindowBoundsMain(label) {
+  const win = window.__TAURI__.window.getCurrentWindow();
+  let bounds = await window.__TAURI__.core.invoke('load_window_bounds', { label });
+  if (!bounds) return;
+  try {
+    const { PhysicalPosition, PhysicalSize, availableMonitors } = window.__TAURI__.window;
+    const monitors = await availableMonitors();
+    if (monitors.length > 0) {
+      const monitor = monitors.find((m) => {
+        const right = m.position.x + m.size.width;
+        const bottom = m.position.y + m.size.height;
+        return bounds.x >= m.position.x && bounds.x < right && bounds.y >= m.position.y && bounds.y < bottom;
+      }) ?? monitors[0];
+      if (monitor) {
+        const maxX = monitor.position.x + monitor.size.width;
+        const maxY = monitor.position.y + monitor.size.height;
+        bounds = {
+          x: Math.max(monitor.position.x, Math.min(bounds.x, maxX - bounds.width)),
+          y: Math.max(monitor.position.y, Math.min(bounds.y, maxY - bounds.height)),
+          width: Math.min(bounds.width, monitor.size.width),
+          height: Math.min(bounds.height, monitor.size.height),
+        };
+      }
+    }
+    await win.setPosition(new PhysicalPosition(bounds.x, bounds.y));
+    await win.setSize(new PhysicalSize(bounds.width, bounds.height));
+  } catch (e) {
+    console.warn(`[litra] failed to apply bounds for ${label}:`, e);
+  }
+}
+
+export function trackWindowBoundsMain(label) {
+  const win = window.__TAURI__.window.getCurrentWindow();
+  let debounceTimer = null;
+  const save = async () => {
+    try {
+      if (await win.isMaximized()) return;
+      const position = await win.outerPosition();
+      const size = await win.outerSize();
+      await window.__TAURI__.core.invoke('save_window_bounds', {
+        label,
+        bounds: { x: position.x, y: position.y, width: size.width, height: size.height },
+      });
+    } catch (e) {
+      console.warn(`[litra] failed to save bounds for ${label}:`, e);
+    }
+  };
+  win.onMoved(() => { clearTimeout(debounceTimer); debounceTimer = setTimeout(save, 300); });
+  win.onResized(() => { clearTimeout(debounceTimer); debounceTimer = setTimeout(save, 300); });
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen(catch, js_name = applyWindowBoundsMain)]
+    pub async fn apply_window_bounds_main(label: &str) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_name = trackWindowBoundsMain)]
+    pub fn track_window_bounds_main(label: &str);
+}

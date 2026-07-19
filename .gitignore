@@ -42,4 +42,7 @@ session_*.zip
 /fable5.feature.txt
 /fable5.proposal.txt
 
-/.pi-subagents
+/.pi-subagents/
+
+# Legacy TypeScript reference archive (frozen snapshot for porting reference)
+/legacy-ts-archive/

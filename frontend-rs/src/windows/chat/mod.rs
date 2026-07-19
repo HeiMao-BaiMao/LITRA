@@ -269,14 +269,50 @@ fn bind_auto_resize(input: &HtmlTextAreaElement) -> Result<(), JsValue> {
     }) as Box<dyn FnMut(Event)>);
     input.add_event_listener_with_callback("input", on_input.as_ref().unchecked_ref())?;
     on_input.forget();
+    // 初期表示時にもリサイズ
+    resize_input(input);
     Ok(())
 }
 
 fn resize_input(input: &HtmlTextAreaElement) {
+    let max_rows: u32 = 15;
+    let window = web_sys::window().unwrap();
+    let computed = window.get_computed_style(input).unwrap().unwrap();
+    let line_height: f64 = computed
+        .get_property_value("line-height")
+        .ok()
+        .and_then(|v| v.trim_end_matches("px").parse().ok())
+        .unwrap_or(24.0);
+    let padding_top: f64 = computed
+        .get_property_value("padding-top")
+        .ok()
+        .and_then(|v| v.trim_end_matches("px").parse().ok())
+        .unwrap_or(0.0);
+    let padding_bottom: f64 = computed
+        .get_property_value("padding-bottom")
+        .ok()
+        .and_then(|v| v.trim_end_matches("px").parse().ok())
+        .unwrap_or(0.0);
+    let border_top: f64 = computed
+        .get_property_value("border-top-width")
+        .ok()
+        .and_then(|v| v.trim_end_matches("px").parse().ok())
+        .unwrap_or(0.0);
+    let border_bottom: f64 = computed
+        .get_property_value("border-bottom-width")
+        .ok()
+        .and_then(|v| v.trim_end_matches("px").parse().ok())
+        .unwrap_or(0.0);
+    let max_height = line_height * max_rows as f64 + padding_top + padding_bottom + border_top + border_bottom;
     let style = input.style();
     let _ = style.set_property("height", "auto");
-    let height = input.scroll_height().min(15 * 24);
-    let _ = style.set_property("height", &format!("{height}px"));
+    let scroll_height = input.scroll_height() as f64;
+    let target = scroll_height.min(max_height);
+    let _ = style.set_property("height", &format!("{target}px"));
+    let _ = style.set_property(
+        "overflow-y",
+        if scroll_height > max_height { "auto" } else { "hidden" },
+    );
 }
 
 fn emit_settings(provider: &str, model: &str) {

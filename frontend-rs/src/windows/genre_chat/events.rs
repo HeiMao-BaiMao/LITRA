@@ -42,7 +42,9 @@ pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValu
 
     let form = document
         .get_element_by_id("chat-form")
-        .ok_or_else(|| JsValue::from_str("chat form is missing"))?;
+        .ok_or_else(|| JsValue::from_str("chat form is missing"))?
+        .dyn_into::<web_sys::HtmlFormElement>()
+        .map_err(|_| JsValue::from_str("chat-form is not a form element"))?;
     let submit_document = document.clone();
     let submit_state = Rc::clone(&state);
     let submit = Closure::wrap(Box::new(move |event: Event| {
@@ -55,9 +57,9 @@ pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValu
         };
         let content = input.value().trim().to_owned();
         if content.is_empty() {
-            return;
         }
         input.set_value("");
+        resize_chat_input(&input);
         let document = submit_document.clone();
         let state = Rc::clone(&submit_state);
         spawn_local(async move {
@@ -70,6 +72,41 @@ pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValu
     }) as Box<dyn FnMut(Event)>);
     form.add_event_listener_with_callback("submit", submit.as_ref().unchecked_ref())?;
     submit.forget();
+
+    // キーボードショートカット: Ctrl+Enter で送信（ジャンルチャットは Ctrl+Enter 固定）
+    if let Some(input) = document
+        .get_element_by_id("chat-input")
+        .and_then(|item| item.dyn_into::<HtmlTextAreaElement>().ok())
+    {
+        let form = form.clone();
+        let on_keydown = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+            if event.key() != "Enter" || event.is_composing() {
+                return;
+            }
+            // ジャンルチャットは Ctrl+Enter 固定（Shift+Enter は改行）
+            if !event.shift_key() && (event.ctrl_key() || event.meta_key()) {
+                event.prevent_default();
+                let _ = form.request_submit();
+            }
+        }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+        input.add_event_listener_with_callback("keydown", on_keydown.as_ref().unchecked_ref())?;
+        on_keydown.forget();
+    }
+
+    // チャット入力欄の自動リサイズ
+    if let Some(input) = document
+        .get_element_by_id("chat-input")
+        .and_then(|item| item.dyn_into::<HtmlTextAreaElement>().ok())
+    {
+        let input_for_resize = input.clone();
+        let on_input = Closure::wrap(Box::new(move |_event: Event| {
+            resize_chat_input(&input_for_resize);
+        }) as Box<dyn FnMut(Event)>);
+        input.add_event_listener_with_callback("input", on_input.as_ref().unchecked_ref())?;
+        on_input.forget();
+        resize_chat_input(&input);
+    }
+
     let change_document = document.clone();
     let change_state = Rc::clone(&state);
     let change = Closure::wrap(Box::new(move |event: Event| {
@@ -245,6 +282,53 @@ async fn action_click(
         _ => {}
     }
     Ok(())
+}
+
+fn resize_chat_input(input: &HtmlTextAreaElement) {
+    let max_rows: u32 = 15;
+    let window = web_sys::window().unwrap();
+    if let Ok(Some(computed)) = window.get_computed_style(input) {
+        let line_height: f64 = computed
+            .get_property_value("line-height")
+            .ok()
+            .and_then(|v| v.trim_end_matches("px").parse().ok())
+            .unwrap_or(24.0);
+        let padding_top: f64 = computed
+            .get_property_value("padding-top")
+            .ok()
+            .and_then(|v| v.trim_end_matches("px").parse().ok())
+            .unwrap_or(0.0);
+        let padding_bottom: f64 = computed
+            .get_property_value("padding-bottom")
+            .ok()
+            .and_then(|v| v.trim_end_matches("px").parse().ok())
+            .unwrap_or(0.0);
+        let border_top: f64 = computed
+            .get_property_value("border-top-width")
+            .ok()
+            .and_then(|v| v.trim_end_matches("px").parse().ok())
+            .unwrap_or(0.0);
+        let border_bottom: f64 = computed
+            .get_property_value("border-bottom-width")
+            .ok()
+            .and_then(|v| v.trim_end_matches("px").parse().ok())
+            .unwrap_or(0.0);
+        let max_height =
+            line_height * max_rows as f64 + padding_top + padding_bottom + border_top + border_bottom;
+        let style = input.style();
+        let _ = style.set_property("height", "auto");
+        let scroll_height = input.scroll_height() as f64;
+        let target = scroll_height.min(max_height);
+        let _ = style.set_property("height", &format!("{target}px"));
+        let _ = style.set_property(
+            "overflow-y",
+            if scroll_height > max_height {
+                "auto"
+            } else {
+                "hidden"
+            },
+        );
+    }
 }
 
 fn prompt(message: &str, default: &str) -> Option<String> {
