@@ -1,0 +1,24 @@
+{genreResearchBasePrompt}
+
+TASK:
+Synthesize the following segment analyses into a unified understanding of the reference work's contribution to the genre "{genre.name}".
+
+SOURCE CONTEXT:
+- Title: {sourceTitle}
+- Role: {sourceRole}
+
+{formatPromptDataBlock("segment_analyses", limitPromptText(analysesJson, 12000, "head"))}
+
+{formatPromptDataBlock("sampled_source_text", limitPromptText(sampledSourceText, 4000, "middle"))}
+
+SYNTHESIS STEPS — follow in this order:
+1. Read the segment analyses and the sampled source text above.
+2. Summarize this source's overall contribution to the genre.
+3. Identify: deviations from the genre, work-specific elements, and reader expectations.
+4. Extract structural patterns, stylistic patterns, and failure risks.
+
+STRICT RULES:
+- This is ONE source. NEVER state a genre-wide rule from it without noting the limited evidence.
+- Write every natural-language value in Japanese.
+
+Return ONLY the JSON object defined by the schema.
