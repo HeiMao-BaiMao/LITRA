@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{Document, HtmlInputElement};
 
 use crate::runtime::invoke;
@@ -104,14 +104,17 @@ pub async fn pull_on_start(document: &Document) -> Result<(), JsValue> {
     show_status(document, "WebDAV から同期中…")?;
     let result: Result<SyncSummary, JsValue> = invoke::invoke("pull_webdav_all", &Empty {}).await;
     match result {
-        Ok(summary) => show_status(
+        Ok(summary) => show_status_transient(
             document,
             &format!(
                 "WebDAV 同期完了: {} 件処理、{} 件失敗",
                 summary.files_processed, summary.files_failed
             ),
+            5_000,
         )?,
-        Err(error) => show_status(document, &format!("WebDAV 同期失敗: {error:?}"))?,
+        Err(error) => {
+            show_status_transient(document, &format!("WebDAV 同期失敗: {error:?}"), 8_000)?
+        }
     }
     Ok(())
 }
@@ -150,6 +153,27 @@ fn show_status(document: &Document, message: &str) -> Result<(), JsValue> {
         element
     };
     element.set_text_content(Some(message));
+    Ok(())
+}
+
+fn show_status_transient(document: &Document, message: &str, timeout_ms: i32) -> Result<(), JsValue> {
+    show_status(document, message)?;
+    let Some(window) = web_sys::window() else {
+        return Ok(());
+    };
+    let document = document.clone();
+    let message = message.to_owned();
+    let callback = Closure::once_into_js(move || {
+        if let Some(element) = document.get_element_by_id("litra-sync-status") {
+            if element.text_content().as_deref() == Some(message.as_str()) {
+                element.remove();
+            }
+        }
+    });
+    window.set_timeout_with_callback_and_timeout_and_arguments_0(
+        callback.unchecked_ref(),
+        timeout_ms,
+    )?;
     Ok(())
 }
 

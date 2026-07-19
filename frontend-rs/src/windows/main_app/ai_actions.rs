@@ -3,8 +3,11 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Document, HtmlTextAreaElement};
 
-use super::{ChatMessage, State};
-use crate::{data::projects, runtime::ai};
+use super::{sync_children, ChatMessage, State};
+use crate::{
+    data::projects,
+    runtime::{ai, tauri},
+};
 
 pub async fn continue_story(
     document: &Document,
@@ -118,6 +121,22 @@ pub async fn chat(
     state: &Rc<RefCell<State>>,
     content: String,
 ) -> Result<(), JsValue> {
+    let command = content.trim();
+    if command == "/clear" || command == "/new" {
+        if command == "/new" {
+            ai::cancel_active();
+        }
+        {
+            let mut current = state.borrow_mut();
+            current.chat.clear();
+            current.is_generating = false;
+        }
+        save_chat(&state.borrow()).await?;
+        tauri::emit("chat-clear-display", &JsValue::NULL);
+        super::render::all(document, &state.borrow())?;
+        sync_children(&state.borrow());
+        return Ok(());
+    }
     state.borrow_mut().chat.push(ChatMessage {
         role: "user".into(),
         content,
@@ -126,6 +145,7 @@ pub async fn chat(
     });
     save_chat(&state.borrow()).await?;
     super::render::all(document, &state.borrow())?;
+    sync_children(&state.borrow());
     let current = state.borrow();
     let history = current
         .chat
@@ -207,13 +227,16 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
     );
     let value = state.borrow().summaries.clone();
     projects::write_document(&project_id, "summaries", &value).await?;
-    super::render::all(document, &state.borrow())
+    super::render::all(document, &state.borrow())?;
+    sync_children(&state.borrow());
+    Ok(())
 }
 
 pub fn cancel(document: &Document, state: &Rc<RefCell<State>>) {
     ai::cancel_active();
     state.borrow_mut().is_generating = false;
     let _ = super::render::all(document, &state.borrow());
+    sync_children(&state.borrow());
 }
 
 async fn generate(
@@ -244,7 +267,9 @@ async fn push_assistant(
         extra: BTreeMap::new(),
     });
     save_chat(&state.borrow()).await?;
-    super::render::all(document, &state.borrow())
+    super::render::all(document, &state.borrow())?;
+    sync_children(&state.borrow());
+    Ok(())
 }
 async fn save_chat(state: &State) -> Result<(), JsValue> {
     let Some(project) = &state.current_project else {
@@ -271,7 +296,9 @@ fn editor(document: &Document) -> Result<HtmlTextAreaElement, JsValue> {
 }
 fn generating(document: &Document, state: &Rc<RefCell<State>>, value: bool) -> Result<(), JsValue> {
     state.borrow_mut().is_generating = value;
-    super::render::all(document, &state.borrow())
+    super::render::all(document, &state.borrow())?;
+    sync_children(&state.borrow());
+    Ok(())
 }
 
 fn utf16_to_byte(text: &str, target: usize) -> Option<usize> {

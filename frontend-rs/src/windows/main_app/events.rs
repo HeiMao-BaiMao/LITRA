@@ -1,18 +1,22 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::atomic::Ordering,
 };
 
 use js_sys::Reflect;
+use serde::Serialize;
 use serde_json::json;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{Document, Element, Event, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
 
-use super::{open_project, refresh_projects, report, select_episode, sync_children, State};
+use super::{
+    open_project, refresh_projects, report, select_episode, sync_children, State, MAIN_CLOSING,
+};
 use crate::{
     data::{project_settings, projects},
-    runtime::{tauri, windows},
+    runtime::{invoke, tauri, windows},
 };
 
 pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
@@ -259,39 +263,21 @@ async fn handle_click(
                 }
             }
         }
-        "popout-summary" => windows::open_managed_window(
-            "summary",
-            "summary-window.html",
-            "エピソード要約",
-            520.0,
-            620.0,
-        )
-        .await
-        .map(|_| ())?,
+        "popout-summary" => {
+            popout(document, state, "summary", "summary-window.html", "エピソード要約", 520.0, 620.0).await?
+        }
         "popout-memo" => {
-            windows::open_managed_window("memo", "memo-window.html", "エピソードメモ", 520.0, 620.0)
-                .await
-                .map(|_| ())?
+            popout(document, state, "memo", "memo-window.html", "エピソードメモ", 520.0, 620.0).await?
         }
         "popout-chat" => {
-            windows::open_managed_window("chat", "chat-window.html", "リトラチャット", 620.0, 760.0)
-                .await
-                .map(|_| ())?
+            popout(document, state, "chat", "chat-window.html", "リトラチャット", 620.0, 760.0).await?
         }
         "popout-settings" => {
-            windows::open_managed_window("settings", "settings-window.html", "設定", 820.0, 760.0)
-                .await
-                .map(|_| ())?
+            popout(document, state, "settings", "settings-window.html", "設定", 820.0, 760.0).await?
         }
-        "popout-memos" => windows::open_managed_window(
-            "project-memos",
-            "project-memo-window.html",
-            "プロジェクトメモ",
-            760.0,
-            680.0,
-        )
-        .await
-        .map(|_| ())?,
+        "popout-memos" => {
+            popout(document, state, "project-memos", "project-memo-window.html", "プロジェクトメモ", 760.0, 680.0).await?
+        }
         "open-genres" => windows::open_managed_window(
             "genre-library",
             "genre-library.html",
@@ -373,6 +359,101 @@ async fn handle_click(
     Ok(())
 }
 
+#[derive(Serialize)]
+struct LabelArgs<'a> {
+    label: &'a str,
+}
+
+#[derive(Serialize)]
+struct DetachedArgs<'a> {
+    label: &'a str,
+    detached: bool,
+}
+
+const POPOUT_TARGETS: [(&str, &str, &str, f64, f64); 5] = [
+    ("summary", "summary-window.html", "エピソード要約", 520.0, 620.0),
+    ("memo", "memo-window.html", "エピソードメモ", 520.0, 620.0),
+    ("chat", "chat-window.html", "リトラチャット", 620.0, 760.0),
+    ("settings", "settings-window.html", "設定", 820.0, 760.0),
+    ("project-memos", "project-memo-window.html", "プロジェクトメモ", 760.0, 680.0),
+];
+
+fn persist_detached(label: &'static str, detached: bool) {
+    spawn_local(async move {
+        let _ = invoke::invoke::<_, ()>("save_window_detached", &DetachedArgs { label, detached })
+            .await;
+    });
+}
+
+pub async fn restore_detached_windows(document: &Document, state: &Rc<RefCell<State>>) {
+    for (label, url, title, width, height) in POPOUT_TARGETS {
+        let detached = invoke::invoke::<_, bool>("load_window_detached", &LabelArgs { label })
+            .await
+            .unwrap_or(false);
+        if !detached {
+            continue;
+        }
+        if let Err(error) = popout(document, state, label, url, title, width, height).await {
+            report(error);
+        }
+    }
+}
+
+async fn popout(
+    document: &Document,
+    state: &Rc<RefCell<State>>,
+    label: &'static str,
+    url: &str,
+    title: &str,
+    width: f64,
+    height: f64,
+) -> Result<(), JsValue> {
+    // beforeCreate: パネルを即座に隠し、折りたたみ状態を退避する
+    {
+        let mut current = state.borrow_mut();
+        match label {
+            "memo" => current.memo_collapsed_before_detach = current.memo_collapsed,
+            "chat" => current.chat_collapsed_before_detach = current.chat_collapsed,
+            "settings" if current.current_view.is_empty() || current.current_view == "episode" => {
+                current.current_view = "characters".into()
+            }
+            _ => {}
+        }
+        current.detached.insert(label.to_owned());
+    }
+    super::render::all(document, &state.borrow())?;
+    if let Err(error) = windows::open_managed_window(label, url, title, width, height).await {
+        state.borrow_mut().detached.remove(label);
+        let _ = super::render::all(document, &state.borrow());
+        return Err(error);
+    }
+    persist_detached(label, true);
+    sync_children(&state.borrow());
+    let document = document.clone();
+    let state = Rc::clone(state);
+    windows::on_destroyed(
+        label,
+        Closure::wrap(Box::new(move || {
+            // メイン終了に伴う破棄では、独立状態を維持したまま終える（次回起動時に復元するため）
+            if MAIN_CLOSING.load(Ordering::SeqCst) {
+                return;
+            }
+            {
+                let mut current = state.borrow_mut();
+                current.detached.remove(label);
+                match label {
+                    "memo" => current.memo_collapsed = current.memo_collapsed_before_detach,
+                    "chat" => current.chat_collapsed = current.chat_collapsed_before_detach,
+                    _ => {}
+                }
+            }
+            persist_detached(label, false);
+            let _ = super::render::all(&document, &state.borrow());
+        }) as Box<dyn FnMut()>),
+    )
+    .await
+}
+
 fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
     let timeout = Rc::new(Cell::new(None::<i32>));
     let handler_state = Rc::clone(&state);
@@ -451,6 +532,8 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
                 };
                 if let Err(error) = result {
                     report(error);
+                } else if field != "editor" {
+                    sync_children(&state.borrow());
                 }
             });
         });
@@ -707,6 +790,23 @@ pub async fn listen_children(document: Document, state: Rc<RefCell<State>>) -> R
     .await?;
     listen_settings(document.clone(), Rc::clone(&state)).await?;
     listen_project_memos(document.clone(), Rc::clone(&state)).await?;
+    {
+        let document = document.clone();
+        let state = Rc::clone(&state);
+        tauri::listen(
+            "summary-generate",
+            Closure::wrap(Box::new(move |_payload: JsValue| {
+                let document = document.clone();
+                let state = Rc::clone(&state);
+                spawn_local(async move {
+                    if let Err(error) = super::ai_actions::summary(&document, &state).await {
+                        report(error);
+                    }
+                });
+            }) as Box<dyn FnMut(JsValue)>),
+        )
+        .await?;
+    }
     listen_chat(document, state).await
 }
 

@@ -8,7 +8,12 @@ mod settings;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use wasm_bindgen::{closure::Closure, JsValue};
 use wasm_bindgen_futures::future_to_promise;
 use web_sys::Document;
@@ -48,7 +53,12 @@ struct State {
     import: imports::ImportState,
     memo_collapsed: bool,
     chat_collapsed: bool,
+    memo_collapsed_before_detach: bool,
+    chat_collapsed_before_detach: bool,
+    detached: HashSet<String>,
 }
+
+pub static MAIN_CLOSING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Deserialize, Serialize)]
 struct ChatMessage {
@@ -81,6 +91,7 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     crate::windows::project_memos::mount_inline(document).await?;
     bind_close_sync(Rc::clone(&state)).await?;
     let result = render::all(document, &state.borrow());
+    events::restore_detached_windows(document, &state).await;
     result
 }
 
@@ -100,10 +111,12 @@ async fn bind_close_sync(state: Rc<RefCell<State>>) -> Result<(), JsValue> {
             })
         };
         future_to_promise(async move {
+            MAIN_CLOSING.store(true, Ordering::SeqCst);
             if let Some((project_id, file_name, content)) = editor {
                 projects::write_episode(&project_id, &file_name, &content).await?;
             }
             settings::integrations::push_on_close().await?;
+            let _ = crate::runtime::windows::destroy_other_windows("main").await;
             Ok(JsValue::UNDEFINED)
         })
     }) as Box<dyn FnMut() -> js_sys::Promise>);
@@ -251,7 +264,7 @@ fn sync_children(state: &State) {
     )
     .unwrap_or_default();
     tauri::emit("memo-sync", &memo_payload);
-    let settings = json!({"view": if state.current_view == "episode" { "characters" } else { &state.current_view }, "characters":state.characters, "worldEntries":state.world_entries, "episodes":state.episodes, "relationshipsMap":state.relationships, "currentCharacterId":state.current_character_id, "currentWorldEntryId":state.current_world_entry_id});
+    let settings = json!({"view": if state.current_view.is_empty() || state.current_view == "episode" { "characters" } else { &state.current_view }, "characters":state.characters, "worldEntries":state.world_entries, "episodes":state.episodes, "relationshipsMap":state.relationships, "currentCharacterId":state.current_character_id, "currentWorldEntryId":state.current_world_entry_id});
     if let Ok(payload) = serde_wasm_bindgen::to_value(&settings) {
         tauri::emit("settings-sync", &payload);
     }
@@ -263,7 +276,7 @@ fn sync_children(state: &State) {
     if let Ok(payload) = serde_wasm_bindgen::to_value(&chat) {
         tauri::emit("chat-sync", &payload);
     }
-    let chat_settings = json!({"provider":state.selected_provider,"model":state.selected_model,"chatSubmitShortcut":state.ai_settings.get("chatSubmitShortcut").and_then(Value::as_str).unwrap_or("ctrlEnter"),"providerConfig":{"providers":state.catalog}});
+    let chat_settings = json!({"provider":state.selected_provider.as_deref().unwrap_or(""),"model":state.selected_model.as_deref().unwrap_or(""),"chatSubmitShortcut":state.ai_settings.get("chatSubmitShortcut").and_then(Value::as_str).unwrap_or("ctrlEnter"),"providerConfig":{"providers":state.catalog}});
     if let Ok(payload) = serde_wasm_bindgen::to_value(&chat_settings) {
         tauri::emit("chat-settings-sync", &payload);
     }

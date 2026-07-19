@@ -14,6 +14,7 @@ mod tools;
 mod web_fetch;
 mod web_search;
 mod webdav_sync;
+mod window_state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -98,6 +99,10 @@ pub fn run() {
             webdav_sync::remove_document_path,
             webdav_sync::pull_webdav_all,
             webdav_sync::push_webdav_all,
+            window_state::load_window_bounds,
+            window_state::save_window_bounds,
+            window_state::load_window_detached,
+            window_state::save_window_detached,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

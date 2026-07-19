@@ -45,6 +45,7 @@ pub fn all(document: &Document, state: &State) -> Result<(), JsValue> {
     render_chat(document, state)?;
     render_view(document, state)?;
     render_collapsible(document, state)?;
+    render_detached(document, state)?;
     if let Some(button) = document.get_element_by_id("btn-generate-summary") {
         if state.current_episode_id.is_some() && !state.is_generating {
             button.remove_attribute("disabled")?;
@@ -61,12 +62,11 @@ fn render_view(document: &Document, state: &State) -> Result<(), JsValue> {
     } else {
         state.current_view.as_str()
     };
+    let settings_view = matches!(view, "characters" | "world" | "relationships");
+    let settings_detached = state.detached.contains("settings");
     for (id, visible) in [
-        ("editor-section", view == "episode"),
-        (
-            "settings-panel",
-            matches!(view, "characters" | "world" | "relationships"),
-        ),
+        ("editor-section", view == "episode" || (settings_view && settings_detached)),
+        ("settings-panel", settings_view && !settings_detached),
         ("memos-panel", view == "memos"),
     ] {
         if let Some(element) = document.get_element_by_id(id) {
@@ -84,6 +84,35 @@ fn render_view(document: &Document, state: &State) -> Result<(), JsValue> {
                 .class_list()
                 .toggle_with_force("active", view == target)?;
         }
+    }
+    Ok(())
+}
+
+fn render_detached(document: &Document, state: &State) -> Result<(), JsValue> {
+    for (label, section_id) in [
+        ("summary", "summary-section"),
+        ("memo", "memo-section"),
+        ("settings", "settings-section"),
+        ("project-memos", "memos-section"),
+        ("chat", "chat-panel"),
+    ] {
+        if let Some(element) = document.get_element_by_id(section_id) {
+            element
+                .class_list()
+                .toggle_with_force("detached", state.detached.contains(label))?;
+        }
+    }
+    // メモが独立している間は、メイン側のメモパネルに通知を表示する
+    let memos_detached = state.detached.contains("project-memos");
+    if let Some(container) = document.get_element_by_id("memos-container") {
+        container
+            .class_list()
+            .toggle_with_force("hidden", memos_detached)?;
+    }
+    if let Some(notice) = document.get_element_by_id("memos-detached-notice") {
+        notice
+            .class_list()
+            .toggle_with_force("hidden", !memos_detached)?;
     }
     Ok(())
 }
