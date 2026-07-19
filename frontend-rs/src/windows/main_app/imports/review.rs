@@ -5,8 +5,9 @@ use serde_json::{json, Map, Value};
 use wasm_bindgen::JsValue;
 
 use crate::{
+    ai::structured_output,
     data::{project_settings, projects},
-    runtime::{ai, tauri},
+    runtime::tauri,
 };
 
 use super::model::ImportResult;
@@ -106,16 +107,15 @@ projectMemosToCreate は title, content、episodeMemosToUpdate は episodeTitle,
             80_000
         )
     );
-    let generated = ai::generate(
+    let review: Review = structured_output::generate_structured_object(
         "judgment",
-        "You review imported creative-writing data and return strict JSON only.".into(),
-        prompt,
+        Some("You review imported creative-writing data. Return only necessary corrections, as structured JSON that follows the schema exactly. Keep IDs and enum values unchanged. Write every natural-language value that will be persisted in Japanese. 保存する説明文は必ず日本語で書くこと。"),
+        &prompt,
+        review_schema(),
+        None,
+        None,
     )
     .await?;
-    let raw = json_object(&generated.text)
-        .ok_or_else(|| JsValue::from_str("import review did not contain JSON"))?;
-    let review: Review = serde_json::from_str(raw)
-        .map_err(|error| JsValue::from_str(&format!("invalid import review JSON: {error}")))?;
     apply(
         project_id,
         review,
@@ -125,6 +125,20 @@ projectMemosToCreate は title, content、episodeMemosToUpdate は episodeTitle,
         episode_memos,
     )
     .await
+}
+
+fn review_schema() -> Value {
+    let partial = json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":true});
+    json!({"type":"object","properties":{
+        "charactersToUpdate":{"type":"array","items":partial.clone()},
+        "worldEntriesToUpdate":{"type":"array","items":partial},
+        "relationshipsToCreate":{"type":"array","items":{"type":"object","properties":{
+            "episodeTitle":{"type":"string"},"characterAName":{"type":"string"},"characterBName":{"type":"string"},
+            "direction":{"type":"string","enum":["a-to-b","b-to-a","mutual"]},"description":{"type":"string"}
+        },"required":["episodeTitle","characterAName","characterBName","direction","description"],"additionalProperties":false}},
+        "projectMemosToCreate":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"content":{"type":"string"}},"required":["title","content"],"additionalProperties":false}},
+        "episodeMemosToUpdate":{"type":"array","items":{"type":"object","properties":{"episodeTitle":{"type":"string"},"content":{"type":"string"}},"required":["episodeTitle","content"],"additionalProperties":false}}
+    },"required":["charactersToUpdate","worldEntriesToUpdate","relationshipsToCreate","projectMemosToCreate","episodeMemosToUpdate"],"additionalProperties":false})
 }
 
 async fn apply(
@@ -269,9 +283,4 @@ fn direction(value: &str) -> &'static str {
 }
 fn limit(value: &str, max: usize) -> String {
     value.chars().take(max).collect()
-}
-fn json_object(value: &str) -> Option<&str> {
-    let start = value.find('{')?;
-    let end = value.rfind('}')?;
-    (end >= start).then(|| &value[start..=end])
 }

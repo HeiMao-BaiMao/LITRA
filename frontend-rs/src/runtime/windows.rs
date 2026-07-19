@@ -77,7 +77,9 @@ export async function openManagedWindow(label, url, title, width, height) {
   if (existing) { await existing.show(); await existing.setFocus(); return; }
   const child = new WebviewWindow(label, { url, title, width, height, center: true, resizable: true });
   await new Promise((resolve, reject) => { child.once('tauri://created', resolve); child.once('tauri://error', e => reject(e.payload)); });
-  await applyWindowBounds(child, label);
+  // Bounds restoration is independent from the child window's ready/sync handshake.
+  // Do not delay initial content while monitor and window geometry IPC completes.
+  void applyWindowBounds(child, label);
   trackWindowBounds(child, label);
 }
 

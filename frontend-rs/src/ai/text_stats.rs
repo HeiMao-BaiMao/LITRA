@@ -35,6 +35,22 @@ pub fn split_japanese_sentences(text: &str) -> Vec<String> {
         }
         if close.contains(&ch) {
             depth = depth.saturating_sub(1);
+            if depth == 0 {
+                // 括弧内の終端記号は、その括弧が閉じた時点で文境界になる。
+                // 入れ子の閉じ括弧が続く場合は、その直前まで遡って確認する。
+                let mut previous = i;
+                while previous > 0 && close.contains(&chars[previous - 1]) {
+                    previous -= 1;
+                }
+                if previous > 0 && is_sentence_end(chars[previous - 1]) {
+                    let end = i + 1;
+                    let sentence: String = chars[start..end].iter().collect();
+                    sentences.push(sentence);
+                    start = end;
+                    i = end;
+                    continue;
+                }
+            }
             i += 1;
             continue;
         }
@@ -96,17 +112,27 @@ mod tests {
     fn does_not_split_inside_brackets() {
         let text = "「まさか。そんなはずは。」彼女は驚いた。";
         let sentences = split_japanese_sentences(text);
-        assert_eq!(sentences, vec!["「まさか。そんなはずは。」", "彼女は驚いた。"]);
+        assert_eq!(
+            sentences,
+            vec!["「まさか。そんなはずは。」", "彼女は驚いた。"]
+        );
+    }
+
+    #[test]
+    fn splits_after_nested_bracketed_speech() {
+        let text = "「彼は『行く。』と言った。」私は頷いた。";
+        let sentences = split_japanese_sentences(text);
+        assert_eq!(
+            sentences,
+            vec!["「彼は『行く。』と言った。」", "私は頷いた。"]
+        );
     }
 
     #[test]
     fn splits_paragraphs_on_double_newline() {
         let text = "第一段落。\n\n第二段落。\n\n第三段落。";
         let paragraphs = split_paragraphs(text);
-        assert_eq!(
-            paragraphs,
-            vec!["第一段落。", "第二段落。", "第三段落。"]
-        );
+        assert_eq!(paragraphs, vec!["第一段落。", "第二段落。", "第三段落。"]);
     }
 
     #[test]

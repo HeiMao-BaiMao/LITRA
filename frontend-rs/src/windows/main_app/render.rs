@@ -65,7 +65,10 @@ fn render_view(document: &Document, state: &State) -> Result<(), JsValue> {
     let settings_view = matches!(view, "characters" | "world" | "relationships");
     let settings_detached = state.detached.contains("settings");
     for (id, visible) in [
-        ("editor-section", view == "episode" || (settings_view && settings_detached)),
+        (
+            "editor-section",
+            view == "episode" || (settings_view && settings_detached),
+        ),
         ("settings-panel", settings_view && !settings_detached),
         ("memos-panel", view == "memos"),
     ] {
@@ -141,10 +144,23 @@ fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
             .chat
             .iter()
             .map(|message| {
-                format!(
-                    r#"<div class="chat-message {}">{}</div>"#,
-                    escape(&message.role),
-                    markdown(&message.content)
+                crate::windows::chat::render::render_message_html(
+                    &message.role,
+                    &message.content,
+                    message.thinking.as_deref(),
+                    message.id.as_deref(),
+                    message
+                        .transport
+                        .as_ref()
+                        .and_then(|value| value.provider.as_deref()),
+                    message
+                        .transport
+                        .as_ref()
+                        .and_then(|value| value.model.as_deref()),
+                    message
+                        .transport
+                        .as_ref()
+                        .and_then(|value| value.response_model_id.as_deref()),
                 )
             })
             .collect::<String>();
@@ -158,6 +174,9 @@ fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
             }
         ));
         container.set_scroll_top(container.scroll_height());
+        if state.is_generating {
+            crate::windows::chat::render::pin_stream_to_bottom(&container);
+        }
     }
     if let Some(select) = document.get_element_by_id("chat-provider") {
         select.set_inner_html(
@@ -235,6 +254,10 @@ fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
     Ok(())
 }
 
+pub fn chat(document: &Document, state: &State) -> Result<(), JsValue> {
+    render_chat(document, state)
+}
+
 pub fn projects(document: &Document, state: &State) -> Result<(), JsValue> {
     if let Some(list) = document.get_element_by_id("project-list") {
         let html = state.projects.iter().map(|project| format!(r#"<div class="project-list-item" title="更新: {updated}"><button data-action="open-project" data-id="{id}" class="project-list-title">{title}</button><button data-action="delete-project" data-id="{id}" class="project-list-delete">削除</button></div>"#, id=escape(&project.id), title=escape(&project.title), updated=escape(&project.updated_at))).collect::<String>();
@@ -276,13 +299,4 @@ fn escape(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
-}
-
-fn markdown(value: &str) -> String {
-    let mut output = String::new();
-    pulldown_cmark::html::push_html(
-        &mut output,
-        pulldown_cmark::Parser::new_ext(value, pulldown_cmark::Options::ENABLE_GFM),
-    );
-    ammonia::Builder::default().clean(&output).to_string()
 }

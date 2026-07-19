@@ -104,6 +104,7 @@ pub struct GeneratedText {
     pub text: String,
     pub provider: String,
     pub model: String,
+    pub finish_reason: Option<String>,
 }
 
 #[derive(Clone)]
@@ -118,6 +119,12 @@ pub struct AgentTurn {
     pub tool_calls: Vec<ToolCall>,
     pub provider: String,
     pub model: String,
+    pub finish_reason: Option<String>,
+}
+
+pub enum AgentStreamUpdate {
+    TextDelta(String),
+    ReasoningDelta(String),
 }
 
 pub async fn selection(role: &str) -> Result<(String, String), JsValue> {
@@ -171,7 +178,13 @@ pub async fn generate_with(
         messages: Vec::new(),
         tools: Vec::new(),
         prompt,
-        max_output_tokens: config.max_output_tokens.min(16384),
+        // TS 実装では執筆系は設定値をそのまま使い、非ストリーミングの
+        // 補助処理だけを 32768 に制限していた。
+        max_output_tokens: if role == "writing" {
+            config.max_output_tokens
+        } else {
+            config.max_output_tokens.min(32768)
+        },
         temperature: config.temperature,
         top_p: config.top_p,
         top_k: config.top_k,
@@ -187,8 +200,10 @@ pub async fn generate_with(
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let output = Rc::new(RefCell::new(String::new()));
     let event_error = Rc::new(RefCell::new(None::<String>));
+    let finish_reason = Rc::new(RefCell::new(None::<String>));
     let callback_output = Rc::clone(&output);
     let callback_error = Rc::clone(&event_error);
+    let callback_finish = Rc::clone(&finish_reason);
     let callback = Closure::wrap(Box::new(move |event: JsValue| {
         let Ok(value) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) else {
             return;
@@ -205,6 +220,14 @@ pub async fn generate_with(
                     .and_then(|item| item.as_str())
                     .map(str::to_owned)
             }
+            Some("finished") => {
+                if let Some(reason) = value
+                    .get("finish_reason")
+                    .and_then(|item| item.as_str())
+                {
+                    *callback_finish.borrow_mut() = Some(reason.to_owned());
+                }
+            }
             _ => {}
         }
     }) as Box<dyn FnMut(JsValue)>);
@@ -219,10 +242,12 @@ pub async fn generate_with(
     if text.trim().is_empty() {
         return Err(JsValue::from_str("AIから空の応答が返されました。"));
     }
+    let finish_reason = finish_reason.borrow().clone();
     Ok(GeneratedText {
         text,
         provider,
         model,
+        finish_reason,
     })
 }
 
@@ -234,6 +259,30 @@ pub async fn agent_turn(
     provider_override: Option<&str>,
     model_override: Option<&str>,
 ) -> Result<AgentTurn, JsValue> {
+    agent_turn_observed(
+        role,
+        system,
+        messages,
+        tools,
+        provider_override,
+        model_override,
+        |_| {},
+    )
+    .await
+}
+
+pub async fn agent_turn_observed<F>(
+    role: &str,
+    system: String,
+    messages: Vec<serde_json::Value>,
+    tools: Vec<serde_json::Value>,
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
+    on_update: F,
+) -> Result<AgentTurn, JsValue>
+where
+    F: FnMut(AgentStreamUpdate) + 'static,
+{
     let config: RuntimeConfig = invoke::invoke(
         "ai_runtime_config",
         &ConfigArgs {
@@ -257,7 +306,8 @@ pub async fn agent_turn(
         messages,
         tools,
         prompt: String::new(),
-        max_output_tokens: config.max_output_tokens.min(16384),
+        // チャット/ツール実行は TS の streamChat と同様に設定値を尊重する。
+        max_output_tokens: config.max_output_tokens,
         temperature: config.temperature,
         top_p: config.top_p,
         top_k: config.top_k,
@@ -274,9 +324,13 @@ pub async fn agent_turn(
     let output = Rc::new(RefCell::new(String::new()));
     let calls = Rc::new(RefCell::new(Vec::<ToolCall>::new()));
     let event_error = Rc::new(RefCell::new(None::<String>));
+    let finish_reason = Rc::new(RefCell::new(None::<String>));
     let callback_output = Rc::clone(&output);
     let callback_calls = Rc::clone(&calls);
     let callback_error = Rc::clone(&event_error);
+    let callback_finish = Rc::clone(&finish_reason);
+    let on_update = Rc::new(RefCell::new(on_update));
+    let callback_update = Rc::clone(&on_update);
     let callback = Closure::wrap(Box::new(move |event: JsValue| {
         let Ok(value) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) else {
             return;
@@ -285,6 +339,14 @@ pub async fn agent_turn(
             Some("text_delta") => {
                 if let Some(delta) = value.get("delta").and_then(|item| item.as_str()) {
                     callback_output.borrow_mut().push_str(delta);
+                    callback_update.borrow_mut()(AgentStreamUpdate::TextDelta(delta.to_owned()));
+                }
+            }
+            Some("reasoning_delta") => {
+                if let Some(delta) = value.get("delta").and_then(|item| item.as_str()) {
+                    callback_update.borrow_mut()(AgentStreamUpdate::ReasoningDelta(
+                        delta.to_owned(),
+                    ));
                 }
             }
             Some("tool_call") => {
@@ -310,6 +372,14 @@ pub async fn agent_turn(
                     .and_then(|item| item.as_str())
                     .map(str::to_owned)
             }
+            Some("finished") => {
+                if let Some(reason) = value
+                    .get("finish_reason")
+                    .and_then(|item| item.as_str())
+                {
+                    *callback_finish.borrow_mut() = Some(reason.to_owned());
+                }
+            }
             _ => {}
         }
     }) as Box<dyn FnMut(JsValue)>);
@@ -322,11 +392,13 @@ pub async fn agent_turn(
     }
     let text = output.borrow().clone();
     let tool_calls = calls.borrow().clone();
+    let finish_reason = finish_reason.borrow().clone();
     Ok(AgentTurn {
         text,
         tool_calls,
         provider,
         model,
+        finish_reason,
     })
 }
 

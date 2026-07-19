@@ -1,6 +1,6 @@
 TASK:
-Create and save a detailed Japanese summary and a Japanese one-line summary for the episode "{title || "無題"}".
-Target episodeId: {episodeId}
+Create and save a detailed Japanese summary and a Japanese one-line summary for the episode "{{title}}".
+Target episodeId: {{episode_id}}
 
 DETAILED SUMMARY RULES (content):
 1. Write in Japanese. 要約は必ず日本語で書くこと。
@@ -27,4 +27,4 @@ EXECUTION — follow in this exact order:
   【一行要約】
   （一行要約）
 
-{formatPromptDataBlock("episode_source_text", sourceText)}
+{{episode_source_text}}

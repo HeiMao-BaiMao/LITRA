@@ -16,6 +16,7 @@ include_patterns:
   - "frontend-rs/**/*.rs"
   - "frontend-rs/**/*.toml"
   - "frontend-rs/**/*.html"
+  - "frontend-rs/**/*.txt"
 
 exclude_patterns:
   - "**/.*"

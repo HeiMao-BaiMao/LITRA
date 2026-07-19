@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Document, HtmlTextAreaElement};
 
-use super::{sync_children, ChatMessage, State};
+use super::{sync_chat, sync_summary, ChatMessage, State};
 use crate::{
     ai::cache_observability,
     data::projects,
@@ -11,8 +11,7 @@ use crate::{
 };
 
 /// 旧TS `systemPrompt` — 編集パートナーの役割定義。完成・洗礼済み。
-pub(crate) const EDITORIAL_PARTNER_SYSTEM_PROMPT: &str =
-    include_str!("system_prompt.txt");
+pub(crate) const EDITORIAL_PARTNER_SYSTEM_PROMPT: &str = include_str!("system_prompt.txt");
 pub async fn continue_story(
     document: &Document,
     state: &Rc<RefCell<State>>,
@@ -31,8 +30,38 @@ pub async fn continue_story(
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let settings = state.borrow().ai_settings.clone();
-    let result = super::generation::continue_story(&settings, &context).await;
+    let (settings, project_id, episode_id, mut references) = {
+        let current = state.borrow();
+        let settings = current.ai_settings.clone();
+        (
+            settings.clone(),
+            current
+                .current_project
+                .as_ref()
+                .map(|project| project.id.clone()),
+            current.current_episode_id.clone(),
+            super::prompt_context::fiction_references(&current, &settings, &context),
+        )
+    };
+    if let Some(project_id) = project_id.as_deref() {
+        references.related_scenes = super::prompt_context::build_related_scenes(
+            project_id,
+            episode_id.as_deref(),
+            &references.character_names,
+        )
+        .await;
+        if let Some(related) = references.related_scenes.as_ref() {
+            references.character_excerpts = format!("{context}\n\n{related}");
+        }
+    }
+    let result = super::generation::continue_story_with_references_progress(
+        &settings,
+        &context,
+        "自然に続きを執筆する",
+        &references,
+        |_| {},
+    )
+    .await;
     generating(document, state, false)?;
     let generated = result?;
     let addition = generated.text.trim_start();
@@ -73,9 +102,21 @@ pub async fn rewrite_selection(
         .collect::<String>();
     let after = text[end..].chars().take(3_000).collect::<String>();
     let context = format!("【直前】\n{before}\n\n【対象直後】\n{after}");
-    let settings = state.borrow().ai_settings.clone();
+    let (settings, references) = {
+        let current = state.borrow();
+        let settings = current.ai_settings.clone();
+        let references = super::prompt_context::fiction_references(&current, &settings, &context);
+        (settings, references)
+    };
     generating(document, state, true)?;
-    let result = super::generation::rewrite_passage(&settings, &context, selected).await;
+    let result = super::generation::rewrite_passage_with_references(
+        &settings,
+        &context,
+        selected,
+        "選択範囲を前後の文脈になじむように推敲する",
+        &references,
+    )
+    .await;
     generating(document, state, false)?;
     let generated = result?;
     let mut next = text[..start].to_owned();
@@ -105,11 +146,7 @@ pub async fn feedback_selection(
     }
     let settings_context = {
         let current = state.borrow();
-        format!(
-            "プロジェクト: {}\nエピソード: {}\n",
-            current.current_project.as_ref().map(|p| p.title.as_str()).unwrap_or(""),
-            current.current_episode_id.as_deref().unwrap_or(""),
-        )
+        super::prompt_context::build_settings_context(&current, &current.ai_settings)
     };
     let prompt = crate::windows::main_app::generation::old_prompts::feedback(
         &text[start..end],
@@ -143,10 +180,10 @@ pub async fn chat(
             current.chat.clear();
             current.is_generating = false;
         }
-        save_chat(&state.borrow()).await?;
+        save_chat(state).await?;
         tauri::emit("chat-clear-display", &JsValue::NULL);
         super::render::all(document, &state.borrow())?;
-        sync_children(&state.borrow());
+        sync_chat(&state.borrow());
         return Ok(());
     }
     state.borrow_mut().chat.push(ChatMessage {
@@ -158,21 +195,30 @@ pub async fn chat(
         created_at: None,
         transport: None,
     });
-    save_chat(&state.borrow()).await?;
+    save_chat(state).await?;
     super::render::all(document, &state.borrow())?;
-    sync_children(&state.borrow());
+    sync_chat(&state.borrow());
     let current = state.borrow();
-    let history = current
+    let mut messages = current
         .chat
         .iter()
+        .filter(|message| {
+            !message.exclude_from_context
+                && !message.content.trim().is_empty()
+                && matches!(message.role.as_str(), "user" | "assistant")
+        })
         .rev()
         .take(30)
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
-        .map(|message| format!("{}: {}", message.role, message.content))
-        .collect::<Vec<_>>()
-        .join("\n\n");
+        .map(|message| {
+            serde_json::json!({
+                "role": message.role,
+                "content": message.content,
+            })
+        })
+        .collect::<Vec<_>>();
     let direct = current.direct_writing;
     let editor_context = current
         .editor_text
@@ -185,66 +231,97 @@ pub async fn chat(
         .collect::<String>();
     drop(current);
 
-    let prompt = if direct {
-        format!("現在の本文（末尾最大12000文字）:\n{editor_context}\n\n【依頼】\n{history}")
-    } else {
-        // TS版と同様: チャット履歴をそのまま渡す。
-        // システムプロンプト（編集パートナー + ツールガイダンス）だけで
-        // チャット応答とツール呼出のバランスを取る。余計なプレフィックスは不要。
-        history
-    };
+    if direct {
+        if let Some(last_user) = messages
+            .iter_mut()
+            .rev()
+            .find(|message| message.get("role").and_then(|value| value.as_str()) == Some("user"))
+        {
+            let request = last_user
+                .get("content")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_owned();
+            last_user["content"] = serde_json::Value::String(format!(
+                "現在の本文（末尾最大12000文字）:\n{editor_context}\n\n【依頼】\n{request}"
+            ));
+        }
+    }
     generating(document, state, true)?;
     let system = EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string();
-    let result = super::agent_tools::run(state, system, prompt, direct).await;
+    let result = super::agent_tools::run(document, state, system, messages, direct).await;
     generating(document, state, false)?;
-    let result = result?;
-    if direct {
-        push_assistant(
-            document,
-            state,
-            if result.text.trim().is_empty() {
-                "本文を編集しました。".to_string()
-            } else {
-                result.text
-            },
-        )
-        .await
-    } else {
-        push_assistant(document, state, result.text).await
+    if let Err(error) = result {
+        // 失敗前に表示済みのThinkingやツール結果も失わない。
+        let _ = save_chat(state).await;
+        return Err(error);
     }
+    save_chat(state).await?;
+    super::render::all(document, &state.borrow())?;
+    sync_chat(&state.borrow());
+    Ok(())
 }
 
 pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
-    let text = state.borrow().editor_text.clone();
+    let (text, project_id, episode_id, episode_title) = {
+        let current = state.borrow();
+        let project_id = current
+            .current_project
+            .as_ref()
+            .map(|project| project.id.clone());
+        let episode_id = current.current_episode_id.clone();
+        let episode_title = episode_id.as_ref().and_then(|id| {
+            current
+                .episodes
+                .iter()
+                .find(|episode| &episode.id == id)
+                .map(|episode| episode.title.clone())
+        });
+        (
+            current.editor_text.clone(),
+            project_id,
+            episode_id,
+            episode_title,
+        )
+    };
     if text.trim().is_empty() {
         return Err(JsValue::from_str("本文が空です。"));
     }
-    generating(document, state, true)?;
-    let prompt = crate::windows::main_app::generation::old_prompts::summary_episode(&text, None, None);
-    let result = generate(state, "background", super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(), prompt).await;
-    let (project_id, episode_id) = {
-        let current = state.borrow();
-        (
-            current
-                .current_project
-                .as_ref()
-                .map(|project| project.id.clone()),
-            current.current_episode_id.clone(),
-        )
-    };
     let (Some(project_id), Some(episode_id)) = (project_id, episode_id) else {
-        return Ok(());
+        return Err(JsValue::from_str("エピソードを選択してください。"));
     };
-    super::events::set_document_content(
+    generating(document, state, true)?;
+    let prompt = crate::windows::main_app::generation::old_prompts::summary_episode(
+        &text,
+        episode_title.as_deref(),
+        Some(&episode_id),
+    );
+    let result = generate(
+        state,
+        "background",
+        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+        prompt,
+    )
+    .await;
+    generating(document, state, false)?;
+    let generated = result?;
+    let (summary, one_liner) =
+        crate::windows::main_app::generation::old_prompts::parse_summary_output(&generated.text);
+    if summary.is_none() && one_liner.is_none() {
+        return Err(JsValue::from_str(
+            "要約応答を解析できませんでした。保存内容は変更していません。",
+        ));
+    }
+    super::events::set_summary_parts(
         &mut state.borrow_mut(),
-        "episode-summary",
         &episode_id,
-        result?.text.trim(),
+        summary.as_deref(),
+        one_liner.as_deref(),
     );
     let value = state.borrow().summaries.clone();
     projects::write_document(&project_id, "summaries", &value).await?;
     super::render::all(document, &state.borrow())?;
-    sync_children(&state.borrow());
+    sync_summary(&state.borrow());
     Ok(())
 }
 
@@ -256,7 +333,7 @@ pub fn cancel(document: &Document, state: &Rc<RefCell<State>>) {
     }
     state.borrow_mut().is_generating = false;
     let _ = super::render::all(document, &state.borrow());
-    sync_children(&state.borrow());
+    sync_chat(&state.borrow());
 }
 
 async fn generate(
@@ -273,7 +350,8 @@ async fn generate(
         .then(|| current.selected_model.clone())
         .flatten();
     drop(current);
-    let result = ai::generate_with(role, system, prompt, provider.as_deref(), model.as_deref()).await?;
+    let result =
+        ai::generate_with(role, system, prompt, provider.as_deref(), model.as_deref()).await?;
     // キャッシュ使用量を記録（非同期・ベストエフォート）
     let _ = cache_observability::record_provider_cache_usage(
         role,
@@ -297,17 +375,27 @@ async fn push_assistant(
         created_at: None,
         transport: None,
     });
+    save_chat(state).await?;
     super::render::all(document, &state.borrow())?;
-    sync_children(&state.borrow());
+    sync_chat(&state.borrow());
     Ok(())
 }
-async fn save_chat(state: &State) -> Result<(), JsValue> {
-    let Some(project) = &state.current_project else {
+async fn save_chat(state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let Some((project_id, chat)) = ({
+        let current = state.borrow();
+        current
+            .current_project
+            .as_ref()
+            .map(|project| (project.id.clone(), current.chat.clone()))
+    }) else {
         return Ok(());
     };
-    let value =
-        serde_json::to_value(&state.chat).map_err(|error| JsValue::from_str(&error.to_string()))?;
-    projects::write_document(&project.id, "chat", &value).await
+    let updated_at = js_sys::Date::new_0()
+        .to_iso_string()
+        .as_string()
+        .unwrap_or_default();
+    let value = super::chat_document_value(&chat, &updated_at);
+    projects::write_document(&project_id, "chat", &value).await
 }
 async fn save_editor(state: &State) -> Result<(), JsValue> {
     let (Some(project), Some(id)) = (&state.current_project, &state.current_episode_id) else {
@@ -327,7 +415,7 @@ fn editor(document: &Document) -> Result<HtmlTextAreaElement, JsValue> {
 fn generating(document: &Document, state: &Rc<RefCell<State>>, value: bool) -> Result<(), JsValue> {
     state.borrow_mut().is_generating = value;
     super::render::all(document, &state.borrow())?;
-    sync_children(&state.borrow());
+    sync_chat(&state.borrow());
     Ok(())
 }
 

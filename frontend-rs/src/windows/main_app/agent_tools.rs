@@ -1,9 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use wasm_bindgen::JsValue;
+use web_sys::Document;
 
-use super::State;
+use super::{sync_chat, ChatMessage, ChatTransportMetadata, State};
 use crate::{
     data::projects,
     runtime::{ai, invoke},
@@ -19,14 +21,32 @@ mod project;
 mod writing;
 
 pub async fn run(
+    document: &Document,
     state: &Rc<RefCell<State>>,
     mut system: String,
-    prompt: String,
+    mut messages: Vec<Value>,
     direct_creative_edit: bool,
 ) -> Result<ai::GeneratedText, JsValue> {
     let definitions = definitions();
-    let tool_names: Vec<&str> = definitions.iter().filter_map(|d| d["name"].as_str()).collect();
-    system.push_str(&build_tool_guidance(&tool_names, direct_creative_edit));
+    let tool_names = definitions
+        .iter()
+        .filter_map(|d| d["name"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    let tool_name_refs = tool_names.iter().map(String::as_str).collect::<Vec<_>>();
+    system.push_str(&build_tool_guidance(&tool_name_refs, direct_creative_edit));
+    let settings_context = {
+        let current = state.borrow();
+        super::prompt_context::build_settings_context(&current, &current.ai_settings)
+    };
+    if !settings_context.trim().is_empty() {
+        system.push_str("\n\nSTORY REFERENCE DATA — this project's established facts (worldbuilding, characters, relationships, memos, recent synopses):\n1. BEFORE writing fiction or answering anything about this story → look up every character, place, and term of the current scene in the data below.\n2. Facts recorded there are true. Use them exactly as recorded. NEVER contradict or restyle them.\n3. IF a fact is not recorded there → it is unknown. NEVER state it as established canon.\n4. The data does NOT expand what the viewpoint character knows.\n5. Derive plausible knowledge and experience from recorded social attributes.\n6. 設定資料に記録された事実は必ず記録通りに使うこと。\n\n<reference_data name=\"story_reference\">\n");
+        system.push_str(
+            &settings_context
+                .replace("<reference_data", "＜reference_data")
+                .replace("</reference_data", "＜/reference_data"),
+        );
+        system.push_str("\n</reference_data>");
+    }
     let (project_id, current_episode, provider, model) = {
         let current = state.borrow();
         (
@@ -40,35 +60,111 @@ pub async fn run(
         )
     };
     let Some(project_id) = project_id else {
-        return ai::generate_with(
+        let prompt = messages
+            .iter()
+            .filter_map(|message| message.get("content")?.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let generated = ai::generate_with(
             "chat",
             system,
             prompt,
             provider.as_deref(),
             model.as_deref(),
         )
-        .await;
+        .await?;
+        state.borrow_mut().chat.push(ChatMessage {
+            role: "assistant".into(),
+            content: generated.text.clone(),
+            thinking: None,
+            exclude_from_context: false,
+            id: None,
+            created_at: None,
+            transport: Some(chat_transport(&generated.provider, &generated.model)),
+        });
+        render_progress(document, state);
+        return Ok(generated);
     };
-    let mut messages = vec![json!({"role":"user","content":prompt})];
     // 直前のラウンドで同じツール+同じ引数での呼び出しを検出し、ループ暴走を防ぐ
     let mut recent_calls: Vec<(String, String)> = Vec::new();
     for _ in 0..MAX_TOOL_ROUNDS {
-        let turn = ai::agent_turn(
+        let progress_index = {
+            let mut current = state.borrow_mut();
+            current.chat.push(ChatMessage {
+                role: "assistant".into(),
+                content: String::new(),
+                thinking: None,
+                exclude_from_context: false,
+                id: None,
+                created_at: None,
+                transport: None,
+            });
+            current.chat.len() - 1
+        };
+        render_progress(document, state);
+        let progress_document = document.clone();
+        let progress_state = Rc::clone(state);
+        let turn_result = ai::agent_turn_observed(
             "chat",
             system.clone(),
             messages.clone(),
             definitions.clone(),
             provider.as_deref(),
             model.as_deref(),
+            move |update| {
+                if let Some(message) = progress_state.borrow_mut().chat.get_mut(progress_index) {
+                    match update {
+                        ai::AgentStreamUpdate::TextDelta(delta) => message.content.push_str(&delta),
+                        ai::AgentStreamUpdate::ReasoningDelta(delta) => message
+                            .thinking
+                            .get_or_insert_with(String::new)
+                            .push_str(&delta),
+                    }
+                }
+                render_progress(&progress_document, &progress_state);
+            },
         )
-        .await?;
+        .await;
+        let turn = match turn_result {
+            Ok(turn) => turn,
+            Err(error) => {
+                remove_empty_progress(state, progress_index);
+                render_progress(document, state);
+                return Err(error);
+            }
+        };
         if turn.tool_calls.is_empty() {
+            if verify_tool_call_need(&messages, &turn.text, &tool_names).await {
+                if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
+                    message.transport = Some(chat_transport(&turn.provider, &turn.model));
+                }
+                messages.push(json!({"role":"assistant","content":turn.text}));
+                messages.push(json!({"role":"user","content":"まだ必要なツールを呼び出していないようです。先にツールを呼び出してから、必要であれば説明を続けてください。"}));
+                continue;
+            }
+            if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
+                if message.content.trim().is_empty() {
+                    message.content = if direct_creative_edit {
+                        "本文を編集しました。".into()
+                    } else {
+                        "（応答がありませんでした）".into()
+                    };
+                }
+                message.transport = Some(chat_transport(&turn.provider, &turn.model));
+            }
+            render_progress(document, state);
             return Ok(ai::GeneratedText {
                 text: turn.text,
                 provider: turn.provider,
                 model: turn.model,
+                finish_reason: turn.finish_reason,
             });
         }
+        if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
+            message.transport = Some(chat_transport(&turn.provider, &turn.model));
+        }
+        remove_empty_progress(state, progress_index);
+        render_progress(document, state);
         // 重複ツール呼び出し検出
         for call in &turn.tool_calls {
             let input_str = serde_json::to_string(&call.input).unwrap_or_default();
@@ -84,11 +180,12 @@ pub async fn run(
                 )));
             }
         }
-        recent_calls.extend(
-            turn.tool_calls
-                .iter()
-                .map(|c| (c.name.clone(), serde_json::to_string(&c.input).unwrap_or_default())),
-        );
+        recent_calls.extend(turn.tool_calls.iter().map(|c| {
+            (
+                c.name.clone(),
+                serde_json::to_string(&c.input).unwrap_or_default(),
+            )
+        }));
         if recent_calls.len() > 8 {
             let drop_count = recent_calls.len() - 8;
             recent_calls.drain(0..drop_count);
@@ -109,15 +206,56 @@ pub async fn run(
         messages.push(json!({"role":"assistant","content":assistant_parts}));
         let mut results = Vec::new();
         for call in turn.tool_calls {
-            let output = execute(
+            upsert_tool_card(
+                state,
+                &call.id,
+                &call.name,
+                "実行中",
+                Some(&call.input),
+                None,
+                &turn.provider,
+                &turn.model,
+            );
+            render_progress(document, state);
+            let mut report_tool_progress = |stage: &str| {
+                let status = format!("実行中（{stage}）");
+                upsert_tool_card(
+                    state,
+                    &call.id,
+                    &call.name,
+                    &status,
+                    Some(&call.input),
+                    None,
+                    &turn.provider,
+                    &turn.model,
+                );
+                render_progress(document, state);
+            };
+            let execution = execute(
                 state,
                 &project_id,
                 current_episode.as_deref(),
                 &call.name,
-                call.input,
+                call.input.clone(),
+                &mut report_tool_progress,
             )
-            .await
-            .unwrap_or_else(|error| json!({"error":js_error(&error)}));
+            .await;
+            let (status, output) = match execution {
+                Ok(output) if output.get("error").is_none() => ("成功", output),
+                Ok(output) => ("失敗", output),
+                Err(error) => ("失敗", json!({"error":js_error(&error)})),
+            };
+            upsert_tool_card(
+                state,
+                &call.id,
+                &call.name,
+                status,
+                Some(&call.input),
+                Some(&output),
+                &turn.provider,
+                &turn.model,
+            );
+            render_progress(document, state);
             results.push(json!({
                 "type":"tool-result",
                 "toolCallId":call.id,
@@ -131,15 +269,145 @@ pub async fn run(
         "AI tool loop exceeded the maximum number of rounds",
     ))
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolCallNeed {
+    needs_tools: bool,
+}
+
+async fn verify_tool_call_need(messages: &[Value], response: &str, tool_names: &[String]) -> bool {
+    let user_request = messages
+        .iter()
+        .rev()
+        .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let prompt =
+        super::generation::old_prompts::tool_call_need(user_request, Some(response), tool_names);
+    crate::ai::structured_output::generate_structured_object::<ToolCallNeed>(
+        "judgment",
+        Some("You audit assistant responses. Decide one thing: did the request require an actual tool call that the assistant failed to perform? Return ONLY a JSON object. IF uncertain → set needsTools=false."),
+        &prompt,
+        json!({"type":"object","properties":{"needsTools":{"type":"boolean"},"missingTools":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"}},"required":["needsTools","reason"],"additionalProperties":false}),
+        None, None,
+    ).await.map(|value| value.needs_tools).unwrap_or(false)
+}
+
+fn render_progress(document: &Document, state: &Rc<RefCell<State>>) {
+    let current = state.borrow();
+    let _ = super::render::chat(document, &current);
+    sync_chat(&current);
+}
+
+fn remove_empty_progress(state: &Rc<RefCell<State>>, index: usize) {
+    let mut current = state.borrow_mut();
+    if current.chat.get(index).is_some_and(|message| {
+        message.content.trim().is_empty()
+            && message
+                .thinking
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+    }) {
+        current.chat.remove(index);
+    }
+}
+
+fn chat_transport(provider: &str, model: &str) -> ChatTransportMetadata {
+    ChatTransportMetadata {
+        provider: Some(provider.into()),
+        model: Some(model.into()),
+        base_url: None,
+        protocol: None,
+        response_id: None,
+        response_model_id: None,
+        finish_reason: None,
+        max_tokens: None,
+        max_context_tokens: None,
+        created_at: Some(now()),
+        kind: Some("chat".into()),
+    }
+}
+
+fn upsert_tool_card(
+    state: &Rc<RefCell<State>>,
+    call_id: &str,
+    name: &str,
+    status: &str,
+    input: Option<&Value>,
+    output: Option<&Value>,
+    provider: &str,
+    model: &str,
+) {
+    let content = format_tool_card(call_id, name, status, input, output);
+    let mut current = state.borrow_mut();
+    if let Some(message) = current
+        .chat
+        .iter_mut()
+        .find(|message| message.id.as_deref() == Some(call_id))
+    {
+        message.content = content;
+        return;
+    }
+    current.chat.push(ChatMessage {
+        role: "assistant".into(),
+        content,
+        thinking: None,
+        exclude_from_context: true,
+        id: Some(call_id.into()),
+        created_at: Some(now()),
+        transport: Some(chat_transport(provider, model)),
+    });
+}
+
+fn format_tool_card(
+    call_id: &str,
+    name: &str,
+    status: &str,
+    input: Option<&Value>,
+    output: Option<&Value>,
+) -> String {
+    let input = input
+        .map(|value| display_json(value, 6_000))
+        .unwrap_or_else(|| "（モデルがツール引数を生成中です）".into());
+    let result = output
+        .map(|value| display_json(value, 12_000))
+        .unwrap_or_else(|| "（実行中）".into());
+    format!(
+        "【ツール{status}: {name}】\n状態: {status}\nID: {call_id}\n入力: {input}\n結果:\n{result}"
+    )
+}
+
+fn display_json(value: &Value, limit: usize) -> String {
+    let text = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+    if text.chars().count() <= limit {
+        return text;
+    }
+    let mut truncated = text.chars().take(limit).collect::<String>();
+    truncated.push_str("\n…（省略）");
+    truncated
+}
+
+fn now() -> String {
+    js_sys::Date::new_0()
+        .to_iso_string()
+        .as_string()
+        .unwrap_or_default()
+}
 async fn execute(
     state: &Rc<RefCell<State>>,
     project_id: &str,
     current_episode: Option<&str>,
     name: &str,
     input: Value,
+    on_progress: &mut dyn FnMut(&str),
 ) -> Result<Value, JsValue> {
     if writing::handles(name) {
-        return writing::execute(state, project_id, current_episode, name, input).await;
+        return writing::execute(state, project_id, current_episode, name, input, on_progress)
+            .await;
     }
     if genre::handles(name) {
         return genre::execute(name, input).await;
@@ -444,6 +712,105 @@ CACHED PASSAGE PROPOSALS:
 "#);
     }
 
+    if available.contains("rewritePassage") {
+        s.push_str(r#"
+
+CREATIVE REWRITE (rewritePassage):
+- IF the user asks for better phrasing, a rewrite, polish, or a stylistic variant of manuscript prose → you MUST call rewritePassage instead of rewriting the prose yourself in chat. It runs the dedicated writing model with the full Japanese-fiction ruleset.
+- targetText MUST be a verbatim copy of the passage. Verify it with findEpisodeLines or getEpisodeLines when unsure. NEVER paraphrase it.
+- Put the user's stylistic direction into instruction, in Japanese. Omit instruction when no specific direction was given.
+- Present rewrittenText as a proposal. The tool does NOT modify the episode. Apply it with editEpisode only when explicitly asked.
+- IF the tool fails or returns empty → say so honestly, then rewrite inline as a fallback.
+"#);
+    }
+    if available.contains("lineEditPassage") {
+        s.push_str(r#"
+
+LINE EDITING (lineEditPassage):
+- IF the user asks for professional editing WITH concrete revision proposals — ペン入れ, 推敲, 校閲, 添削 — you MUST call lineEditPassage.
+- passageText MUST be a verbatim copy of ONE contiguous manuscript passage. For long text, propose working scene by scene (roughly 1000-3000 characters) and confirm that plan first.
+- Put the user's editorial focus into instruction, in Japanese.
+- Present the review's key findings, then each proposal numbered with the exact target and proposed replacement. The tool does NOT modify the episode.
+- For critique-only requests where revision proposals are unnecessary, answer directly.
+"#);
+    }
+    if available.contains("listEpisodes")
+        || available.contains("retrieveEpisode")
+        || available.contains("searchEpisodes")
+    {
+        s.push_str(r#"
+
+PAST EPISODE RETRIEVAL:
+- IF the target episode is unclear → find candidates with listEpisodes or searchEpisodes first.
+- Use retrieveEpisode with summary when a synopsis is enough. Request fullText only to verify exact wording, a scene, or an action.
+- Run rebuildSearchIndex only when search results are clearly missing or stale. Then search again.
+"#);
+    }
+    if available.contains("getEditLog") {
+        s.push_str(r#"
+
+EDIT LOG:
+- IF you need to know why a past change was made — including before continuing, rewriting, or judging previously edited text — call getEditLog. NEVER guess past intent.
+- IF the user asks about editing history or intent → call getEditLog before answering.
+- Call it once per need; do not re-fetch the same episode repeatedly in one turn.
+"#);
+    }
+    if available.contains("saveEpisodeSummaryAndOneLiner") {
+        s.push_str(
+            r#"
+
+SUMMARY SAVING:
+- Apply only when the user asks to create, save, update, or regenerate an episode summary.
+- Derive both summaries only from events explicitly present in the episode text.
+- Call saveEpisodeSummaryAndOneLiner exactly once, saving content and oneLiner together.
+- Do not print the summaries in chat before the tool call.
+"#,
+        );
+    }
+    if available.contains("createCharacter") || available.contains("updateCharacter") {
+        s.push_str(r#"
+
+CHARACTER SETTINGS:
+1. Before createCharacter, ALWAYS call listCharacters. Compare names, readings, aliases, surnames, ranks/titles, forms of address, spacing, width, and spelling variants.
+2. IF the same person exists → NEVER create a duplicate. Update the existing record when requested.
+3. IF identity is uncertain → do NOT create; report the candidate in Japanese.
+4. Call createCharacter at most once per person in one response.
+5. Before updateCharacter, confirm characterId and current values. Update only requested fields.
+6. Put よみがな into reading; nicknames, title forms, and alternate spellings into alias.
+7. customFields MUST be an array of {label, value}.
+"#);
+    }
+    if available.contains("createWorldEntry") || available.contains("updateWorldEntry") {
+        s.push_str(
+            r#"
+
+WORLDBUILDING SETTINGS:
+- Before updating, call listWorldEntries to confirm entryId and current values.
+- Update only requested fields. Do not fill missing information by inference.
+- customFields MUST be an array of {label, value}.
+"#,
+        );
+    }
+    if available.contains("createRelationship") || available.contains("updateRelationship") {
+        s.push_str(r#"
+
+RELATIONSHIPS:
+- Call listCharacters and listRelationships before creating or updating a relationship.
+- Use only returned character IDs. Do not infer identity from similar names without evidence.
+- Avoid duplicate relationships. Update an existing relationship when it represents the same pair and scope.
+- Keep direction as a-to-b, b-to-a, or mutual. Write description in Japanese.
+"#);
+    }
+    if available.contains("createProjectMemo") || available.contains("updateProjectMemo") {
+        s.push_str(r#"
+
+MEMOS:
+- Read existing memos before creating or updating one. Do not create duplicates for the same subject.
+- Preserve unrelated content. Write stored title and prose in Japanese.
+- Do not promote guesses or assistant suggestions into project canon without an explicit user request.
+"#);
+    }
+
     s
 }
 const BASE_TOOL_GUIDANCE: &str = r#"
@@ -504,5 +871,20 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), count);
+    }
+
+    #[test]
+    fn tool_progress_card_contains_renderer_contract() {
+        let content = format_tool_card(
+            "call-1",
+            "searchEpisodes",
+            "実行中",
+            Some(&json!({"query":"伏線"})),
+            None,
+        );
+        assert!(content.starts_with("【ツール実行中: searchEpisodes】"));
+        assert!(content.contains("状態: 実行中"));
+        assert!(content.contains("ID: call-1"));
+        assert!(content.contains("結果:\n（実行中）"));
     }
 }

@@ -1,4 +1,4 @@
-mod render;
+pub(crate) mod render;
 mod types;
 
 use std::{
@@ -42,7 +42,11 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
                 let Ok(payload) = serde_wasm_bindgen::from_value::<ChatSyncPayload>(payload) else {
                     return;
                 };
-                render::render_messages(&controls.messages, &payload.messages);
+                render::render_messages(
+                    &controls.messages,
+                    &payload.messages,
+                    payload.is_generating,
+                );
                 set_generating(&controls, payload.is_generating);
                 set_direct_writing(&controls.direct_writing, payload.direct_writing_enabled);
             }) as Box<dyn FnMut(JsValue)>),
@@ -303,7 +307,8 @@ fn resize_input(input: &HtmlTextAreaElement) {
         .ok()
         .and_then(|v| v.trim_end_matches("px").parse().ok())
         .unwrap_or(0.0);
-    let max_height = line_height * max_rows as f64 + padding_top + padding_bottom + border_top + border_bottom;
+    let max_height =
+        line_height * max_rows as f64 + padding_top + padding_bottom + border_top + border_bottom;
     let style = input.style();
     let _ = style.set_property("height", "auto");
     let scroll_height = input.scroll_height() as f64;
@@ -311,7 +316,11 @@ fn resize_input(input: &HtmlTextAreaElement) {
     let _ = style.set_property("height", &format!("{target}px"));
     let _ = style.set_property(
         "overflow-y",
-        if scroll_height > max_height { "auto" } else { "hidden" },
+        if scroll_height > max_height {
+            "auto"
+        } else {
+            "hidden"
+        },
     );
 }
 

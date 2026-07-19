@@ -1,6 +1,9 @@
 //! 旧TS `prompts.ts` から完全移植した完成・洗礼済みプロンプト群。
 //! 全TSヘルパー関数をRustに移植し、テンプレート式を正しく展開する。
 
+use regex::Regex;
+use std::sync::LazyLock;
+
 // ============================================================
 //  汎用ヘルパー
 // ============================================================
@@ -9,8 +12,15 @@ fn format_data_block(label: &str, content: &str) -> String {
     if content.is_empty() {
         return String::new();
     }
-    let normalized = label.replace(['\r', '\n', '<', '>'], " ").trim().to_string();
-    let label = if normalized.is_empty() { "DATA" } else { &normalized };
+    let normalized = label
+        .replace(['\r', '\n', '<', '>'], " ")
+        .trim()
+        .to_string();
+    let label = if normalized.is_empty() {
+        "DATA"
+    } else {
+        &normalized
+    };
     let escaped = content
         .replace("<reference_data", "＜reference_data")
         .replace("</reference_data", "＜/reference_data")
@@ -25,12 +35,14 @@ fn format_data_block(label: &str, content: &str) -> String {
     s
 }
 
-fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> String {
-    if text.len() <= max_chars {
+pub(crate) fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> String {
+    let text_chars = text.chars().count();
+    if text_chars <= max_chars {
         return text.to_string();
     }
     let marker = "\n\n【中略】\n\n";
-    let available = max_chars.saturating_sub(marker.len());
+    let marker_chars = marker.chars().count();
+    let available = max_chars.saturating_sub(marker_chars);
     if available == 0 {
         return text.chars().take(max_chars).collect();
     }
@@ -43,7 +55,14 @@ fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> String {
             s
         }
         "tail" => {
-            let tail: String = text.chars().rev().take(available).collect::<String>().chars().rev().collect();
+            let tail: String = text
+                .chars()
+                .rev()
+                .take(available)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
             let mut s = String::with_capacity(marker.len() + tail.len());
             s.push_str(marker);
             s.push_str(&tail);
@@ -53,7 +72,14 @@ fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> String {
             let head_chars = (available + 1) / 2;
             let tail_chars = available / 2;
             let head: String = text.chars().take(head_chars).collect();
-            let tail: String = text.chars().rev().take(tail_chars).collect::<String>().chars().rev().collect();
+            let tail: String = text
+                .chars()
+                .rev()
+                .take(tail_chars)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
             let mut s = String::with_capacity(head.len() + marker.len() + tail.len());
             s.push_str(&head);
             s.push_str(marker);
@@ -63,13 +89,38 @@ fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> String {
     }
 }
 
+pub(crate) fn sample_prompt_text(text: &str, max_chars: usize, segment_count: usize) -> String {
+    let chars = text.chars().collect::<Vec<_>>();
+    if chars.len() <= max_chars {
+        return text.to_owned();
+    }
+    let marker = "\n\n【中略】\n\n";
+    let marker_chars = marker.chars().count();
+    let segments = segment_count.clamp(2, 6);
+    let available = max_chars.saturating_sub(marker_chars * (segments - 1));
+    if available <= segments {
+        return chars.into_iter().take(max_chars).collect();
+    }
+    let chunk_size = available / segments;
+    let max_start = chars.len().saturating_sub(chunk_size);
+    let mut chunks = Vec::with_capacity(segments);
+    for index in 0..segments {
+        let ratio = index as f64 / (segments - 1) as f64;
+        let start = (max_start as f64 * ratio).round() as usize;
+        chunks.push(chars[start..start + chunk_size].iter().collect::<String>());
+    }
+    chunks.join(marker).chars().take(max_chars).collect()
+}
+
 // ============================================================
 //  セクションビルダー
 // ============================================================
 
 fn build_related_scenes_section(related_scenes: Option<&str>) -> String {
     let trimmed = related_scenes.unwrap_or("").trim();
-    if trimmed.is_empty() { return String::new(); }
+    if trimmed.is_empty() {
+        return String::new();
+    }
     let mut s = String::new();
     s.push_str("【関連する過去の場面 — 記録であり、再利用する文章ではない】\n");
     s.push_str("下の <reference_data name=\"related_past_scenes\"> は、直前本文に登場する人物が過去の話でどう描かれたかの抜粋である。\n");
@@ -84,7 +135,9 @@ fn build_related_scenes_section(related_scenes: Option<&str>) -> String {
 
 fn build_story_reference_section(settings_context: Option<&str>) -> String {
     let trimmed = settings_context.unwrap_or("").trim();
-    if trimmed.is_empty() { return String::new(); }
+    if trimmed.is_empty() {
+        return String::new();
+    }
     let mut s = String::new();
     s.push_str("【設定資料 — この作品の確定事実】\n");
     s.push_str("下の <reference_data name=\"story_reference\"> は、この作品で確定している設定(世界観、キャラクター、人間関係、作品メモ、直近のあらすじ)である。\n");
@@ -102,13 +155,17 @@ fn build_story_reference_section(settings_context: Option<&str>) -> String {
 
 fn build_author_instruction_section(instruction: Option<&str>, usage: &str) -> String {
     let trimmed = instruction.unwrap_or("").trim();
-    if trimmed.is_empty() { return String::new(); }
+    if trimmed.is_empty() {
+        return String::new();
+    }
     let safe = limit_prompt_text(trimmed, 1000, "head")
         .replace("<reference_data", "＜reference_data")
         .replace("</reference_data", "＜/reference_data");
     let mut s = String::new();
     s.push_str("【作者からの指示 — 最優先】\n");
-    s.push_str("作者本人からこの作業への指示がある。これは参考データではなく、従うべき指示である。");
+    s.push_str(
+        "作者本人からこの作業への指示がある。これは参考データではなく、従うべき指示である。",
+    );
     s.push_str(usage);
     s.push_str("ただし、正史・【設定資料】との整合、周囲本文への接続、語りの型の維持は、この指示よりさらに優先する。\n\n指示: ");
     s.push_str(&safe);
@@ -217,6 +274,7 @@ pub fn plan(
     author_instruction: Option<&str>,
 ) -> String {
     let mut s = String::new();
+
     s.push_str("【LITRA工程】continuation-plan/v2\n");
     s.push_str("【依頼】\n");
     s.push_str("提示された日本語小説の続きを書く前の構想を練る。本文はまだ書かない。\n\n");
@@ -258,7 +316,9 @@ pub fn plan(
     s.push_str("- 小説本文を書かない。\n");
     s.push_str("- 新しい確定事実(人物の過去、経歴、関係、名前、正体)を発明しない。構想は「これから起こる行動・会話・知覚」の範囲で立てる。\n");
     s.push_str("- 【設定資料】および直前本文と矛盾する展開を選ばない。\n");
-    s.push_str("- 文脈が明らかに終幕へ向かっている場合を除き、物語を唐突に完結させる案を選ばない。\n\n");
+    s.push_str(
+        "- 文脈が明らかに終幕へ向かっている場合を除き、物語を唐突に完結させる案を選ばない。\n\n",
+    );
 
     let related_section = build_related_scenes_section(related_scenes);
     if !related_section.is_empty() {
@@ -270,7 +330,10 @@ pub fn plan(
         s.push_str(&ref_section);
         s.push_str("\n\n");
     }
-    s.push_str(&format_data_block("text_immediately_before_continuation", context));
+    s.push_str(&format_data_block(
+        "text_immediately_before_continuation",
+        context,
+    ));
     s
 }
 
@@ -278,14 +341,23 @@ pub fn draft(
     context: &str,
     instruction: &str,
     plan_text: &str,
-    _scene: &str,
-    _voices: &str,
+    scene: &str,
+    voices: &str,
+    scaffold: Option<&str>,
     settings_context: Option<&str>,
     related_scenes: Option<&str>,
     author_instruction: Option<&str>,
     style_fingerprint: Option<&str>,
+    beat_directive: Option<(&str, usize, usize)>,
 ) -> String {
     let mut s = String::new();
+
+    s.push_str("【LITRA工程】continuation-draft/v2\n【依頼】\n提示された日本語小説の末尾から、途切れなく続きを執筆する。\n\n");
+    s.push_str("【手順 — この順番で必ず実行する】\n手順1(出力しない): 直前本文から、語りの型(型1 一人称/型2 三人称一元/型3 神の視点/型4 客観)、視点人物とその呼び方、場面の場所・時刻・同席者・感情・所持品・身体状態、時制、文体、語彙と口調、直前の文が持つ勢いを確定する。【設定資料】がある場合は登場人物・場所・用語・関係・社会的属性を照合し、人物が持ち得る知識・経験の範囲も確定する。\n手順2: 判定した型の規則に従い、末尾の文へ自然につながる続きを書く。型1・型2では視点人物本人の頭の中の言葉として、地の文の各文を知覚(A)か思考(B)に基づいて書く。\n手順3: 最後の【最終指示】に、その言葉のまま従って出力する。\n\n");
+    s.push_str(fiction_direction(scaffold));
+    s.push_str("\n\n");
+    s.push_str(metacognition_section("create"));
+    s.push_str("\n\n【必須条件 — 全項目に違反しないこと】\n1. 新しく加える本文は日本語で書き、直前の視点、時制、文体、人物の声、一人称を維持する。\n2. 直前の本文を要約、言い換え、反復しない。\n3. 具体的な台詞、動作、知覚、内面によって場面を前進させる。\n4. 【設定資料】の表記、呼び方、関係を記録通りに使う。\n5. 既知の正史と矛盾する事実や、未確認の過去・設定を確定事項として加えない。\n6. 文脈が終幕へ向かう場合を除き、場面や物語を唐突に完結させない。\n\n【出力形式 — 厳守】\n- 出力の1文字目から小説本文を書く。\n- 前置き、見出し、注記、解説、区切り、本文全体を囲む引用符やコードフェンスを一切付けない。\n- 出力するのは新しく追加する本文だけ。\n\n");
 
     let author_section = build_author_instruction_section(
         author_instruction,
@@ -304,10 +376,30 @@ pub fn draft(
         s.push_str("\n\n");
     }
 
+    let scene_section = build_scene_state_section(scene);
+    if !scene_section.is_empty() {
+        s.push_str(&scene_section);
+        s.push_str("\n\n");
+    }
+
+    let voice_section = build_character_voice_section(voices);
+    if !voice_section.is_empty() {
+        s.push_str(&voice_section);
+        s.push_str("\n\n");
+    }
+
+    let beat_section = build_beat_directive_section(beat_directive);
+    if !beat_section.is_empty() {
+        s.push_str(&beat_section);
+        s.push_str("\n\n");
+    }
+
     if !plan_text.is_empty() {
         s.push_str("【構想メモ — 執筆前にあなた自身が作成した方針】\n");
         s.push_str("これは前段のあなたが直前本文と設定資料から立てた構想である。命令ではなく方針の参考として使う。\n");
-        s.push_str("1. 展開の方向、ビートの順序、感覚描写の選択は、原則としてこの構想メモに沿って書く。\n");
+        s.push_str(
+            "1. 展開の方向、ビートの順序、感覚描写の選択は、原則としてこの構想メモに沿って書く。\n",
+        );
         s.push_str("2. ただし優先順位は「直前本文との自然な接続・正史 > 構想メモ」である。書き進めて矛盾や不自然さが生じる場合は、構想メモより本文の流れを優先してよい。\n");
         s.push_str("3. 構想メモの文言をそのまま本文にコピーしない。メモは設計図であり、本文はゼロから小説の文章として書く。\n\n");
         s.push_str(&limit_prompt_text(plan_text, 2000, "tail"));
@@ -323,11 +415,82 @@ pub fn draft(
         s.push_str("\n\n");
     }
 
-    s.push_str(&format_data_block("text_immediately_before_continuation", context));
+    s.push_str(&format_data_block(
+        "text_immediately_before_continuation",
+        context,
+    ));
+    s.push_str("\n\n");
+    s.push_str(output_self_check(scaffold, "create"));
     s
 }
 
-pub fn review(context: &str, draft: &str) -> String {
+const SCENE_STATE_SECTION: &str = include_str!("old_prompts/scene_state_section.txt");
+const CHARACTER_VOICE_SECTION: &str = include_str!("old_prompts/character_voice_section.txt");
+const BEAT_DIRECTIVE_SECTION: &str = include_str!("old_prompts/beat_directive_section.txt");
+
+fn build_scene_state_section(scene: &str) -> String {
+    let scene = scene.trim();
+    if scene.is_empty() {
+        return String::new();
+    }
+    SCENE_STATE_SECTION.replace("{{scene_state}}", &format_data_block("scene_state", scene))
+}
+
+fn build_character_voice_section(voices: &str) -> String {
+    let voices = voices.trim();
+    if voices.is_empty() {
+        return String::new();
+    }
+    CHARACTER_VOICE_SECTION.replace(
+        "{{character_voice_cards}}",
+        &format_data_block("character_voice_cards", voices),
+    )
+}
+
+fn build_beat_directive_section(directive: Option<(&str, usize, usize)>) -> String {
+    let Some((beat, index, total)) = directive else {
+        return String::new();
+    };
+    let beat = beat.trim();
+    if beat.is_empty() {
+        return String::new();
+    }
+    let ending_rule = if index >= total {
+        "これが最後のビートである。構想メモの「場面の目的」が達成されるところまで書いて締める。"
+    } else {
+        "このビートが完了し、次のビートへ自然に繋がる位置で筆を止める。場面を無理に完結させない。"
+    };
+    BEAT_DIRECTIVE_SECTION
+        .replace("{{index}}", &index.to_string())
+        .replace("{{total}}", &total.to_string())
+        .replace("{{beat}}", beat)
+        .replace("{{ending_rule}}", ending_rule)
+}
+
+pub(crate) fn fiction_extra_sections(scene: &str, voices: &str, style: &str) -> String {
+    let sections = [
+        build_scene_state_section(scene),
+        build_character_voice_section(voices),
+        style.trim().to_owned(),
+    ]
+    .into_iter()
+    .filter(|section| !section.trim().is_empty())
+    .collect::<Vec<_>>();
+    if sections.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n\n", sections.join("\n\n"))
+    }
+}
+
+pub fn review(
+    context: &str,
+    draft: &str,
+    settings_context: Option<&str>,
+    plan: Option<&str>,
+    related_scenes: Option<&str>,
+    extra_sections: &str,
+) -> String {
     let mut s = String::new();
     s.push_str("【LITRA工程】continuation-review/v2\n");
     s.push_str("【依頼】\n");
@@ -350,9 +513,30 @@ pub fn review(context: &str, draft: &str) -> String {
     s.push_str("- 軽微な修正で採用可\n");
     s.push_str("- 大幅な修正が必要\n");
     s.push_str("- 不採用(修正では解決不能)\n\n");
-    s.push_str("【修正必須】(各指摘に番号を振る。指摘する文を引用してから問題を指摘し、修正方針を示す)\n");
+    s.push_str(
+        "【修正必須】(各指摘に番号を振る。指摘する文を引用してから問題を指摘し、修正方針を示す)\n",
+    );
     s.push_str("【改善提案】(同上)\n\n");
-    s.push_str(&format_data_block("text_immediately_before_continuation", context));
+    if let Some(plan) = plan.map(str::trim).filter(|plan| !plan.is_empty()) {
+        s.push_str("【構想メモ】\n");
+        s.push_str(&limit_prompt_text(plan, 2000, "tail"));
+        s.push_str("\n\n");
+    }
+    let related = build_related_scenes_section(related_scenes);
+    if !related.is_empty() {
+        s.push_str(&related);
+        s.push_str("\n\n");
+    }
+    s.push_str(extra_sections);
+    let reference = build_story_reference_section(settings_context);
+    if !reference.is_empty() {
+        s.push_str(&reference);
+        s.push_str("\n\n");
+    }
+    s.push_str(&format_data_block(
+        "text_immediately_before_continuation",
+        context,
+    ));
     s.push_str(&format_data_block("draft_to_review", draft));
     s
 }
@@ -381,7 +565,9 @@ pub fn revise(
     s.push_str("1. これは推敲であり、新作ではない。全面的な書き直しをしない。指摘に関係のない文の語彙や語順をむやみに変えない。\n");
     s.push_str("2. 優先順位: 直前本文との自然な接続・正史 > 査読の指摘 > ドラフトの原文。指摘の通りに直すと本文が不自然になる場合は、指摘の意図(何が問題とされたか)を汲み、別の形でその問題を解消する。\n");
     s.push_str("3. 査読が求めていても、正史・【設定資料】に無い確定事実(人物の過去、経歴、関係、正体)を新しく加えない。\n");
-    s.push_str("4. 修正稿は、直前本文の末尾に置いたとき途切れなく読める続きでなければならない。\n\n");
+    s.push_str(
+        "4. 修正稿は、直前本文の末尾に置いたとき途切れなく読める続きでなければならない。\n\n",
+    );
     s.push_str(fiction_direction(scaffold));
     s.push_str("\n\n");
     s.push_str(metacognition_section("full-repair"));
@@ -402,7 +588,10 @@ pub fn revise(
         s.push_str(&ref_section);
         s.push_str("\n\n");
     }
-    s.push_str(&format_data_block("text_immediately_before_continuation", context));
+    s.push_str(&format_data_block(
+        "text_immediately_before_continuation",
+        context,
+    ));
     s.push_str(&format_data_block("draft_to_review", draft));
     s.push_str(&format_data_block("review", review));
     s.push('\n');
@@ -416,61 +605,127 @@ pub fn targeted_revision(
     review: &str,
     scaffold: Option<&str>,
     settings_context: Option<&str>,
-    _related_scenes: Option<&str>,
+    related_scenes: Option<&str>,
     extra_sections: &str,
 ) -> String {
+    let related = build_related_scenes_section(related_scenes);
+    let mut extras = extra_sections.to_string();
+    if !related.is_empty() {
+        extras.push_str(&related);
+        extras.push_str("\n\n");
+    }
+    let reference = build_story_reference_section(settings_context);
+    let reference_block = if reference.is_empty() {
+        String::new()
+    } else {
+        format!("{reference}\n\n")
+    };
+    TARGETED_REVISION_PROMPT
+        .replace("{{fiction_direction}}", fiction_direction(scaffold))
+        .replace(
+            "{{metacognition}}",
+            metacognition_section("surgical-repair"),
+        )
+        .replace("{{extra_sections}}", &extras)
+        .replace("{{reference_section}}", &reference_block)
+        .replace(
+            "{{context_block}}",
+            &format_data_block("text_immediately_before_continuation", context),
+        )
+        .replace(
+            "{{draft_block}}",
+            &format_data_block("draft_to_review", draft),
+        )
+        .replace("{{review_block}}", &format_data_block("review", review))
+}
+
+const TARGETED_REVISION_PROMPT: &str = include_str!("old_prompts/targeted_revision.txt");
+
+pub fn select_drafts(
+    drafts: &[&str],
+    context: &str,
+    settings_context: Option<&str>,
+    plan: Option<&str>,
+    scaffold: Option<&str>,
+    author_instruction: Option<&str>,
+) -> String {
     let mut s = String::new();
-    s.push_str("【LITRA工程】targeted-revision\n");
-    s.push_str("【依頼】\n");
-    s.push_str("下の <reference_data name=\"text_immediately_before_continuation\"> の続きとして書かれたドラフト <reference_data name=\"draft_to_review\"> のうち、\n");
-    s.push_str("査読結果 <reference_data name=\"review\"> で【修正必須】と指摘された箇所だけを最小限に修正し、ドラフト全文を出力する。\n\n");
-    s.push_str("【手順 — この順番で必ず実行する】\n");
-    s.push_str("手順1(出力しない): 直前本文から語りの型、視点人物とその呼び方、時制、文体を確定する。\n");
-    s.push_str("手順2: 査読の【修正必須】のみを、最小の変更で修正する。指摘された問題だけを解消し、それ以外の文は1字も変えない。\n\n");
-    s.push_str("【修正の規律 — 全項目を必ず守る】\n");
-    s.push_str("1. 修正は査読の【修正必須】だけに留める。【改善提案】は無視してよい(この工程では必須ではない)。\n");
-    s.push_str("2. 優先順位: 直前本文との自然な接続・正史 > 査読の指摘 > ドラフトの原文。\n");
-    s.push_str("3. 正史・【設定資料】に無い確定事実を新しく加えない。\n\n");
+    s.push_str("【LITRA工程】draft-selection/v2\n【依頼】\n");
+    s.push_str(&format!("<reference_data name=\"text_immediately_before_continuation\"> の続きとして生成された{}案のドラフトを比較し、続きとして採用すべき1案を選ぶ。本文の書き直し、混合、抜粋はしない。選ぶだけである。\n\n", drafts.len()));
+    s.push_str("【選定基準 — 番号が小さいほど優先】\n1. 直前本文との接続の自然さと、正史・【設定資料】との整合。\n2. 語りの型と視点の規則への忠実さ。\n3. 文体(語彙、文の長短、句読点の呼吸)の直前本文との一致。\n4. 場面の前進と描写の具体性。安易・紋切り型でないこと。\nどの案にも欠点がある前提で、相対的に優れた1案を選ぶ。同点なら基準1で勝る案を選ぶ。\n\n");
+    s.push_str(&build_author_instruction_section(
+        author_instruction,
+        "候補を比較する最優先基準として使う。正史・直前本文・視点規則への違反は採用しない。",
+    ));
+    s.push_str(&format!("【出力形式 — 厳守】\n1行目: 【採用】案N (Nは1〜{}の数字1つ)\n【理由】(1〜3行。採用案の決め手と、不採用案の主な欠点)\n\n", drafts.len()));
     s.push_str(fiction_direction(scaffold));
     s.push_str("\n\n");
-    s.push_str(metacognition_section("surgical-repair"));
-    s.push_str("\n\n");
-    s.push_str("【出力形式 — 厳守】\n");
-    s.push_str("- 出力の1文字目から小説本文を書く。\n");
-    s.push_str("- 前置き、見出し、注記、解説、修正箇所の説明、本文を囲む引用符やコードフェンスを一切付けない。\n");
-    s.push_str("- ドラフト全文を出力する。修正しなかった文も省略せずそのまま含める。\n\n");
-    s.push_str(extra_sections);
-    let ref_section = build_story_reference_section(settings_context);
-    if !ref_section.is_empty() {
-        s.push_str(&ref_section);
+    if let Some(plan) = plan.map(str::trim).filter(|plan| !plan.is_empty()) {
+        s.push_str("【構想メモ】\n各案が従うはずだった構想である。構想との一致度より、上の選定基準を優先する。\n\n");
+        s.push_str(&limit_prompt_text(plan, 2000, "tail"));
         s.push_str("\n\n");
     }
-    s.push_str(&format_data_block("text_immediately_before_continuation", context));
-    s.push_str(&format_data_block("draft_to_review", draft));
-    s.push_str(&format_data_block("review", review));
-    s.push('\n');
-    s.push_str(output_self_check(scaffold, "surgical-repair"));
+    let reference = build_story_reference_section(settings_context);
+    if !reference.is_empty() {
+        s.push_str(&reference);
+        s.push_str("\n\n");
+    }
+    s.push_str(&format_data_block(
+        "text_immediately_before_continuation",
+        context,
+    ));
+    s.push_str("\n\n");
+    for (index, draft) in drafts.iter().enumerate() {
+        s.push_str(&format_data_block(
+            &format!("draft_candidate_{}", index + 1),
+            draft,
+        ));
+        s.push_str("\n\n");
+    }
     s
 }
 
-pub fn select_draft(first: &str, second: &str) -> String {
-    let mut s = String::new();
-    s.push_str("【依頼】\n");
-    s.push_str("次に示す2つのドラフト候補のうち、より良い方を選んでください。\n\n");
-    s.push_str("候補1:\n");
-    s.push_str(&format_data_block("candidate_1", first));
-    s.push_str("\n\n候補2:\n");
-    s.push_str(&format_data_block("candidate_2", second));
+pub fn candidate_selection(
+    candidates: &[&str],
+    task: &str,
+    original: &str,
+    context: &str,
+    settings_context: Option<&str>,
+    scaffold: Option<&str>,
+) -> String {
+    let mut s = format!("【LITRA工程】candidate-selection/v2\n【依頼】\n{task}として生成された{}案を比較し、完成稿として最も優れた1案を選ぶ。候補を混合、抜粋、書き直しせず、選定だけを行う。\n\n", candidates.len());
+    s.push_str("【選定基準 — 番号が小さいほど優先】\n1. 作者の指示、元の意味・事実・因果関係、正史との一致。\n2. 周囲本文との接続、視点、時制、人物の声の一貫性。\n3. 文体、語彙、リズムの自然さ。\n4. 表現の具体性と文学的な効果。安易・紋切り型でないこと。\n\n");
+    s.push_str(&format!("【出力形式 — 厳守】\n1行目: 【採用】案N (Nは1〜{}の数字1つ)\n【理由】(1〜3行。採用案の決め手と、不採用案の主な欠点)\n\n", candidates.len()));
+    s.push_str(fiction_direction(scaffold));
     s.push_str("\n\n");
-    s.push_str("【選定基準 — 次の観点で比較し、1つ選ぶ】\n");
-    s.push_str("1. 直前本文との自然な接続\n");
-    s.push_str("2. 語りの型・視点の一貫性\n");
-    s.push_str("3. 文体の継承\n");
-    s.push_str("4. 表現の質(冗長さ、曖昧さ、紋切り型の回避)\n");
-    s.push_str("5. 感情の説得力\n\n");
-    s.push_str("【出力形式】\n");
-    s.push_str("番号(1または2)と選定理由を簡潔に書く。");
+    let reference = build_story_reference_section(settings_context);
+    if !reference.is_empty() {
+        s.push_str(&reference);
+        s.push_str("\n\n");
+    }
+    s.push_str(&format_data_block("surrounding_context", context));
+    s.push_str("\n\n");
+    s.push_str(&format_data_block("original_text", original));
+    s.push_str("\n\n");
+    for (index, candidate) in candidates.iter().enumerate() {
+        s.push_str(&format_data_block(
+            &format!("candidate_{}", index + 1),
+            candidate,
+        ));
+        s.push_str("\n\n");
+    }
     s
+}
+
+pub fn parse_selection(output: &str, count: usize) -> Option<usize> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"【採用】[^\d]*(\d+)").unwrap());
+    let selected = RE
+        .captures(output)?
+        .get(1)?
+        .as_str()
+        .parse::<usize>()
+        .ok()?;
+    (1..=count).contains(&selected).then_some(selected - 1)
 }
 
 pub fn rewrite(
@@ -483,7 +738,9 @@ pub fn rewrite(
 ) -> String {
     let mut s = String::new();
     s.push_str("【依頼】\n");
-    s.push_str("選択された範囲だけを、周囲へ継ぎ目なく戻せる完成稿の日本語小説として書き直す。\n\n");
+    s.push_str(
+        "選択された範囲だけを、周囲へ継ぎ目なく戻せる完成稿の日本語小説として書き直す。\n\n",
+    );
     s.push_str("【手順 — この順番で必ず実行する】\n");
     s.push_str("手順1(出力しない): 周囲本文から、語りの型(型1 一人称/型2 三人称一元/型3 神の視点/型4 客観)、視点人物と呼び方、時制、文体、語りの語彙と口調を確定する。【設定資料】がある場合は、選択範囲に登場する人物・場所・用語の記録(名前の表記、呼び方、口調、関係)と、人物の社会的属性(年齢、学年、職業、立場、在籍期間)から持ち得る知識・経験の範囲も確認する。\n");
     s.push_str("手順2: 判定した型の規則と、下の優先順位・制約に従い、選択範囲だけを書き直す。型1・型2では、ここからあなたは視点人物本人になり、その頭の中の言葉として書く。地の文の各文は、書く前に「知覚(A)か思考(B)か」を決めてから書く。\n");
@@ -503,7 +760,9 @@ pub fn rewrite(
     s.push_str("【制約 — 全項目に違反しないこと】\n");
     s.push_str("1. 差し替え本文は日本語で書く。\n");
     s.push_str("2. 元の文章にない設定、出来事、台詞の意図、人物関係を追加しない。【設定資料】に無い過去や設定を、新しく確定事項として書かない。\n");
-    s.push_str("3. 【設定資料】に記録がある人物・地名・用語は、名前の表記と呼び方を記録の通りに書く。\n");
+    s.push_str(
+        "3. 【設定資料】に記録がある人物・地名・用語は、名前の表記と呼び方を記録の通りに書く。\n",
+    );
     s.push_str("4. 選択範囲の外側を書き直さない。差し替え本文は、選択範囲の直前・直後の文にそのままつながること。\n");
     s.push_str("5. 型1・型2の作品で、元の文章に視点人物が知覚も思考もできない文(自分の表情の外部描写、他人の内心の断定など)がある場合は、意味を保ったまま知覚(A)か思考(B)の文に直す。型3・型4の作品では、元の語りの範囲と書き方の癖を保つ。\n\n");
     s.push_str("【出力形式 — 厳守】\n");
@@ -516,7 +775,10 @@ pub fn rewrite(
         s.push_str(&ref_section);
         s.push_str("\n\n");
     }
-    s.push_str(&format_data_block("surrounding_context_selection_marker_shows_position", context));
+    s.push_str(&format_data_block(
+        "surrounding_context_selection_marker_shows_position",
+        context,
+    ));
     s.push_str(&format_data_block("text_to_rewrite", passage));
     s.push('\n');
     s.push_str(output_self_check(scaffold, "rewrite"));
@@ -525,36 +787,44 @@ pub fn rewrite(
 
 // ---- シーン・キャラクターカード -----------------------------------------
 
-pub fn scene_state(context: &str, settings_context: Option<&str>, _related_scenes: Option<&str>) -> String {
+pub fn scene_state(
+    context: &str,
+    settings_context: Option<&str>,
+    _related_scenes: Option<&str>,
+) -> String {
     let mut s = String::new();
-    s.push_str("【依頼】\n");
-    s.push_str("直前本文の末尾時点での場面の状態を、事実だけで整理したカードを作成する。\n\n");
-    s.push_str("【出力形式】\n");
-    s.push_str("- 人物の位置・同席者\n");
-    s.push_str("- 時刻・場所\n");
-    s.push_str("- 所持品\n");
-    s.push_str("- 負傷・身体状態\n");
-    s.push_str("- 未解決の緊張・保留中の話題\n\n");
-    s.push_str("事実だけを書く。推測や解釈は書かない。カードに無いことは「不明」として扱う。\n\n");
+    s.push_str("【LITRA工程】scene-state-card/v2\n【依頼】\n提示された日本語小説の直前本文を読み、末尾の時点での場面の状態を事実だけで整理したカードを作る。小説本文は書かない。\n\n");
+    s.push_str("【規則 — 全項目を必ず守る】\n1. 本文(および【設定資料】)に明示された事実だけを書く。推測で補わない。書かれていない項目は「不明」と書く。\n2. 各行は短い体言止めまたは簡潔な文で書く。修辞や描写をしない。\n3. すべて日本語で書く。人物名・用語の表記は本文の通りにする。\n4. 末尾の時点の状態を書く。場面の途中で変化した事柄は最新の状態だけを書く。\n\n");
+    s.push_str("【出力形式 — 厳守。次の見出しのみを使う】\n【場所と時刻】(1〜2行)\n【その場にいる人物】(人物ごとに1行: 名前 — 位置・姿勢/所持品/負傷・身体状態/直前の行動)\n【場面にいない重要人物】(直前本文で言及されたが不在の人物と、その所在。無ければ「なし」)\n【直前の出来事】(2〜4行。時系列順)\n【未解決の緊張】(1〜3行)\n\n");
     let ref_section = build_story_reference_section(settings_context);
     if !ref_section.is_empty() {
         s.push_str(&ref_section);
         s.push_str("\n\n");
     }
-    s.push_str(&format_data_block("text_immediately_before_continuation", context));
+    s.push_str(&format_data_block(
+        "text_immediately_before_continuation",
+        context,
+    ));
     s
 }
 
-pub fn character_voices(context: &str, settings_context: Option<&str>, _related_scenes: Option<&str>) -> String {
+pub fn character_voices(
+    names: &[String],
+    context: &str,
+    settings_context: Option<&str>,
+    _related_scenes: Option<&str>,
+) -> String {
     let mut s = String::new();
-    s.push_str("【依頼】\n");
-    s.push_str("本文に登場する各人物の声の特徴をカード化する。\n\n");
-    s.push_str("【出力形式】\n");
-    s.push_str("人物ごとに:\n");
-    s.push_str("- 名前と呼称\n");
-    s.push_str("- 口調の特徴(語尾、敬語の使い方、文の長さ)\n");
-    s.push_str("- よく使う言葉・言い回し\n");
-    s.push_str("- 感情表現の仕方\n\n");
+    s.push_str("【LITRA工程】character-voice-card/v2\n【依頼】\n対象人物それぞれの「話し方カード」を作る。提示された本文抜粋の実際の台詞と、【設定資料】の記録だけを根拠にする。小説本文は書かない。\n\n【対象人物】\n");
+    for name in names {
+        if !name.trim().is_empty() {
+            s.push_str("- ");
+            s.push_str(name.trim());
+            s.push('\n');
+        }
+    }
+    s.push_str("\n【規則 — 全項目を必ず守る】\n1. 根拠は抜粋中の実際の台詞と資料の記録のみ。本文に無い話し方の特徴を発明しない。判断材料が無い項目は「不明」と書く。\n2. 台詞例は抜粋からの逐語の引用にする。作り変えない。\n3. すべて日本語で書く。\n4. 対象人物以外のカードを作らない。\n\n");
+    s.push_str("【出力形式 — 厳守。人物ごとに次の形式を繰り返す】\n■人物名\n一人称: (僕/俺/私 など)\n呼び方: (相手→呼称)\n口調: (丁寧/乱暴/敬語の使い分け、感情が動いたときの変化)\n語尾の癖: (特徴的な文末。無ければ「特になし」)\n台詞例: 「(抜粋からの逐語の引用)」(最大2つ)\n\n");
     let ref_section = build_story_reference_section(settings_context);
     if !ref_section.is_empty() {
         s.push_str(&ref_section);
@@ -567,33 +837,96 @@ pub fn character_voices(context: &str, settings_context: Option<&str>, _related_
 // ---- フィードバック・要約 -------------------------------------------------
 
 pub fn feedback(selection: &str, settings_context: &str) -> String {
-    let mut s = String::new();
-    s.push_str("【依頼】\n");
-    s.push_str("次の小説本文を、文体、視点、構成、読みやすさの観点から具体的に講評してください。\n\n");
-    let ref_section = build_story_reference_section(
-        if settings_context.is_empty() { None } else { Some(settings_context) }
-    );
-    if !ref_section.is_empty() {
-        s.push_str(&ref_section);
-        s.push_str("\n\n");
-    }
-    s.push_str(&format_data_block("fiction_text_for_feedback", selection));
-    s
+    let reference = build_story_reference_section(if settings_context.is_empty() {
+        None
+    } else {
+        Some(settings_context)
+    });
+    let prefix = if reference.is_empty() {
+        String::new()
+    } else {
+        format!("{reference}\n\n")
+    };
+    FEEDBACK_PROMPT.replace(
+        "{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"fiction_text_for_feedback\", selection)}",
+        &format!("{prefix}{}", format_data_block("fiction_text_for_feedback", selection)),
+    )
 }
 
-pub fn summary_episode(text: &str, title: Option<&str>, _episode_id: Option<&str>) -> String {
-    let t = title.unwrap_or("無題");
-    let mut s = String::new();
-    s.push_str("Create and save a detailed Japanese summary and a Japanese one-line summary for the episode \"");
-    s.push_str(t);
-    s.push_str("\".\n\n");
-    s.push_str("Requirements:\n");
-    s.push_str("1. Detailed summary: 300-800 characters in Japanese. Cover the main events, character developments, and significant turns.\n");
-    s.push_str("2. One-line summary: 1-2 sentences in Japanese that capture the core narrative.\n");
-    s.push_str("3. Never add facts or events not present in the source text.\n");
-    s.push_str("4. Write in Japanese.\n\n");
-    s.push_str(&format_data_block("episode_source_text", text));
-    s
+const FEEDBACK_PROMPT: &str = include_str!("old_prompts/feedback.txt");
+const SUMMARY_PROMPT: &str = include_str!("old_prompts/summary.txt");
+
+pub fn summary_episode(text: &str, title: Option<&str>, episode_id: Option<&str>) -> String {
+    SUMMARY_PROMPT
+        .replace("{{title}}", title.unwrap_or("無題"))
+        .replace("{{episode_id}}", episode_id.unwrap_or_default())
+        .replace(
+            "{{episode_source_text}}",
+            &format_data_block("episode_source_text", text),
+        )
+}
+
+/// 要約生成のテキストフォールバックを詳細要約と一行要約に分離する。
+/// 旧 TypeScript `parseSummaryOutput` と同じ見出し形式を受け付ける。
+pub fn parse_summary_output(output: &str) -> (Option<String>, Option<String>) {
+    let normalized = output.replace("\r\n", "\n");
+    let marker = "【一行要約】";
+
+    let summary = normalized.find("【要約】").and_then(|start| {
+        let value_start = start + "【要約】".len();
+        let tail = &normalized[value_start..];
+        let value_end = tail.find(marker).unwrap_or(tail.len());
+        non_empty(tail[..value_end].trim())
+    });
+    let one_liner = normalized.find(marker).and_then(|start| {
+        let value_start = start + marker.len();
+        non_empty(normalized[value_start..].trim())
+    });
+
+    (summary, one_liner)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TargetedReplacement {
+    pub target: String,
+    pub replacement: String,
+}
+
+static TARGETED_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"【置換\d+】").unwrap());
+static TARGETED_CONTENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)^\s*対象:[ \t　]*\n?(.*?)\n修正:[ \t　]*\n?(.*)$").unwrap());
+
+pub fn parse_targeted_revision(output: &str) -> Option<Vec<TargetedReplacement>> {
+    let normalized = output.replace("\r\n", "\n");
+    let normalized = normalized.trim();
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized.starts_with("【置換なし】") {
+        return Some(Vec::new());
+    }
+    let blocks = TARGETED_BLOCK.split(normalized).skip(1).collect::<Vec<_>>();
+    if blocks.is_empty() {
+        return None;
+    }
+    let mut replacements = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let captures = TARGETED_CONTENT.captures(block)?;
+        let target = captures.get(1)?.as_str().trim_matches('\n').to_string();
+        let replacement = captures.get(2)?.as_str().trim_matches('\n').to_string();
+        if target.is_empty() {
+            return None;
+        }
+        replacements.push(TargetedReplacement {
+            target,
+            replacement,
+        });
+    }
+    Some(replacements)
+}
+
+fn non_empty(value: &str) -> Option<String> {
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 // ---- 執筆指示 ------------------------------------------------------------
@@ -617,39 +950,19 @@ pub fn line_edit_review(
     settings_context: Option<&str>,
     _related_scenes: Option<&str>,
 ) -> String {
-    let mut s = String::new();
-    s.push_str("【依頼】\n");
-    s.push_str("既存原稿内の選択範囲 <reference_data name=\"passage_to_edit\"> を編集者の立場から査読し、\n");
-    s.push_str("必要な修正を報告する。修正文そのものは書かない。\n\n");
-
-    let instr_section = build_author_instruction_section(
+    let instruction_section = build_author_instruction_section(
         instruction,
         "点検の観点と指摘の優先度は、まずこの指示に沿って決める。",
     );
-    s.push_str(&instr_section);
-    s.push_str(fiction_direction(scaffold));
-    s.push_str("\n\n");
-
-    s.push_str("手順1(出力しない): 周囲本文から語りの型、視点人物と呼び方、時制、文体を確定する。\n");
-    s.push_str("手順2: 選択範囲を次の観点で点検する。\n");
-    s.push_str("  - 連続性: 選択範囲は前後の文と自然に接続しているか。\n");
-    s.push_str("  - 視点の一貫性: 語りの型を維持しているか。型1・型2の場合、視点人物の知覚・思考の範囲を逸脱していないか。\n");
-    s.push_str("  - 正史・設定との整合: 【設定資料】がある場合は表記・関係・属性が一致しているか。\n");
-    s.push_str("  - 文体の継承: 語彙密度、漢字と仮名の比率、文の長短、句読点の使い方が周囲と整合しているか。\n");
-    s.push_str("  - 品質: 冗長さ、曖昧さ、不自然な説明、無意味な反復、紋切り型の比喩はないか。\n\n");
-    s.push_str("【出力形式】\n");
-    s.push_str("【総合判定】\n");
-    s.push_str("【修正必須】\n");
-    s.push_str("【改善提案】\n\n");
-
-    let ref_section = build_story_reference_section(settings_context);
-    if !ref_section.is_empty() {
-        s.push_str(&ref_section);
-        s.push_str("\n\n");
-    }
-    s.push_str(&format_data_block("surrounding_context", context));
-    s.push_str(&format_data_block("passage_to_edit", passage));
-    s
+    let reference = build_story_reference_section(settings_context);
+    LINE_EDIT_REVIEW_PROMPT
+        .replace("{instructionSection}", &instruction_section)
+        .replace("{fictionDirectionFor(extras?.promptScaffold)}", fiction_direction(scaffold))
+        .replace(
+            "{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"surrounding_context\", context)}",
+            &format!("{}{}", if reference.is_empty() { String::new() } else { format!("{reference}\n\n") }, format_data_block("surrounding_context", context)),
+        )
+        .replace("{formatPromptDataBlock(\"passage_to_edit\", passage)}", &format_data_block("passage_to_edit", passage))
 }
 
 #[allow(dead_code)]
@@ -662,39 +975,30 @@ pub fn line_edit_revision(
     settings_context: Option<&str>,
     _related_scenes: Option<&str>,
 ) -> String {
-    let mut s = String::new();
-    s.push_str("【依頼】\n");
-    s.push_str("査読結果に従い、選択範囲だけを修正する。周囲の文は変えない。\n\n");
-
-    let instr_section = build_author_instruction_section(
+    let instruction_section = build_author_instruction_section(
         instruction,
-        "修正の優先度と方向性は、まずこの指示に沿って決める。",
+        "指示が求める範囲では、元の表現・語調の保持にこだわらなくてよい。",
     );
-    s.push_str(&instr_section);
-    s.push_str(fiction_direction(scaffold));
-    s.push_str("\n\n");
-    s.push_str(metacognition_section("surgical-repair"));
-    s.push_str("\n\n");
-
-    s.push_str("【修正の規律】\n");
-    s.push_str("1. 修正は査読の【修正必須】だけに留める。\n");
-    s.push_str("2. 優先順位: 周囲本文との自然な接続・正史 > 査読の指摘。\n");
-    s.push_str("3. 正史・【設定資料】に無い確定事実を新しく加えない。\n\n");
-    s.push_str("【出力形式】\n");
-    s.push_str("出力の1文字目から修正文を書く。前置き、解説、見出し、コードフェンスを一切付けない。\n\n");
-
-    let ref_section = build_story_reference_section(settings_context);
-    if !ref_section.is_empty() {
-        s.push_str(&ref_section);
-        s.push_str("\n\n");
-    }
-    s.push_str(&format_data_block("surrounding_context", context));
-    s.push_str(&format_data_block("passage_to_edit", passage));
-    s.push_str(&format_data_block("review", review));
-    s.push('\n');
-    s.push_str(output_self_check(scaffold, "surgical-repair"));
-    s
+    let reference = build_story_reference_section(settings_context);
+    let prefix = if reference.is_empty() {
+        String::new()
+    } else {
+        format!("{reference}\n\n")
+    };
+    LINE_EDIT_REVISION_PROMPT
+        .replace("{instructionSection}", &instruction_section)
+        .replace("{fictionDirectionFor(extras?.promptScaffold)}", fiction_direction(scaffold))
+        .replace("{metacognitionSectionFor(\"surgical-repair\")}", metacognition_section("surgical-repair"))
+        .replace(
+            "{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"surrounding_context\", context)}",
+            &format!("{prefix}{}", format_data_block("surrounding_context", context)),
+        )
+        .replace("{formatPromptDataBlock(\"passage_to_edit\", passage)}", &format_data_block("passage_to_edit", passage))
+        .replace("{formatPromptDataBlock(\"review\", review)}", &format_data_block("review", review))
 }
+
+const LINE_EDIT_REVIEW_PROMPT: &str = include_str!("old_prompts/line_edit_review.txt");
+const LINE_EDIT_REVISION_PROMPT: &str = include_str!("old_prompts/line_edit_revision.txt");
 
 // ---- ツール関連 ----------------------------------------------------------
 
@@ -704,31 +1008,16 @@ pub fn tool_call_need(
     assistant_response: Option<&str>,
     available_tool_names: &[String],
 ) -> String {
-    let mut s = String::new();
-    s.push_str("【依頼】\n");
-    s.push_str("ユーザーからの次の要求に対して、どのツールを呼び出すべきか判断する。\n\n");
-    s.push_str("利用可能なツール:\n");
-    if available_tool_names.is_empty() {
-        s.push_str("(none)\n");
-    } else {
-        for name in available_tool_names {
-            s.push_str("- ");
-            s.push_str(name);
-            s.push('\n');
-        }
-    }
-    s.push('\n');
-    s.push_str("ユーザーの要求:\n");
-    s.push_str(&format_data_block("user_request", user_request));
-    s.push('\n');
-    if let Some(resp) = assistant_response {
-        s.push_str(&format_data_block("assistant_response", resp));
-        s.push('\n');
-    }
-    s.push_str("【出力形式】\n");
-    s.push_str("呼び出すツール名を1つだけ書く。呼び出す必要がない場合は「none」と書く。");
-    s
+    TOOL_CALL_NEED_PROMPT
+        .replace(
+            "{availableToolNames.length > 0 ? availableToolNames.map((name) => `- ${name}`).join(\"\\n\") : \"(none)\"}",
+            &if available_tool_names.is_empty() { "(none)".into() } else { available_tool_names.iter().map(|name| format!("- {name}")).collect::<Vec<_>>().join("\n") },
+        )
+        .replace("{formatPromptDataBlock(\"user_request\", userRequest)}", &format_data_block("user_request", user_request))
+        .replace("{formatPromptDataBlock(\"assistant_response\", assistantResponse)}", &format_data_block("assistant_response", assistant_response.unwrap_or_default()))
 }
+
+const TOOL_CALL_NEED_PROMPT: &str = include_str!("old_prompts/tool_call_need.txt");
 
 // ---- ヘルパー ------------------------------------------------------------
 
@@ -771,4 +1060,57 @@ pub fn style_fingerprint_section(
     s.push_str("2. 査読・修正では、この指標からの明らかな逸脱(極端に長い文や短い文の連続、漢語の急増、会話率の急変)を文体の問題として扱う。\n");
     s.push_str("3. この指標の存在や数値そのものを、本文にも出力にも書かない。");
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_summary_output, parse_targeted_revision, TargetedReplacement};
+
+    #[test]
+    fn parses_summary_fallback_with_crlf() {
+        let output = "【要約】\r\n出来事の詳細。\r\n\r\n【一行要約】\r\n核心の一文。";
+        assert_eq!(
+            parse_summary_output(output),
+            (
+                Some("出来事の詳細。".to_string()),
+                Some("核心の一文。".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn summary_prompt_keeps_toolless_fallback_contract() {
+        let prompt = super::summary_episode("本文", Some("第一話"), Some("ep-1"));
+        assert!(prompt.contains("Target episodeId: ep-1"));
+        assert!(prompt.contains("【要約】"));
+        assert!(prompt.contains("【一行要約】"));
+        assert!(!prompt.contains("{{"));
+        assert!(prompt.contains("<reference_data name=\"episode_source_text\">\n本文"));
+    }
+
+    #[test]
+    fn rejects_unstructured_summary_output() {
+        assert_eq!(parse_summary_output("単なる応答"), (None, None));
+    }
+
+    #[test]
+    fn parses_targeted_replacements() {
+        assert_eq!(
+            parse_targeted_revision(
+                "【置換1】\n対象:\n古い文1\n修正:\n新しい文1\n【置換2】\n対象:\n古い文2\n修正:\n新しい文2"
+            ),
+            Some(vec![
+                TargetedReplacement {
+                    target: "古い文1".into(),
+                    replacement: "新しい文1".into(),
+                },
+                TargetedReplacement {
+                    target: "古い文2".into(),
+                    replacement: "新しい文2".into(),
+                },
+            ])
+        );
+        assert_eq!(parse_targeted_revision("【置換なし】"), Some(Vec::new()));
+        assert_eq!(parse_targeted_revision("壊れた出力"), None);
+    }
 }

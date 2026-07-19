@@ -48,6 +48,7 @@ pub async fn run(
                 text: turn.text,
                 provider: turn.provider,
                 model: turn.model,
+                finish_reason: turn.finish_reason,
             });
         }
         let mut assistant_parts = Vec::new();

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
-use web_sys::{Document, HtmlInputElement};
+use web_sys::{Document, HtmlElement, HtmlInputElement};
 
-use crate::runtime::invoke;
+use crate::runtime::{invoke, tauri};
 
 const EXA_KEY: &str = "websearch:exaApiKey";
 
@@ -37,6 +37,15 @@ struct SecretSetArgs<'a> {
 struct SyncSummary {
     files_processed: usize,
     files_failed: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncProgress {
+    phase: String,
+    current: usize,
+    total: usize,
+    message: String,
 }
 
 pub async fn populate(document: &Document) -> Result<(), JsValue> {
@@ -105,48 +114,73 @@ pub fn create_sync_overlay(document: &Document) {
     }
     let overlay = document.create_element("div").unwrap();
     overlay.set_id("litra-sync-overlay");
-    let _ = overlay.set_attribute("style",
+    let _ = overlay.set_attribute(
+        "style",
         "position: fixed; top: 0; left: 0; width: 100%; height: 100%; \
          background: rgba(0,0,0,0.5); display: none; align-items: center; \
-         justify-content: center; z-index: 10000;");
+         justify-content: center; z-index: 99999;",
+    );
 
     let card = document.create_element("div").unwrap();
-    let _ = card.set_attribute("style",
+    let _ = card.set_attribute(
+        "style",
         "background: var(--surface, #1e1e2e); color: var(--text-primary, #cdd6f4); \
          padding: 2rem 3rem; border-radius: 12px; \
          box-shadow: 0 4px 24px rgba(0,0,0,0.3); \
-         text-align: center; min-width: 320px;");
+         text-align: center; min-width: 320px;",
+    );
 
     let msg_el = document.create_element("div").unwrap();
     msg_el.set_id("litra-sync-message");
-    let _ = msg_el.set_attribute("style",
-        "font-size: 1.1rem; margin-bottom: 1rem;");
+    let _ = msg_el.set_attribute("style", "font-size: 1.1rem; margin-bottom: 1rem;");
     let _ = card.append_child(&msg_el);
 
     let bar = document.create_element("div").unwrap();
     bar.set_id("litra-sync-progress-bar");
-    let _ = bar.set_attribute("style",
+    let _ = bar.set_attribute(
+        "style",
         "width: 100%; height: 6px; background: var(--surface-hover, #313244); \
-         border-radius: 3px; overflow: hidden;");
+         border-radius: 3px; overflow: hidden;",
+    );
 
     let fill = document.create_element("div").unwrap();
     fill.set_id("litra-sync-progress-fill");
-    let _ = fill.set_attribute("style",
+    let _ = fill.set_attribute(
+        "style",
         "width: 0%; height: 100%; background: var(--accent, #89b4fa); \
-         transition: width 0.3s;");
+         transition: width 0.3s;",
+    );
     let _ = bar.append_child(&fill);
     let _ = card.append_child(&bar);
 
     let count = document.create_element("div").unwrap();
     count.set_id("litra-sync-count");
-    let _ = count.set_attribute("style",
+    let _ = count.set_attribute(
+        "style",
         "margin-top: 0.5rem; font-size: 0.85rem; \
-         color: var(--text-secondary, #a6adc8);");
+         color: var(--text-secondary, #a6adc8);",
+    );
     let _ = card.append_child(&count);
 
     let _ = overlay.append_child(&card);
     let _ = document.body().unwrap().append_child(&overlay);
 }
+
+/// TS版 `onSyncProgress` 相当。バックエンドから届く同期進捗を表示へ反映する。
+pub async fn listen_progress(document: &Document) -> Result<(), JsValue> {
+    let document = document.clone();
+    tauri::listen(
+        "webdav-sync-progress",
+        Closure::wrap(Box::new(move |payload: JsValue| {
+            let Ok(progress) = serde_wasm_bindgen::from_value::<SyncProgress>(payload) else {
+                return;
+            };
+            update_sync_progress(&document, &progress);
+        }) as Box<dyn FnMut(JsValue)>),
+    )
+    .await
+}
+
 pub async fn pull_on_start(_document: &Document) -> Result<(), JsValue> {
     let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
     if !config.enabled || config.base_url.trim().is_empty() {
@@ -159,10 +193,13 @@ pub async fn pull_on_start(_document: &Document) -> Result<(), JsValue> {
     match result {
         Ok(summary) => {
             if let Some(window) = web_sys::window() {
-                update_sync_modal(&window, &format!(
-                    "WebDAV 同期完了: {} 件処理、{} 件失敗",
-                    summary.files_processed, summary.files_failed
-                ));
+                update_sync_modal(
+                    &window,
+                    &format!(
+                        "WebDAV 同期完了: {} 件処理、{} 件失敗",
+                        summary.files_processed, summary.files_failed
+                    ),
+                );
                 // 完了表示後に非表示
                 let window_clone = window.clone();
                 let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -196,10 +233,13 @@ pub async fn push_on_close() -> Result<(), JsValue> {
         match invoke::invoke::<_, SyncSummary>("push_webdav_all", &Empty {}).await {
             Ok(summary) => {
                 if let Some(window) = web_sys::window() {
-                    update_sync_modal(&window, &format!(
-                        "完了: {}件処理、{}件失敗",
-                        summary.files_processed, summary.files_failed
-                    ));
+                    update_sync_modal(
+                        &window,
+                        &format!(
+                            "完了: {}件処理、{}件失敗",
+                            summary.files_processed, summary.files_failed
+                        ),
+                    );
                     // 完了表示をユーザーが見られるように待機（この直後にウィンドウ破棄）
                     sleep_ms(2000).await;
                 }
@@ -216,9 +256,7 @@ pub async fn push_on_close() -> Result<(), JsValue> {
                     update_sync_modal(&window, &format!("失敗: {error:?}"));
                     sleep_ms(5000).await;
                 }
-                web_sys::console::error_1(
-                    &format!("[litra] WebDAV push failed: {error:?}").into(),
-                );
+                web_sys::console::error_1(&format!("[litra] WebDAV push failed: {error:?}").into());
             }
         }
     }
@@ -246,52 +284,63 @@ fn show_sync_modal(window: &web_sys::Window, message: &str) {
         }
         // プログレスバーをリセット
         if let Some(fill) = document.get_element_by_id("litra-sync-progress-fill") {
-            let _ = fill.set_attribute("style", "width: 0%");
+            set_style_property(&fill, "width", "0%");
         }
         if let Some(count) = document.get_element_by_id("litra-sync-count") {
             count.set_text_content(Some(""));
         }
-        let _ = overlay.set_attribute("style", "display: flex");
+        // cssText 全体を置換すると fixed 配置や z-index まで失われる。
+        // TS版の `overlay.style.display = "flex"` と同じく一項目だけ更新する。
+        set_style_property(&overlay, "display", "flex");
         return;
     }
     // 新規作成
     let overlay = document.create_element("div").unwrap();
     overlay.set_id("litra-sync-overlay");
-    let _ = overlay.set_attribute("style",
+    let _ = overlay.set_attribute(
+        "style",
         "position: fixed; top: 0; left: 0; width: 100%; height: 100%; \
          background: rgba(0,0,0,0.5); display: flex; align-items: center; \
-         justify-content: center; z-index: 10000;");
+         justify-content: center; z-index: 99999;",
+    );
 
     let card = document.create_element("div").unwrap();
-    let _ = card.set_attribute("style",
+    let _ = card.set_attribute(
+        "style",
         "background: var(--surface, #1e1e2e); color: var(--text-primary, #cdd6f4); \
          padding: 2rem 3rem; border-radius: 12px; \
          box-shadow: 0 4px 24px rgba(0,0,0,0.3); \
-         text-align: center; min-width: 320px;");
+         text-align: center; min-width: 320px;",
+    );
 
     let msg_el = document.create_element("div").unwrap();
     msg_el.set_id("litra-sync-message");
-    let _ = msg_el.set_attribute("style",
-        "font-size: 1.1rem; margin-bottom: 1rem;");
+    let _ = msg_el.set_attribute("style", "font-size: 1.1rem; margin-bottom: 1rem;");
     msg_el.set_text_content(Some(message));
 
     let bar = document.create_element("div").unwrap();
     bar.set_id("litra-sync-progress-bar");
-    let _ = bar.set_attribute("style",
+    let _ = bar.set_attribute(
+        "style",
         "width: 100%; height: 6px; background: var(--surface-hover, #313244); \
-         border-radius: 3px; overflow: hidden;");
+         border-radius: 3px; overflow: hidden;",
+    );
 
     let fill = document.create_element("div").unwrap();
     fill.set_id("litra-sync-progress-fill");
-    let _ = fill.set_attribute("style",
+    let _ = fill.set_attribute(
+        "style",
         "width: 0%; height: 100%; background: var(--accent, #89b4fa); \
-         transition: width 0.3s;");
+         transition: width 0.3s;",
+    );
 
     let count = document.create_element("div").unwrap();
     count.set_id("litra-sync-count");
-    let _ = count.set_attribute("style",
+    let _ = count.set_attribute(
+        "style",
         "margin-top: 0.5rem; font-size: 0.85rem; \
-         color: var(--text-secondary, #a6adc8);");
+         color: var(--text-secondary, #a6adc8);",
+    );
 
     let _ = bar.append_child(&fill);
     let _ = card.append_child(&msg_el);
@@ -309,22 +358,62 @@ fn update_sync_modal(window: &web_sys::Window, message: &str) {
     }
 }
 
+fn update_sync_progress(document: &Document, progress: &SyncProgress) {
+    if let Some(message) = document.get_element_by_id("litra-sync-message") {
+        let fallback = if progress.phase == "pull" {
+            "WebDavから同期中..."
+        } else {
+            "WebDavに同期中..."
+        };
+        message.set_text_content(Some(if progress.message.trim().is_empty() {
+            fallback
+        } else {
+            &progress.message
+        }));
+    }
+    if let Some(fill) = document.get_element_by_id("litra-sync-progress-fill") {
+        set_style_property(
+            &fill,
+            "width",
+            &format!("{:.2}%", progress_percent(progress.current, progress.total)),
+        );
+    }
+    if let Some(count) = document.get_element_by_id("litra-sync-count") {
+        let text = if progress.total > 0 {
+            format!("{} / {}", progress.current, progress.total)
+        } else {
+            progress.current.to_string()
+        };
+        count.set_text_content(Some(&text));
+    }
+}
+
 fn hide_sync_modal(window: &web_sys::Window) {
     if let Some(document) = window.document() {
         if let Some(overlay) = document.get_element_by_id("litra-sync-overlay") {
-            let _ = overlay.set_attribute("style", "display: none");
+            set_style_property(&overlay, "display", "none");
         }
     }
+}
+
+fn set_style_property(element: &web_sys::Element, property: &str, value: &str) {
+    if let Some(element) = element.dyn_ref::<HtmlElement>() {
+        let _ = element.style().set_property(property, value);
+    }
+}
+
+fn progress_percent(current: usize, total: usize) -> f64 {
+    if total == 0 {
+        return 0.0;
+    }
+    ((current as f64 / total as f64) * 100.0).clamp(0.0, 100.0)
 }
 
 /// 指定ミリ秒間だけ待機する。DOM描画の待機や完了表示に使う。
 async fn sleep_ms(ms: i32) {
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         if let Some(window) = web_sys::window() {
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-                &resolve,
-                ms,
-            );
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
         } else {
             // window がない場合は即座に解決
             let _ = resolve.call0(&JsValue::UNDEFINED);
@@ -332,7 +421,6 @@ async fn sleep_ms(ms: i32) {
     });
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
-
 
 fn non_empty(value: String) -> Option<String> {
     let value = value.trim().to_owned();
@@ -364,3 +452,15 @@ fn set_checked(document: &Document, id: &str, checked: bool) {
 
 #[derive(Serialize)]
 struct Empty {}
+
+#[cfg(test)]
+mod tests {
+    use super::progress_percent;
+
+    #[test]
+    fn progress_percent_handles_empty_and_clamps_overflow() {
+        assert_eq!(progress_percent(3, 0), 0.0);
+        assert_eq!(progress_percent(1, 4), 25.0);
+        assert_eq!(progress_percent(8, 4), 100.0);
+    }
+}

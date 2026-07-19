@@ -1,10 +1,11 @@
 use ammonia::Builder;
 use pulldown_cmark::{html, Options, Parser};
+use wasm_bindgen::{closure::Closure, JsCast};
 use web_sys::Element;
 
-use super::types::{ChatMessage, ChatTransportMetadata, ProviderConfig};
+use super::types::{ChatMessage, ProviderConfig};
 
-pub fn render_messages(container: &Element, messages: &[ChatMessage]) {
+pub fn render_messages(container: &Element, messages: &[ChatMessage], is_generating: bool) {
     let html = messages
         .iter()
         .map(render_message)
@@ -12,6 +13,32 @@ pub fn render_messages(container: &Element, messages: &[ChatMessage]) {
         .join("");
     container.set_inner_html(&html);
     container.set_scroll_top(container.scroll_height());
+    if is_generating {
+        pin_stream_to_bottom(container);
+    }
+}
+
+pub(crate) fn pin_stream_to_bottom(container: &Element) {
+    scroll_stream_to_bottom(container);
+
+    // innerHTML 更新直後は Thinking の高さがまだレイアウトへ反映されないことがある。
+    // 次の描画フレームでも固定し直し、ストリーミング中の末尾を見失わないようにする。
+    let container = container.clone();
+    if let Some(window) = web_sys::window() {
+        let callback = Closure::once_into_js(move |_timestamp: f64| {
+            scroll_stream_to_bottom(&container);
+        });
+        let _ = window.request_animation_frame(callback.unchecked_ref());
+    }
+}
+
+fn scroll_stream_to_bottom(container: &Element) {
+    container.set_scroll_top(container.scroll_height());
+    if let Ok(Some(thinking)) =
+        container.query_selector(".thinking-panel.streaming .thinking-content")
+    {
+        thinking.set_scroll_top(thinking.scroll_height());
+    }
 }
 
 pub fn provider_options(config: &ProviderConfig) -> String {
@@ -50,37 +77,54 @@ pub fn model_options(config: &ProviderConfig, provider_id: &str) -> String {
 }
 
 fn render_message(message: &ChatMessage) -> String {
-    let id = message
-        .id
-        .as_deref()
+    render_message_html(
+        &message.role,
+        &message.content,
+        message.thinking.as_deref(),
+        message.id.as_deref(),
+        message
+            .transport
+            .as_ref()
+            .and_then(|value| value.provider.as_deref()),
+        message
+            .transport
+            .as_ref()
+            .and_then(|value| value.model.as_deref()),
+        message
+            .transport
+            .as_ref()
+            .and_then(|value| value.response_model_id.as_deref()),
+    )
+}
+
+pub(crate) fn render_message_html(
+    role: &str,
+    content: &str,
+    thinking: Option<&str>,
+    message_id: Option<&str>,
+    provider: Option<&str>,
+    model: Option<&str>,
+    response_model_id: Option<&str>,
+) -> String {
+    let id = message_id
         .map(|id| format!(r#" data-message-id="{}""#, escape_html(id)))
         .unwrap_or_default();
-    let thinking = render_thinking(
-        message.thinking.as_deref(),
-        message.content.trim().is_empty(),
-    );
-    let content = render_tool_call(&message.content)
-        .unwrap_or_else(|| render_markdown_or_fallback(&message.content));
-    let metadata = render_metadata(message.transport.as_ref());
-    let pending = if message.content.trim().is_empty()
-        && message
-            .thinking
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
-            .is_empty()
-    {
+    let thinking = render_thinking(thinking, content.trim().is_empty());
+    let rendered_content =
+        render_tool_call(content).unwrap_or_else(|| render_markdown_or_fallback(content));
+    let metadata = render_metadata_values(provider, model, response_model_id);
+    let pending = if content.trim().is_empty() && thinking.trim().is_empty() {
         " chat-pending"
     } else {
         ""
     };
     format!(
         r#"<div class="chat-message {}{}"{}>{}{}{}</div>"#,
-        escape_html(&message.role),
+        escape_html(role),
         pending,
         id,
         thinking,
-        content,
+        rendered_content,
         metadata
     )
 }
@@ -102,21 +146,16 @@ fn render_thinking(thinking: Option<&str>, streaming: bool) -> String {
     )
 }
 
-fn render_metadata(metadata: Option<&ChatTransportMetadata>) -> String {
-    let Some(metadata) = metadata else {
-        return String::new();
-    };
-    let model = metadata
-        .response_model_id
-        .as_deref()
-        .or(metadata.model.as_deref())
-        .unwrap_or_default();
+fn render_metadata_values(
+    provider: Option<&str>,
+    model: Option<&str>,
+    response_model_id: Option<&str>,
+) -> String {
+    let model = response_model_id.or(model).unwrap_or_default();
     if model.is_empty() {
         return String::new();
     }
-    let label = metadata
-        .provider
-        .as_deref()
+    let label = provider
         .map(|provider| format!("{provider} · {model}"))
         .unwrap_or_else(|| model.to_owned());
     format!(
@@ -229,4 +268,29 @@ pub fn escape_html(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_message_html;
+
+    #[test]
+    fn renders_thinking_and_tool_cards_in_the_shared_chat_renderer() {
+        let thinking =
+            render_message_html("assistant", "回答", Some("検討中"), None, None, None, None);
+        assert!(thinking.contains("thinking-panel"));
+        assert!(thinking.contains("検討中"));
+
+        let tool = render_message_html(
+            "assistant",
+            "【ツール成功: listEpisodes】\n状態: 成功\nID: call-1\n入力: {}\n結果:\n{}",
+            None,
+            Some("call-1"),
+            None,
+            None,
+            None,
+        );
+        assert!(tool.contains("tool-call-card success"));
+        assert!(tool.contains("listEpisodes"));
+    }
 }

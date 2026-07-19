@@ -16,9 +16,9 @@
 5. 正史・【設定資料】に無い確定事実(人物の過去、経歴、関係、正体)を新しく加えない。
 6. 問題が広範囲に及び置換で表しきれない場合は、無理に分割せず、その問題に最も効く1箇所だけを置換する。
 
-{fictionDirectionFor(extras?.promptScaffold)}
+{{fiction_direction}}
 
-{metacognitionSectionFor("surgical-repair")}
+{{metacognition}}
 
 【出力形式 — 厳守】
 修正すべき箇所が1件も無い場合: 【置換なし】 とだけ1行書く。
@@ -29,8 +29,8 @@
 修正:
 (差し替え後の文章)
 
-{extraSections}{referenceSection ? `${referenceSection}\n\n` : ""}{formatPromptDataBlock("text_immediately_before_continuation", context)}
+{{extra_sections}}{{reference_section}}{{context_block}}
 
-{formatPromptDataBlock("draft_to_review", draft)}
+{{draft_block}}
 
-{formatPromptDataBlock("review", review)}
+{{review_block}}

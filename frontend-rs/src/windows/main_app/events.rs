@@ -6,13 +6,14 @@ use std::{
 
 use js_sys::Reflect;
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{Document, Element, Event, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
 
 use super::{
-    open_project, refresh_projects, report, select_episode, sync_children, State, MAIN_CLOSING,
+    open_project, refresh_projects, report, select_episode, sync_child, sync_children, State,
+    MAIN_CLOSING,
 };
 use crate::{
     data::{project_settings, projects},
@@ -264,19 +265,64 @@ async fn handle_click(
             }
         }
         "popout-summary" => {
-            popout(document, state, "summary", "summary-window.html", "エピソード要約", 520.0, 620.0).await?
+            popout(
+                document,
+                state,
+                "summary",
+                "summary-window.html",
+                "エピソード要約",
+                520.0,
+                620.0,
+            )
+            .await?
         }
         "popout-memo" => {
-            popout(document, state, "memo", "memo-window.html", "エピソードメモ", 520.0, 620.0).await?
+            popout(
+                document,
+                state,
+                "memo",
+                "memo-window.html",
+                "エピソードメモ",
+                520.0,
+                620.0,
+            )
+            .await?
         }
         "popout-chat" => {
-            popout(document, state, "chat", "chat-window.html", "リトラチャット", 620.0, 760.0).await?
+            popout(
+                document,
+                state,
+                "chat",
+                "chat-window.html",
+                "リトラチャット",
+                620.0,
+                760.0,
+            )
+            .await?
         }
         "popout-settings" => {
-            popout(document, state, "settings", "settings-window.html", "設定", 820.0, 760.0).await?
+            popout(
+                document,
+                state,
+                "settings",
+                "settings-window.html",
+                "設定",
+                820.0,
+                760.0,
+            )
+            .await?
         }
         "popout-memos" => {
-            popout(document, state, "project-memos", "project-memo-window.html", "プロジェクトメモ", 760.0, 680.0).await?
+            popout(
+                document,
+                state,
+                "project-memos",
+                "project-memo-window.html",
+                "プロジェクトメモ",
+                760.0,
+                680.0,
+            )
+            .await?
         }
         "open-genres" => windows::open_managed_window(
             "genre-library",
@@ -371,11 +417,23 @@ struct DetachedArgs<'a> {
 }
 
 const POPOUT_TARGETS: [(&str, &str, &str, f64, f64); 5] = [
-    ("summary", "summary-window.html", "エピソード要約", 520.0, 620.0),
+    (
+        "summary",
+        "summary-window.html",
+        "エピソード要約",
+        520.0,
+        620.0,
+    ),
     ("memo", "memo-window.html", "エピソードメモ", 520.0, 620.0),
     ("chat", "chat-window.html", "リトラチャット", 620.0, 760.0),
     ("settings", "settings-window.html", "設定", 820.0, 760.0),
-    ("project-memos", "project-memo-window.html", "プロジェクトメモ", 760.0, 680.0),
+    (
+        "project-memos",
+        "project-memo-window.html",
+        "プロジェクトメモ",
+        760.0,
+        680.0,
+    ),
 ];
 
 fn persist_detached(label: &'static str, detached: bool) {
@@ -428,7 +486,7 @@ async fn popout(
         return Err(error);
     }
     persist_detached(label, true);
-    sync_children(&state.borrow());
+    sync_child(label, &state.borrow());
     let document = document.clone();
     let state = Rc::clone(state);
     windows::on_destroyed(
@@ -646,8 +704,7 @@ fn bind_chat_form(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
             return;
         };
         let content = input.value().trim().to_owned();
-        if content.is_empty() {
-        }
+        if content.is_empty() {}
         input.set_value("");
         resize_chat_input(&input);
         let document = submit_document.clone();
@@ -737,8 +794,11 @@ fn resize_chat_input(input: &HtmlTextAreaElement) {
             .ok()
             .and_then(|v| v.trim_end_matches("px").parse().ok())
             .unwrap_or(0.0);
-        let max_height =
-            line_height * max_rows as f64 + padding_top + padding_bottom + border_top + border_bottom;
+        let max_height = line_height * max_rows as f64
+            + padding_top
+            + padding_bottom
+            + border_top
+            + border_bottom;
         let style = input.style();
         let _ = style.set_property("height", "auto");
         let scroll_height = input.scroll_height() as f64;
@@ -832,39 +892,77 @@ pub(super) fn set_document_content(
     episode_id: &str,
     content: &str,
 ) {
-    let target = if field == "episode-summary" {
-        &mut state.summaries
-    } else {
-        &mut state.memos
-    };
-    let root = if field == "episode-summary" {
-        "summaries"
-    } else {
-        "memos"
-    };
-    let entry = if field == "episode-summary" {
-        json!({"content":content,"oneLiner":"","updatedAt":js_sys::Date::new_0().to_iso_string().as_string().unwrap_or_default()})
-    } else {
-        json!({"content":content,"updatedAt":js_sys::Date::new_0().to_iso_string().as_string().unwrap_or_default()})
-    };
-    if let Some(map) = target.get_mut(root).and_then(|value| value.as_object_mut()) {
+    if field == "episode-summary" {
+        set_summary_parts(state, episode_id, Some(content), None);
+        return;
+    }
+    let entry = json!({"content":content,"updatedAt":now()});
+    if let Some(map) = state
+        .memos
+        .get_mut("memos")
+        .and_then(|value| value.as_object_mut())
+    {
         map.insert(episode_id.into(), entry);
     }
 }
 
+pub(super) fn set_summary_parts(
+    state: &mut State,
+    episode_id: &str,
+    content: Option<&str>,
+    one_liner: Option<&str>,
+) {
+    let existing = state
+        .summaries
+        .get("summaries")
+        .and_then(|value| value.get(episode_id));
+    let entry = summary_entry(existing, content, one_liner, &now());
+    if let Some(map) = state
+        .summaries
+        .get_mut("summaries")
+        .and_then(|value| value.as_object_mut())
+    {
+        map.insert(episode_id.into(), entry);
+    }
+}
+
+fn summary_entry(
+    existing: Option<&Value>,
+    content: Option<&str>,
+    one_liner: Option<&str>,
+    updated_at: &str,
+) -> Value {
+    json!({
+        "content": content
+            .or_else(|| existing.and_then(|value| value.get("content")?.as_str()))
+            .unwrap_or_default(),
+        "oneLiner": one_liner
+            .or_else(|| existing.and_then(|value| value.get("oneLiner")?.as_str()))
+            .unwrap_or_default(),
+        "updatedAt": updated_at,
+    })
+}
+
+fn now() -> String {
+    js_sys::Date::new_0()
+        .to_iso_string()
+        .as_string()
+        .unwrap_or_default()
+}
+
 pub async fn listen_children(document: Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
-    for event in [
-        "summary-ready",
-        "memo-ready",
-        "settings-ready",
-        "project-memos-ready",
-        "chat-ready",
+    for (event, label) in [
+        ("summary-ready", "summary"),
+        ("memo-ready", "memo"),
+        ("settings-ready", "settings"),
+        ("project-memos-ready", "project-memos"),
+        ("chat-ready", "chat"),
     ] {
         let state = Rc::clone(&state);
         tauri::listen(
             event,
             Closure::wrap(
-                Box::new(move |_payload: JsValue| sync_children(&state.borrow()))
+                Box::new(move |_payload: JsValue| sync_child(label, &state.borrow()))
                     as Box<dyn FnMut(JsValue)>,
             ),
         )
@@ -1267,5 +1365,37 @@ fn confirm(message: &str) -> bool {
 fn alert(message: &str) {
     if let Some(window) = web_sys::window() {
         let _ = window.alert_with_message(message);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::summary_entry;
+    use serde_json::json;
+
+    #[test]
+    fn editing_detailed_summary_preserves_one_liner() {
+        let existing = json!({
+            "content": "以前の要約",
+            "oneLiner": "残す一行要約",
+            "updatedAt": "old",
+        });
+        let entry = summary_entry(Some(&existing), Some("更新した要約"), None, "new");
+        assert_eq!(entry["content"], "更新した要約");
+        assert_eq!(entry["oneLiner"], "残す一行要約");
+        assert_eq!(entry["updatedAt"], "new");
+    }
+
+    #[test]
+    fn generated_summary_updates_both_parts() {
+        let existing = json!({"content":"old","oneLiner":"old line"});
+        let entry = summary_entry(
+            Some(&existing),
+            Some("新しい要約"),
+            Some("新しい一行要約"),
+            "new",
+        );
+        assert_eq!(entry["content"], "新しい要約");
+        assert_eq!(entry["oneLiner"], "新しい一行要約");
     }
 }

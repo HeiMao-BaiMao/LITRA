@@ -128,14 +128,7 @@ async fn send(
         .map(|message| format!("{}: {}", message.role, message.content))
         .collect::<Vec<_>>()
         .join("\n\n");
-    let accepted = knowledge
-        .items
-        .iter()
-        .filter(|item| item.status == "active")
-        .map(|item| format!("- [{}] {}: {}", item.category, item.title, item.statement))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let system = format!("あなたは小説制作アプリLITRAのジャンル相談AIです。ジャンル『{}』について、保存済みの定義と会話を根拠に日本語で回答してください。保存知識にない内容は推測だと明示してください。\n\nジャンル説明: {}\nユーザー定義: {}\n\n採用済み知識:\n{}", genre.name, genre.description, genre.user_definition, accepted);
+    let system = crate::data::genres::prompts::chat_system(&genre, &knowledge);
     let (provider, model) = {
         let current = state.borrow();
         (
