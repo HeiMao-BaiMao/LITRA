@@ -96,6 +96,57 @@ pub fn update_enabled(document: &Document) -> Result<(), JsValue> {
     Ok(())
 }
 
+/// TS版 `createSyncOverlay` 相当: WebDAV同期オーバーレイのDOM要素を事前作成する。
+/// 起動時に呼び、最初の同期操作前にDOM要素が存在することを保証する。
+/// 作成後は非表示（display:none）のまま。
+pub fn create_sync_overlay(document: &Document) {
+    if document.get_element_by_id("litra-sync-overlay").is_some() {
+        return;
+    }
+    let overlay = document.create_element("div").unwrap();
+    overlay.set_id("litra-sync-overlay");
+    let _ = overlay.set_attribute("style",
+        "position: fixed; top: 0; left: 0; width: 100%; height: 100%; \
+         background: rgba(0,0,0,0.5); display: none; align-items: center; \
+         justify-content: center; z-index: 10000;");
+
+    let card = document.create_element("div").unwrap();
+    let _ = card.set_attribute("style",
+        "background: var(--surface, #1e1e2e); color: var(--text-primary, #cdd6f4); \
+         padding: 2rem 3rem; border-radius: 12px; \
+         box-shadow: 0 4px 24px rgba(0,0,0,0.3); \
+         text-align: center; min-width: 320px;");
+
+    let msg_el = document.create_element("div").unwrap();
+    msg_el.set_id("litra-sync-message");
+    let _ = msg_el.set_attribute("style",
+        "font-size: 1.1rem; margin-bottom: 1rem;");
+    let _ = card.append_child(&msg_el);
+
+    let bar = document.create_element("div").unwrap();
+    bar.set_id("litra-sync-progress-bar");
+    let _ = bar.set_attribute("style",
+        "width: 100%; height: 6px; background: var(--surface-hover, #313244); \
+         border-radius: 3px; overflow: hidden;");
+
+    let fill = document.create_element("div").unwrap();
+    fill.set_id("litra-sync-progress-fill");
+    let _ = fill.set_attribute("style",
+        "width: 0%; height: 100%; background: var(--accent, #89b4fa); \
+         transition: width 0.3s;");
+    let _ = bar.append_child(&fill);
+    let _ = card.append_child(&bar);
+
+    let count = document.create_element("div").unwrap();
+    count.set_id("litra-sync-count");
+    let _ = count.set_attribute("style",
+        "margin-top: 0.5rem; font-size: 0.85rem; \
+         color: var(--text-secondary, #a6adc8);");
+    let _ = card.append_child(&count);
+
+    let _ = overlay.append_child(&card);
+    let _ = document.body().unwrap().append_child(&overlay);
+}
 pub async fn pull_on_start(_document: &Document) -> Result<(), JsValue> {
     let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
     if !config.enabled || config.base_url.trim().is_empty() {

@@ -112,6 +112,8 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     state.borrow_mut().catalog = crate::runtime::ai::catalog().await.unwrap_or_default();
     // メインウィンドウの前回位置を復元
     let _ = crate::runtime::windows::apply_window_bounds_main("main").await;
+    // TS版 createSyncOverlay 相当: WebDAV同期オーバーレイを事前作成（最初の同期前にDOM要素を用意）
+    settings::integrations::create_sync_overlay(document);
     settings::integrations::pull_on_start(document).await?;
     if let Ok((provider, model)) = crate::runtime::ai::selection("chat").await {
         let mut current = state.borrow_mut();
@@ -119,6 +121,8 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
         current.selected_model = Some(model);
     }
     refresh_projects(document, &state).await?;
+    // TS版 migrate_legacy_app_data 相当
+    let _ = crate::runtime::invoke::invoke::<_, serde_json::Value>("migrate_legacy_app_data", &serde_json::json!({})).await;
     events::bind(document, Rc::clone(&state))?;
     events::listen_children(document.clone(), Rc::clone(&state)).await?;
     crate::windows::settings::mount_inline(document).await?;
@@ -129,6 +133,14 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     events::restore_detached_windows(document, &state).await;
     // メインウィンドウの移動・リサイズを追跡開始
     let _ = crate::runtime::windows::track_window_bounds_main("main");
+    // TS版 loadInitialProject 相当: 最初のプロジェクトを自動読み込み
+    if let Some(first) = state.borrow().projects.first().cloned() {
+        let document = document.clone();
+        let state = Rc::clone(&state);
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = open_project(&document, &state, first.id.clone()).await;
+        });
+    }
     result
 }
 
@@ -237,9 +249,9 @@ fn bind_selection_tracking(
 }
 async fn bind_close_sync(state: Rc<RefCell<State>>) -> Result<(), JsValue> {
     let callback = Closure::wrap(Box::new(move || {
-        let editor = {
+        let (editor, summaries, memos) = {
             let current = state.borrow();
-            current.current_project.as_ref().and_then(|project| {
+            let editor = current.current_project.as_ref().and_then(|project| {
                 let episode_id = current.current_episode_id.as_ref()?;
                 let file_name = current
                     .episodes
@@ -248,12 +260,16 @@ async fn bind_close_sync(state: Rc<RefCell<State>>) -> Result<(), JsValue> {
                     .file_name
                     .clone();
                 Some((project.id.clone(), file_name, current.editor_text.clone()))
-            })
+            });
+            (editor, current.summaries.clone(), current.memos.clone())
         };
         future_to_promise(async move {
             MAIN_CLOSING.store(true, Ordering::SeqCst);
+            // TS版 flushPendingAutosave 相当: エディタ本文 + 要約 + メモを確定保存
             if let Some((project_id, file_name, content)) = editor {
                 projects::write_episode(&project_id, &file_name, &content).await?;
+                projects::write_document(&project_id, "summaries", &summaries).await?;
+                projects::write_document(&project_id, "memos", &memos).await?;
             }
             settings::integrations::push_on_close().await?;
             let _ = crate::runtime::windows::destroy_other_windows("main").await;
