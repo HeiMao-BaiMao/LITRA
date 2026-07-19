@@ -23,7 +23,9 @@ pub async fn run(
     mut system: String,
     prompt: String,
 ) -> Result<ai::GeneratedText, JsValue> {
-    system.push_str(TOOL_GUIDANCE);
+    let definitions = definitions();
+    let tool_names: Vec<&str> = definitions.iter().filter_map(|d| d["name"].as_str()).collect();
+    system.push_str(&build_tool_guidance(&tool_names));
     let (project_id, current_episode, provider, model) = {
         let current = state.borrow();
         (
@@ -47,7 +49,6 @@ pub async fn run(
         .await;
     };
     let mut messages = vec![json!({"role":"user","content":prompt})];
-    let definitions = definitions();
     // 直前のラウンドで同じツール+同じ引数での呼び出しを検出し、ループ暴走を防ぐ
     let mut recent_calls: Vec<(String, String)> = Vec::new();
     for _ in 0..MAX_TOOL_ROUNDS {
@@ -87,7 +88,6 @@ pub async fn run(
                 .iter()
                 .map(|c| (c.name.clone(), serde_json::to_string(&c.input).unwrap_or_default())),
         );
-        // 直近 8 件の呼び出しだけ保持してメモリ肥大化を防ぐ
         if recent_calls.len() > 8 {
             let drop_count = recent_calls.len() - 8;
             recent_calls.drain(0..drop_count);
@@ -370,7 +370,42 @@ fn js_error(error: &JsValue) -> String {
     error.as_string().unwrap_or_else(|| format!("{error:?}"))
 }
 
-const TOOL_GUIDANCE: &str = r#"
+// ============================================================
+//  ツールガイダンス — TS版 buildToolGuidancePrompt の移植
+// ============================================================
+
+/// 利用可能なツールに応じて動的にツールガイダンスを生成する。
+/// TS版 `buildToolGuidancePrompt` の移植。
+fn build_tool_guidance(tool_names: &[&str]) -> String {
+    use std::collections::BTreeSet;
+    let available: BTreeSet<&str> = tool_names.iter().copied().collect();
+    let mut s = String::from(BASE_TOOL_GUIDANCE);
+
+    // EPISODE TEXT EDITING — TS版の条件分岐を移植
+    let has_episode_tools = available.contains("findEpisodeLines")
+        || available.contains("getEpisodeLines")
+        || available.contains("editEpisode")
+        || available.contains("editEpisodeBatch");
+    if has_episode_tools {
+        s.push_str(r#"
+
+EPISODE TEXT EDITING — follow in this order:
+1. WHEN THE USER ASKS YOU TO WRITE FICTION: 「〜を書いて」「本文に追加して」「小説の続きを書いて」「物語を作って」「以下の内容を反映して」など、ユーザーが明示的に本文執筆・追記・編集を依頼した場合 → あなたは相談だけで終わらず、必ずツールを使って実際に本文に書き込むこと。執筆依頼をチャットの相談にすり替えてツールを呼ばないことは禁止。
+2. Before editing, ALWAYS read the current text and line numbers with findEpisodeLines or getEpisodeLines. NEVER guess line numbers or current text from memory.
+3. expectedText MUST be a character-for-character copy of the text you just read, with the line-number prefixes removed. Change nothing else in it.
+4. replacementText must be Japanese, unless the user explicitly asked for another language.
+5. IF the edit is one contiguous range → call editEpisode once. IF multiple separate ranges → collect ALL from the same pre-edit text and call editEpisodeBatch exactly once.
+6. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range or the change is ambiguous.
+7. IF the tool reports an expectedText mismatch → re-read only the failed range, then retry with the latest exact text.
+8. After a successful edit, report editSummary or editedLineRanges once. Do not print expectedText or replacementText unless asked.
+9. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」.
+"#);
+    }
+
+    s
+}
+
+const BASE_TOOL_GUIDANCE: &str = r#"
 TOOL USE — follow these steps in this exact order for every request:
 
 STEP 1 — DECIDE:
