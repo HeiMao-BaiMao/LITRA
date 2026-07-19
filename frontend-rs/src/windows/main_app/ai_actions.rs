@@ -224,7 +224,7 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let prompt = crate::windows::main_app::generation::old_prompts::summary_episode(&text);
+    let prompt = crate::windows::main_app::generation::old_prompts::summary_episode(&text, None, None);
     let result = generate(state, "background", super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(), prompt).await;
     let (project_id, episode_id) = {
         let current = state.borrow();
