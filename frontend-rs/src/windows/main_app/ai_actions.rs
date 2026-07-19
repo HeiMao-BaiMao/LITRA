@@ -188,16 +188,13 @@ pub async fn chat(
     let prompt = if direct {
         format!("現在の本文（末尾最大12000文字）:\n{editor_context}\n\n【依頼】\n{history}")
     } else {
-        format!(
-            "【これは編集者との相談/チャットです。本文編集ツールは、ユーザーが明示的に編集を依頼した場合のみ使用してください。単なる挨拶・質問・相談にはツールを呼ばず、自然な会話で返答してください。】\n\n{history}"
-        )
+        // TS版と同様: チャット履歴をそのまま渡す。
+        // システムプロンプト（編集パートナー + ツールガイダンス）だけで
+        // チャット応答とツール呼出のバランスを取る。余計なプレフィックスは不要。
+        history
     };
     generating(document, state, true)?;
-    let system = if direct {
-        "あなたは小説制作アプリLITRAの執筆者です。最後のユーザー指示に従って本文を編集または追記してください。\n\nDIRECT CREATIVE EDITING MODE — ACTIVE:\n- 新しい本文を書く/既存本文を編集する依頼には、editEpisode ツールを使って正確に本文へ反映すること。\n- まず getEpisodeLines または findEpisodeLines で正確な行番号と現在のテキストを取得する。\n- expectedText には取得した行のテキストをそのまま（行番号プレフィックスを除いて）コピーする。\n- 末尾への追記の場合は、最終行を expectedText に指定し replacementText に「最終行 + 新規本文」を渡す。\n- 本文以外の出力（案文の提示だけ、説明）は禁止。完了は editEpisode が success を返してからのみ。\n- editEpisode が exact-text mismatch で失敗したら、影響範囲を再読込してもう一度だけ試行する。\n- 純然たる相談・質問には editEpisode を呼ばず、通常の回答を返してよい。".to_string()
-    } else {
-        EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string()
-    };
+    let system = EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string();
     let result = super::agent_tools::run(state, system, prompt, direct).await;
     generating(document, state, false)?;
     let result = result?;
