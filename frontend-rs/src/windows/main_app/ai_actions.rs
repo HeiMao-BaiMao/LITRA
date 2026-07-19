@@ -173,6 +173,7 @@ pub async fn chat(
         .map(|message| format!("{}: {}", message.role, message.content))
         .collect::<Vec<_>>()
         .join("\n\n");
+    let direct = current.direct_writing;
     let editor_context = current
         .editor_text
         .chars()
@@ -182,27 +183,25 @@ pub async fn chat(
         .chars()
         .rev()
         .collect::<String>();
-    let direct = current.direct_writing;
     drop(current);
-    let prompt = format!("現在の本文末尾:\n{editor_context}\n\n会話:\n{history}");
+
+    let prompt = if direct {
+        format!("現在の本文（末尾最大12000文字）:\n{editor_context}\n\n【依頼】\n{history}")
+    } else {
+        format!(
+            "【これは編集者との相談/チャットです。本文編集ツールは、ユーザーが明示的に編集を依頼した場合のみ使用してください。単なる挨拶・質問・相談にはツールを呼ばず、自然な会話で返答してください。】\n\n{history}"
+        )
+    };
     generating(document, state, true)?;
-    // 直接執筆モードでもツールパイプラインを経由する。
-    // システムプロンプトで AI に editEpisode ツールを使った本文編集を指示し、
-    // 自動追記（auto-append）は行わない。AI が editEpisode を呼んで適用するか、
-    // チャット上で編集案を提示する。TS版 directCreativeEdit の設計意図に準拠。
     let system = if direct {
         "あなたは小説制作アプリLITRAの執筆者です。最後のユーザー指示に従って本文を編集または追記してください。\n\nDIRECT CREATIVE EDITING MODE — ACTIVE:\n- 新しい本文を書く/既存本文を編集する依頼には、editEpisode ツールを使って正確に本文へ反映すること。\n- まず getEpisodeLines または findEpisodeLines で正確な行番号と現在のテキストを取得する。\n- expectedText には取得した行のテキストをそのまま（行番号プレフィックスを除いて）コピーする。\n- 末尾への追記の場合は、最終行を expectedText に指定し replacementText に「最終行 + 新規本文」を渡す。\n- 本文以外の出力（案文の提示だけ、説明）は禁止。完了は editEpisode が success を返してからのみ。\n- editEpisode が exact-text mismatch で失敗したら、影響範囲を再読込してもう一度だけ試行する。\n- 純然たる相談・質問には editEpisode を呼ばず、通常の回答を返してよい。".to_string()
     } else {
         EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string()
     };
-    // 両モードともツールパイプライン経由で生成する。
-    // direct モードでは AI が editEpisode を呼んで本文に反映する。
-    let result = super::agent_tools::run(state, system.into(), prompt).await;
+    let result = super::agent_tools::run(state, system, prompt).await;
     generating(document, state, false)?;
     let result = result?;
     if direct {
-        // 自動追記は行わない。AI の応答をそのまま表示し、
-        // editEpisode が呼ばれた場合はその結果が本文に保存されている。
         push_assistant(
             document,
             state,
