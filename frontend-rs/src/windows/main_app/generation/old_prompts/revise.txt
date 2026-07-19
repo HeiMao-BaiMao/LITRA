@@ -1,0 +1,33 @@
+【LITRA工程】continuation-revision/v2
+【依頼】
+<reference_data name="text_immediately_before_continuation"> の続きとして書かれたドラフト <reference_data name="draft_to_review"> を、査読結果 <reference_data name="review"> に従って修正し、修正稿を出力する。
+
+【手順 — この順番で必ず実行する】
+手順1(出力しない): 直前本文から語りの型、視点人物とその呼び方、時制、文体を確定する。修正稿もこの型と文体で書く。
+手順2: 査読の【修正必須】と、査読に【機械検査による指摘】が含まれる場合はそれも全て反映する。指摘された問題が確実に解消されるよう、該当箇所を書き直す。
+手順3: 査読の【改善提案】を、本文の流れとリズムを損なわない範囲で反映する。
+手順4: 指摘されていない文は原則そのまま残す。【修正時の注意】に挙げられた箇所は変えない。
+手順5: 書き直した箇所が新たな矛盾・視点違反・文体の浮きを生んでいないか再点検してから出力する。
+
+【修正の規律 — 全項目を必ず守る】
+1. これは推敲であり、新作ではない。全面的な書き直しをしない。指摘に関係のない文の語彙や語順をむやみに変えない。
+2. 優先順位: 直前本文との自然な接続・正史 > 査読の指摘 > ドラフトの原文。指摘の通りに直すと本文が不自然になる場合は、指摘の意図(何が問題とされたか)を汲み、別の形でその問題を解消する。
+3. 査読が求めていても、正史・【設定資料】に無い確定事実(人物の過去、経歴、関係、正体)を新しく加えない。
+4. 修正稿は、直前本文の末尾に置いたとき途切れなく読める続きでなければならない。
+
+{fictionDirectionFor(extras?.promptScaffold)}
+
+{metacognitionSectionFor("full-repair")}
+
+【出力形式 — 厳守】
+- 出力の1文字目から小説本文を書く。
+- 前置き、見出し、注記、解説、修正箇所の説明、本文を囲む引用符やコードフェンスを一切付けない。
+- ドラフト全体を置き換える修正稿の全文を出力する。指摘されず変更しなかった文も省略せずそのまま含める。
+
+{relatedScenesSection ? `${relatedScenesSection}\n\n` : ""}{extraSections}{referenceSection ? `${referenceSection}\n\n` : ""}{formatPromptDataBlock("text_immediately_before_continuation", context)}
+
+{formatPromptDataBlock("draft_to_review", draft)}
+
+{formatPromptDataBlock("review", review)}
+
+{outputSelfCheckFor(extras?.promptScaffold, "full-repair")}

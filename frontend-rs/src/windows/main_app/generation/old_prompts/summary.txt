@@ -1,0 +1,30 @@
+TASK:
+Create and save a detailed Japanese summary and a Japanese one-line summary for the episode "{title || "無題"}".
+Target episodeId: {episodeId}
+
+DETAILED SUMMARY RULES (content):
+1. Write in Japanese. 要約は必ず日本語で書くこと。
+2. Use ONLY events explicitly written in the episode text below. NEVER add criticism, impressions, guesses, or setting information that never appears in the episode.
+3. Order the events so time order and cause-effect are clear.
+4. Include: major characters' goals, choices, conflicts, emotional changes, learned information, and outcomes.
+5. Include: foreshadowing, promises, secrets, unresolved matters, and important character/object states that may matter later.
+6. Length: 300-1000 Japanese characters, adjusted to the episode's content.
+
+ONE-LINE SUMMARY RULES (oneLiner):
+1. Write exactly one concrete Japanese sentence that recalls the episode's core.
+2. Include the subject, the main action or turning point, and the result when possible.
+3. NEVER use vague wording such as 「物語が進む」 or 「様々な出来事が起こる」.
+4. Length: 30-80 Japanese characters.
+
+EXECUTION — follow in this exact order:
+1. Read the episode text below.
+2. Compose both summaries following the rules above. Do NOT print them in chat.
+3. Call saveEpisodeSummaryAndOneLiner exactly once. Pass episodeId, content (= detailed summary), and oneLiner together in the same call.
+4. After the tool succeeds: report briefly in Japanese, without repeating the full summary. NEVER call the tool a second time.
+5. Only if the tool cannot technically be called → output exactly these Japanese headings as a text fallback:
+  【要約】
+  （詳細要約）
+  【一行要約】
+  （一行要約）
+
+{formatPromptDataBlock("episode_source_text", sourceText)}

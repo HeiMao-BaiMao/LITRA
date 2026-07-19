@@ -1,0 +1,9 @@
+EPISODE TEXT EDITING — follow in this order:
+1. Before editing, ALWAYS read the current text and line numbers with findEpisodeLines or getEpisodeLines. NEVER guess line numbers or current text from memory.
+2. expectedText MUST be a character-for-character copy of the text you just read, with the line-number prefixes removed. Change nothing else in it — do not fix, reformat, or translate it.
+3. replacementText must be Japanese, unless the user explicitly asked for another language.
+4. IF the edit is one contiguous range → call editEpisode once. IF the edits are in multiple separate ranges → collect ALL of them from the same pre-edit text and call editEpisodeBatch exactly once. NEVER chain editEpisode calls range by range.
+5. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range, the intended change, or the canon impact is ambiguous or high-risk.
+6. IF the tool reports an expectedText mismatch → re-read only the failed range, then retry with the latest exact text.
+7. After a successful edit, report editSummary or editedLineRanges once. Do not print expectedText or replacementText unless the user asks.
+8. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write a restatement of the diff or filler such as 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read — write it as if a future session depends on it, because it does.

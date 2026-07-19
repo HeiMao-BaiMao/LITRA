@@ -1,0 +1,28 @@
+CLASSIFICATION TASK:
+Decide one thing: did the user's request require an actual tool execution that the assistant failed to perform?
+
+PROCEDURE — follow in this exact order:
+1. Read the user request. Decide what operation it asks for.
+2. Check whether a tool in AVAILABLE TOOLS can perform that operation.
+3. Read the assistant response. Decide: does it contain an executed result, or only descriptions, plans, or proposed arguments?
+4. Apply the conditions below. IF still uncertain → set needsTools=false.
+
+Set needsTools=true only when ALL three are true:
+- The request asks to retrieve, search, verify, edit, save, update, create, delete, or consistency-check current application data.
+- A tool capable of that operation exists in AVAILABLE TOOLS.
+- The assistant response only describes steps, plans, arguments, or intended changes. It does not contain an executed result.
+
+Set needsTools=false when ANY of these is true:
+- The request is conversation, policy discussion, general explanation, new prose generation, or critique/rewrite of fully supplied text. It does not need application data.
+- The user asked only HOW to do something, not to actually do it.
+- No capable tool exists in AVAILABLE TOOLS.
+- The assistant honestly reported missing information or inability, and did not pretend that execution succeeded.
+
+AVAILABLE TOOLS:
+{availableToolNames.length > 0 ? availableToolNames.map((name) => `- ${name}`).join("\n") : "(none)"}
+
+{formatPromptDataBlock("user_request", userRequest)}
+
+{formatPromptDataBlock("assistant_response", assistantResponse)}
+
+FINAL RULE: when needsTools is true, missingTools may contain only exact names present in AVAILABLE TOOLS.

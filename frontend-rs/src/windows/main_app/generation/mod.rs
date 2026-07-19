@@ -1,9 +1,13 @@
+pub(crate) mod old_prompts;
 mod prompts;
 mod review;
 
 use serde_json::Value;
 use wasm_bindgen::JsValue;
 
+use crate::ai::draft_checks;
+use crate::ai::plan_beats;
+use crate::ai::style_fingerprint;
 use crate::runtime::ai;
 
 pub async fn continue_story(settings: &Value, context: &str) -> Result<ai::GeneratedText, JsValue> {
@@ -15,6 +19,10 @@ pub async fn continue_story_with_instruction(
     context: &str,
     instruction: &str,
 ) -> Result<ai::GeneratedText, JsValue> {
+    // 文体指紋を計測（続き生成前に本文の統計的特徴を取得）
+    let fingerprint = style_fingerprint::measure_style_fingerprint(context);
+    let _ = &fingerprint; // プロンプト拡張用に予約（将来の prompts 統合で使用）
+
     let scene = if enabled(settings, "continuationSceneStateEnabled") {
         optional_judgment(
             "あなたは小説の連続性を管理する編集者です。",
@@ -51,6 +59,14 @@ pub async fn continue_story_with_instruction(
         String::new()
     };
 
+    // ビート分割生成: 構想メモから主要ビートを抽出
+    let beats = if enabled(settings, "continuationBeatSplitEnabled") && !plan.is_empty() {
+        plan_beats::parse_plan_beats(&plan)
+    } else {
+        vec![]
+    };
+    let _ = &beats; // 将来のマルチビート分割生成で使用
+
     let first = draft(context, instruction, &plan, &scene, &voices).await?;
     let mut selected = if enabled(settings, "continuationBestOfTwo") {
         let second = draft(context, instruction, &plan, &scene, &voices).await?;
@@ -62,6 +78,16 @@ pub async fn continue_story_with_instruction(
     } else {
         first
     };
+
+    // 機械検査: ハード違反があれば破棄して再生成（最大1回リトライ）
+    let mechanical = draft_checks::check_draft(&selected.text, context);
+    if !mechanical.hard.is_empty() && !enabled(settings, "continuationBestOfTwo") {
+        let retry = draft(context, instruction, &plan, &scene, &voices).await?;
+        let retry_check = draft_checks::check_draft(&retry.text, context);
+        if retry_check.hard.len() < mechanical.hard.len() {
+            selected = retry;
+        }
+    }
 
     if enabled(settings, "continuationReviewEnabled") {
         let findings = review::inspect(context, &selected.text).await?;
@@ -130,18 +156,21 @@ async fn draft(
     scene: &str,
     voices: &str,
 ) -> Result<ai::GeneratedText, JsValue> {
-    ai::generate(
+    let mut result = ai::generate(
         "writing",
-        "あなたは日本語小説の執筆者です。既存本文の文体・視点・時制を維持し、説明や前置きを付けず本文の続きだけを書いてください。".into(),
+        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
         prompts::draft(context, instruction, plan, scene, voices),
     )
-    .await
+    .await?;
+    // 機械的サニタイズ: 前置き・コードフェンス・見出しの除去
+    result.text = draft_checks::sanitize_draft_text(&result.text);
+    Ok(result)
 }
 
 async fn rewrite_candidate(context: &str, passage: &str) -> Result<ai::GeneratedText, JsValue> {
     ai::generate(
         "writing",
-        "あなたは日本語小説の編集者です。指定範囲の書き直し本文だけを返してください。".into(),
+        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
         prompts::rewrite(context, passage),
     )
     .await
