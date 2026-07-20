@@ -228,16 +228,60 @@ pub async fn feedback_selection(
         &settings_context,
     );
     generating(document, state, true)?;
-    let result = generate(
-        state,
-        "judgment",
-        "あなたは率直で建設的な小説編集者です。".into(),
-        prompt,
-    )
-    .await;
+    // ストリーミング表示: 空のアシスタントメッセージを先に追加
+    let msg_index = {
+        let mut current = state.borrow_mut();
+        current.chat.push(ChatMessage {
+            role: "assistant".into(),
+            content: String::new(),
+            thinking: None,
+            exclude_from_context: false,
+            id: None,
+            created_at: None,
+            transport: None,
+        });
+        current.chat.len() - 1
+    };
+    super::render::all(document, &state.borrow())?;
+
+    let stream_state = Rc::clone(state);
+    let stream_document = document.clone();
+    let result = {
+        let current = state.borrow();
+        let provider = current.selected_provider.clone();
+        let model = current.selected_model.clone();
+        drop(current);
+        ai::generate_streaming(
+            "judgment",
+            "あなたは率直で建設的な小説編集者です。".into(),
+            prompt,
+            provider.as_deref(),
+            model.as_deref(),
+            |chunk| {
+                if let Some(msg) = stream_state.borrow_mut().chat.get_mut(msg_index) {
+                    msg.content.push_str(chunk);
+                }
+                let _ = super::render::all(&stream_document, &stream_state.borrow());
+            },
+        )
+        .await
+    };
     generating(document, state, false)?;
     let generated = result?;
-    push_assistant(document, state, generated.text).await
+    // 最終テキストで確定
+    if let Some(msg) = state.borrow_mut().chat.get_mut(msg_index) {
+        msg.content = generated.text;
+        msg.transport = Some(super::agent_tools::make_transport(
+            &generated.provider,
+            &generated.model,
+            generated.finish_reason.as_deref(),
+            "feedback",
+        ));
+    }
+    save_chat(state).await?;
+    super::render::all(document, &state.borrow())?;
+    sync_chat(&state.borrow());
+    Ok(())
 }
 
 pub async fn chat(

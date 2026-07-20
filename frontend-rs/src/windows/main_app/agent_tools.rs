@@ -332,6 +332,27 @@ fn chat_transport(provider: &str, model: &str, finish_reason: Option<&str>) -> C
     }
 }
 
+pub fn make_transport(
+    provider: &str,
+    model: &str,
+    finish_reason: Option<&str>,
+    kind: &str,
+) -> ChatTransportMetadata {
+    ChatTransportMetadata {
+        provider: Some(provider.into()),
+        model: Some(model.into()),
+        base_url: None,
+        protocol: None,
+        response_id: None,
+        response_model_id: None,
+        finish_reason: finish_reason.map(|s| s.into()),
+        max_tokens: None,
+        max_context_tokens: None,
+        created_at: Some(now()),
+        kind: Some(kind.into()),
+    }
+}
+
 fn upsert_tool_card(
     state: &Rc<RefCell<State>>,
     call_id: &str,
