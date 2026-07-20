@@ -53,7 +53,39 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     refresh_list(document, &state).await?;
     events::bind(document, Rc::clone(&state))?;
     events::listen_sync(document.clone(), Rc::clone(&state)).await?;
+    bind_resizer(document)?;
     tauri::emit("genre-library-ready", &js_sys::Object::new());
+    Ok(())
+}
+
+fn bind_resizer(document: &Document) -> Result<(), JsValue> {
+    use crate::data::layout_store;
+    use crate::ui::resizable::{
+        apply_stored_ratio, create_vertical_resizer, ResizerConfig, ResizerPosition,
+    };
+    use wasm_bindgen::JsCast;
+
+    let Some(el) = document
+        .get_element_by_id("genre-library-main")
+        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+    else {
+        return Ok(());
+    };
+    apply_stored_ratio(
+        el.clone(),
+        "--genre-sidebar-width",
+        layout_store::PANEL_GENRE_SIDEBAR,
+        0.22,
+    );
+    let _ = create_vertical_resizer(
+        document,
+        ResizerConfig::new(
+            el,
+            "--genre-sidebar-width",
+            ResizerPosition::Left,
+            layout_store::PANEL_GENRE_SIDEBAR,
+        ),
+    )?;
     Ok(())
 }
 

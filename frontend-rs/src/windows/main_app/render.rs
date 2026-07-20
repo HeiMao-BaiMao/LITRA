@@ -260,7 +260,16 @@ pub fn chat(document: &Document, state: &State) -> Result<(), JsValue> {
 
 pub fn projects(document: &Document, state: &State) -> Result<(), JsValue> {
     if let Some(list) = document.get_element_by_id("project-list") {
-        let html = state.projects.iter().map(|project| format!(r#"<div class="project-list-item" title="更新: {updated}"><button data-action="open-project" data-id="{id}" class="project-list-title">{title}</button><button data-action="delete-project" data-id="{id}" class="project-list-delete">削除</button></div>"#, id=escape(&project.id), title=escape(&project.title), updated=escape(&project.updated_at))).collect::<String>();
+        let html = if state.projects.is_empty() {
+            "<div class=\"project-list-empty\">プロジェクトがありません。</div>".to_string()
+        } else {
+            state.projects.iter().map(|project| format!(
+                r#"<div class="project-list-item"><div class="project-list-info"><div class="project-list-title">{title}</div><div class="project-list-meta">更新: {updated}</div></div><div class="project-list-actions"><button data-action="open-project" data-id="{id}">開く</button><button data-action="delete-project" data-id="{id}" class="danger">削除</button></div></div>"#,
+                id=escape(&project.id),
+                title=escape(&project.title),
+                updated=escape(&project.updated_at),
+            )).collect::<String>()
+        };
         list.set_inner_html(&html);
     }
     Ok(())
@@ -268,7 +277,21 @@ pub fn projects(document: &Document, state: &State) -> Result<(), JsValue> {
 
 fn episodes(document: &Document, state: &State) -> Result<(), JsValue> {
     if let Some(list) = document.get_element_by_id("episode-list") {
-        let html = state.episodes.iter().map(|episode| { let active = if state.current_episode_id.as_deref() == Some(&episode.id) { " active" } else { "" }; format!(r#"<div class="nav-episode-item{active}" data-order="{order}"><button data-action="select-episode" data-id="{id}" class="nav-episode-title">{title}</button><button data-action="move-episode-up" data-id="{id}" title="上へ">↑</button><button data-action="move-episode-down" data-id="{id}" title="下へ">↓</button><button data-action="rename-episode" data-id="{id}" title="名前変更">✎</button><button data-action="delete-episode" data-id="{id}" title="削除">×</button></div>"#, id=escape(&episode.id), title=escape(&episode.title), order=episode.order) }).collect::<String>();
+        let count = state.episodes.len();
+        let html = state.episodes.iter().enumerate().map(|(index, episode)| {
+            let active = if state.current_episode_id.as_deref() == Some(&episode.id) { " active" } else { "" };
+            let up_disabled = if index == 0 { " disabled" } else { "" };
+            let down_disabled = if index + 1 >= count { " disabled" } else { "" };
+            format!(
+                r#"<div class="nav-episode-item{active}" data-order="{order}" data-id="{id}"><span class="nav-episode-drag-handle" draggable="true">≡</span><div class="nav-episode-move-controls"><button class="nav-episode-move" data-action="move-episode-up" data-id="{id}"{up_disabled} title="上へ">▲</button><button class="nav-episode-move" data-action="move-episode-down" data-id="{id}"{down_disabled} title="下へ">▼</button></div><div class="nav-episode-title-container"><button data-action="select-episode" data-id="{id}" class="nav-episode-title">{title}</button><button data-action="rename-episode" data-id="{id}" class="nav-episode-edit" title="名前変更">✎</button><button data-action="delete-episode" data-id="{id}" class="nav-episode-delete" title="削除">×</button></div></div>"#,
+                active=active,
+                order=episode.order,
+                id=escape(&episode.id),
+                title=escape(&episode.title),
+                up_disabled=up_disabled,
+                down_disabled=down_disabled,
+            )
+        }).collect::<String>();
         list.set_inner_html(&html);
     }
     Ok(())

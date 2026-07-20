@@ -49,7 +49,38 @@ async fn mount_editor(document: &Document, bind_tabs: bool) -> Result<(), JsValu
         bind_tab(document, "#tab-relationships", "relationships")?;
     }
     events::bind(document, &container, state)?;
+    bind_resizer(document)?;
     tauri::emit("settings-ready", &Object::new());
+    Ok(())
+}
+
+fn bind_resizer(document: &Document) -> Result<(), JsValue> {
+    use crate::data::layout_store;
+    use crate::ui::resizable::{
+        apply_stored_ratio, create_vertical_resizer, ResizerConfig, ResizerPosition,
+    };
+
+    let Some(el) = document
+        .get_element_by_id("settings-container")
+        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+    else {
+        return Ok(());
+    };
+    apply_stored_ratio(
+        el.clone(),
+        "--settings-sidebar-width",
+        layout_store::PANEL_SETTINGS_SIDEBAR,
+        0.25,
+    );
+    let _ = create_vertical_resizer(
+        document,
+        ResizerConfig::new(
+            el,
+            "--settings-sidebar-width",
+            ResizerPosition::Inside,
+            layout_store::PANEL_SETTINGS_SIDEBAR,
+        ),
+    )?;
     Ok(())
 }
 

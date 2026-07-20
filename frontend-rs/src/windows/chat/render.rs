@@ -1,5 +1,6 @@
 use ammonia::Builder;
 use pulldown_cmark::{html, Options, Parser};
+use serde_json::Value;
 use wasm_bindgen::{closure::Closure, JsCast};
 use web_sys::Element;
 
@@ -171,6 +172,7 @@ fn render_tool_call(content: &str) -> Option<String> {
     let (status, tool_name) = header.split_once(':')?;
     let mut state = status.trim().to_owned();
     let mut id = None;
+    let mut chips: Vec<String> = Vec::new();
     let mut input = Vec::new();
     let mut output = Vec::new();
     let mut section = "";
@@ -180,6 +182,13 @@ fn render_tool_call(content: &str) -> Option<String> {
             section = "";
         } else if let Some(value) = line.strip_prefix("ID:") {
             id = Some(value.trim().to_owned());
+            section = "";
+        } else if let Some(value) = line.strip_prefix("チップ:") {
+            chips = value
+                .split('|')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect();
             section = "";
         } else if let Some(value) = line.strip_prefix("入力:") {
             input.push(value.trim_start());
@@ -204,19 +213,21 @@ fn render_tool_call(content: &str) -> Option<String> {
     } else {
         "neutral"
     };
+    let chips_html = render_tool_chips(&chips);
     Some(format!(
         r#"<details class="tool-call-card {status_class}">
           <summary class="tool-call-summary">
             <div class="tool-call-header"><div class="tool-call-title"><span class="tool-call-icon">TOOL</span><span class="tool-call-name">{}</span></div><span class="tool-call-status">{}</span></div>
             {}
           </summary>
-          {}{}
+          {}{}{}
         </details>"#,
         escape_html(tool_name.trim()),
         escape_html(&state),
         id.map(|id| format!(r#"<div class="tool-call-id">{}</div>"#, escape_html(&id)))
             .unwrap_or_default(),
-        render_tool_section("入力", &input.join("\n")),
+        chips_html,
+        render_tool_section_kv("入力", &input.join("\n")),
         render_tool_section("結果", &output.join("\n")),
     ))
 }
@@ -235,6 +246,69 @@ fn render_tool_section(title: &str, value: &str) -> String {
         escape_html(title),
         escape_html(&value)
     )
+}
+
+fn render_tool_chips(chips: &[String]) -> String {
+    if chips.is_empty() {
+        return String::new();
+    }
+    let items = chips
+        .iter()
+        .map(|chip| format!(r#"<span class="tool-call-chip">{}</span>"#, escape_html(chip)))
+        .collect::<String>();
+    format!(r#"<div class="tool-call-chips">{items}</div>"#)
+}
+
+/// 入力セクションをJSONとしてパースし、キーバリュー形式で描画する。
+/// パースできない場合は通常の `render_tool_section` にフォールバックする。
+fn render_tool_section_kv(title: &str, value: &str) -> String {
+    if value.trim().is_empty() {
+        return String::new();
+    }
+    if let Ok(json) = serde_json::from_str::<Value>(value) {
+        if let Some(obj) = json.as_object() {
+            if !obj.is_empty() {
+                let items = obj
+                    .iter()
+                    .map(|(key, val)| {
+                        let val_str = format_tool_value(val);
+                        format!(
+                            r#"<div class="tool-call-kv"><h4>{}</h4><pre class="tool-call-value"><code>{}</code></pre></div>"#,
+                            escape_html(key),
+                            escape_html(&val_str)
+                        )
+                    })
+                    .collect::<String>();
+                return format!(
+                    r#"<div class="tool-call-section"><div class="tool-call-section-title">{}</div><div class="tool-call-kv-list">{}</div></div>"#,
+                    escape_html(title),
+                    items
+                );
+            }
+        }
+    }
+    render_tool_section(title, value)
+}
+
+fn format_tool_value(value: &Value) -> String {
+    match value {
+        Value::String(s) => {
+            if s.chars().count() > 800 {
+                format!("{}…", s.chars().take(800).collect::<String>())
+            } else {
+                s.clone()
+            }
+        }
+        _ => {
+            let text =
+                serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+            if text.chars().count() > 800 {
+                format!("{}…", text.chars().take(800).collect::<String>())
+            } else {
+                text
+            }
+        }
+    }
 }
 
 fn render_markdown_or_fallback(content: &str) -> String {

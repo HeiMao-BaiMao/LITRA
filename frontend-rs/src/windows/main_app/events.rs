@@ -22,6 +22,8 @@ use crate::{
 
 pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
     bind_click(document, Rc::clone(&state))?;
+    bind_episode_list(document, Rc::clone(&state))?;
+    bind_project_modal(document, Rc::clone(&state))?;
     bind_inputs(document, state)
 }
 
@@ -246,8 +248,36 @@ async fn handle_click(
                 else {
                     return Ok(());
                 };
-                if confirm("このエピソードを削除しますか？") {
+                let title = state
+                    .borrow()
+                    .episodes
+                    .iter()
+                    .find(|episode| episode.id == id)
+                    .map(|episode| episode.title.clone())
+                    .unwrap_or_else(|| "（無題）".into());
+                if confirm(&format!("「{title}」を削除しますか？")) {
                     projects::remove_episode(&project_id, &id).await?;
+                    // E-1: 削除されたエピソードを参照するリレーションシップグループを除去
+                    {
+                        let mut current = state.borrow_mut();
+                        if let Some(groups) = current
+                            .relationships
+                            .get_mut("groups")
+                            .and_then(|value| value.as_array_mut())
+                        {
+                            groups.retain(|group| {
+                                group.get("episodeId").and_then(|v| v.as_str()) != Some(&id)
+                            });
+                        }
+                        let relationships = current.relationships.clone();
+                        drop(current);
+                        let _ = projects::write_document(
+                            &project_id,
+                            "relationships",
+                            &relationships,
+                        )
+                        .await;
+                    }
                     state.borrow_mut().episodes = projects::list_episodes(&project_id).await?;
                     let next = state
                         .borrow()
@@ -271,8 +301,8 @@ async fn handle_click(
                 "summary",
                 "summary-window.html",
                 "エピソード要約",
-                520.0,
-                620.0,
+                420.0,
+                640.0,
             )
             .await?
         }
@@ -283,8 +313,8 @@ async fn handle_click(
                 "memo",
                 "memo-window.html",
                 "エピソードメモ",
-                520.0,
-                620.0,
+                420.0,
+                640.0,
             )
             .await?
         }
@@ -295,8 +325,8 @@ async fn handle_click(
                 "chat",
                 "chat-window.html",
                 "リトラチャット",
-                620.0,
-                760.0,
+                480.0,
+                640.0,
             )
             .await?
         }
@@ -307,8 +337,8 @@ async fn handle_click(
                 "settings",
                 "settings-window.html",
                 "設定",
-                820.0,
-                760.0,
+                640.0,
+                700.0,
             )
             .await?
         }
@@ -319,8 +349,8 @@ async fn handle_click(
                 "project-memos",
                 "project-memo-window.html",
                 "プロジェクトメモ",
-                760.0,
-                680.0,
+                480.0,
+                640.0,
             )
             .await?
         }
@@ -328,8 +358,8 @@ async fn handle_click(
             "genre-library",
             "genre-library.html",
             "ジャンルライブラリ",
-            1100.0,
-            760.0,
+            960.0,
+            720.0,
         )
         .await
         .map(|_| ())?,
@@ -421,18 +451,18 @@ const POPOUT_TARGETS: [(&str, &str, &str, f64, f64); 5] = [
         "summary",
         "summary-window.html",
         "エピソード要約",
-        520.0,
-        620.0,
+        420.0,
+        640.0,
     ),
-    ("memo", "memo-window.html", "エピソードメモ", 520.0, 620.0),
-    ("chat", "chat-window.html", "リトラチャット", 620.0, 760.0),
-    ("settings", "settings-window.html", "設定", 820.0, 760.0),
+    ("memo", "memo-window.html", "エピソードメモ", 420.0, 640.0),
+    ("chat", "chat-window.html", "リトラチャット", 480.0, 640.0),
+    ("settings", "settings-window.html", "設定", 640.0, 700.0),
     (
         "project-memos",
         "project-memo-window.html",
         "プロジェクトメモ",
-        760.0,
-        680.0,
+        480.0,
+        640.0,
     ),
 ];
 
@@ -510,6 +540,275 @@ async fn popout(
         }) as Box<dyn FnMut()>),
     )
     .await
+}
+
+/// エピソードリストのDnD並び替え + ダブルクリックによるインラインタイトル編集
+fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let Some(list) = document.get_element_by_id("episode-list") else {
+        return Ok(());
+    };
+
+    // ダブルクリックでインラインタイトル編集
+    let dbl_state = Rc::clone(&state);
+    let dbl_document = document.clone();
+    let dblclick = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+        let Some(target) = event
+            .target()
+            .and_then(|t| t.dyn_into::<Element>().ok())
+        else {
+            return;
+        };
+        if !target.class_list().contains("nav-episode-title") {
+            return;
+        }
+        let Some(id) = target.get_attribute("data-id") else {
+            return;
+        };
+        let old_title = dbl_state
+            .borrow()
+            .episodes
+            .iter()
+            .find(|ep| ep.id == id)
+            .map(|ep| ep.title.clone())
+            .unwrap_or_default();
+        let container = match target.parent_element() {
+            Some(c) => c,
+            None => return,
+        };
+        let input = match dbl_document.create_element("input") {
+            Ok(el) => el,
+            Err(_) => return,
+        };
+        input.set_class_name("nav-episode-title-edit");
+        input.set_attribute("type", "text").ok();
+        input.set_attribute("value", &old_title).ok();
+        let _ = container.replace_child(&input, &target);
+        if let Some(html_input) = input.dyn_ref::<HtmlInputElement>() {
+            html_input.focus().ok();
+            html_input.select();
+        }
+        let commit_state = Rc::clone(&dbl_state);
+        let commit_document = dbl_document.clone();
+        let commit_id = id.clone();
+        let commit = Closure::wrap(Box::new(move |ev: Event| {
+            let input_el: HtmlInputElement = match ev.target().and_then(|t| t.dyn_into().ok()) {
+                Some(el) => el,
+                None => return,
+            };
+            let new_title = input_el.value();
+            let st = Rc::clone(&commit_state);
+            let doc = commit_document.clone();
+            let ep_id = commit_id.clone();
+            spawn_local(async move {
+                if !new_title.trim().is_empty() {
+                    if let Some(project_id) = st
+                        .borrow()
+                        .current_project
+                        .as_ref()
+                        .map(|p| p.id.clone())
+                    {
+                        let _ = projects::update_episode_title(&project_id, &ep_id, &new_title)
+                            .await;
+                        if let Ok(episodes) = projects::list_episodes(&project_id).await {
+                            st.borrow_mut().episodes = episodes;
+                        }
+                    }
+                }
+                let _ = super::render::all(&doc, &st.borrow());
+            });
+        }) as Box<dyn FnMut(Event)>);
+        let keydown_state = Rc::clone(&dbl_state);
+        let keydown_document = dbl_document.clone();
+        let keydown = Closure::wrap(Box::new(move |ev: web_sys::KeyboardEvent| {
+            match ev.key().as_str() {
+                "Enter" => {
+                    if let Some(target) = ev.target().and_then(|t| t.dyn_into::<HtmlInputElement>().ok()) {
+                        target.blur().ok();
+                    }
+                }
+                "Escape" => {
+                    let st = Rc::clone(&keydown_state);
+                    let doc = keydown_document.clone();
+                    spawn_local(async move {
+                        let _ = super::render::all(&doc, &st.borrow());
+                    });
+                }
+                _ => {}
+            }
+        }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+        input
+            .add_event_listener_with_callback("blur", commit.as_ref().unchecked_ref())
+            .ok();
+        input
+            .add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())
+            .ok();
+        commit.forget();
+        keydown.forget();
+    }) as Box<dyn FnMut(web_sys::MouseEvent)>);
+    list
+        .add_event_listener_with_callback("dblclick", dblclick.as_ref().unchecked_ref())?;
+    dblclick.forget();
+
+    // DnD 並び替え
+    let drag_state = Rc::clone(&state);
+    let drag_document = document.clone();
+    let drag_item: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    let dragstart_item = Rc::clone(&drag_item);
+    let dragstart = Closure::wrap(Box::new(move |event: web_sys::DragEvent| {
+        let Some(target) = event
+            .target()
+            .and_then(|t| t.dyn_into::<Element>().ok())
+        else {
+            return;
+        };
+        let item = match target.closest(".nav-episode-item") {
+            Ok(Some(el)) => el,
+            _ => return,
+        };
+        let id = item.get_attribute("data-id").unwrap_or_default();
+        *dragstart_item.borrow_mut() = Some(id);
+        item.class_list().add_1("dragging").ok();
+        if let Some(dt) = event.data_transfer() {
+            dt.set_effect_allowed("move");
+        }
+    }) as Box<dyn FnMut(web_sys::DragEvent)>);
+    list.add_event_listener_with_callback("dragstart", dragstart.as_ref().unchecked_ref())?;
+    dragstart.forget();
+
+    let dragover = Closure::wrap(Box::new(move |event: web_sys::DragEvent| {
+        event.prevent_default();
+        if let Some(dt) = event.data_transfer() {
+            dt.set_drop_effect("move");
+        }
+    }) as Box<dyn FnMut(web_sys::DragEvent)>);
+    list.add_event_listener_with_callback("dragover", dragover.as_ref().unchecked_ref())?;
+    dragover.forget();
+
+    let drop_state = Rc::clone(&drag_state);
+    let drop_document = drag_document.clone();
+    let drop_item = Rc::clone(&drag_item);
+    let drop = Closure::wrap(Box::new(move |event: web_sys::DragEvent| {
+        event.prevent_default();
+        let Some(target) = event
+            .target()
+            .and_then(|t| t.dyn_into::<Element>().ok())
+        else {
+            return;
+        };
+        let target_item = match target.closest(".nav-episode-item") {
+            Ok(Some(el)) => el,
+            _ => return,
+        };
+        let target_id = target_item.get_attribute("data-id").unwrap_or_default();
+        let dragged_id = drop_item.borrow().clone().unwrap_or_default();
+        if dragged_id.is_empty() || dragged_id == target_id {
+            return;
+        }
+        let st = Rc::clone(&drop_state);
+        let doc = drop_document.clone();
+        spawn_local(async move {
+            let Some(project_id) = st.borrow().current_project.as_ref().map(|p| p.id.clone())
+            else {
+                return;
+            };
+            let mut ids: Vec<String> = st
+                .borrow()
+                .episodes
+                .iter()
+                .map(|ep| ep.id.clone())
+                .collect();
+            let Some(from) = ids.iter().position(|id| id == &dragged_id) else {
+                return;
+            };
+            let Some(to) = ids.iter().position(|id| id == &target_id) else {
+                return;
+            };
+            let id = ids.remove(from);
+            ids.insert(to, id);
+            let _ = projects::reorder_episodes(&project_id, &ids).await;
+            if let Ok(episodes) = projects::list_episodes(&project_id).await {
+                st.borrow_mut().episodes = episodes;
+            }
+            let _ = super::render::all(&doc, &st.borrow());
+        });
+    }) as Box<dyn FnMut(web_sys::DragEvent)>);
+    list.add_event_listener_with_callback("drop", drop.as_ref().unchecked_ref())?;
+    drop.forget();
+
+    let dragend = Closure::wrap(Box::new(move |event: web_sys::DragEvent| {
+        if let Some(target) = event
+            .target()
+            .and_then(|t| t.dyn_into::<Element>().ok())
+        {
+            if let Ok(Some(item)) = target.closest(".nav-episode-item") {
+                item.class_list().remove_1("dragging").ok();
+            }
+        }
+    }) as Box<dyn FnMut(web_sys::DragEvent)>);
+    list.add_event_listener_with_callback("dragend", dragend.as_ref().unchecked_ref())?;
+    dragend.forget();
+
+    Ok(())
+}
+
+/// プロジェクトモーダルのバックドロップクリック + Enterキーで作成
+fn bind_project_modal(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    // バックドロップクリックで閉じる
+    if let Some(modal) = document.get_element_by_id("project-modal") {
+        if let Some(backdrop) = modal.query_selector(".modal-backdrop").ok().flatten() {
+            let backdrop_document = document.clone();
+            let click = Closure::wrap(Box::new(move |_event: Event| {
+                if let Some(modal) = backdrop_document.get_element_by_id("project-modal") {
+                    modal.class_list().add_1("hidden").ok();
+                }
+            }) as Box<dyn FnMut(Event)>);
+            backdrop.add_event_listener_with_callback("click", click.as_ref().unchecked_ref())?;
+            click.forget();
+        }
+    }
+
+    // Enterキーでプロジェクト作成
+    if let Some(input) = document.get_element_by_id("project-title-input") {
+        let enter_state = Rc::clone(&state);
+        let enter_document = document.clone();
+        let keydown = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+            if event.key() != "Enter" {
+                return;
+            }
+            let st = Rc::clone(&enter_state);
+            let doc = enter_document.clone();
+            spawn_local(async move {
+                let title = doc
+                    .get_element_by_id("project-title-input")
+                    .and_then(|el| el.dyn_into::<HtmlInputElement>().ok())
+                    .map(|input| input.value())
+                    .unwrap_or_default();
+                if title.trim().is_empty() {
+                    return;
+                }
+                if let Ok(project) = projects::create_project(&title).await {
+                    let _ = open_project(&doc, &st, project.id).await;
+                    if let Ok(projects_list) = projects::list_projects().await {
+                        st.borrow_mut().projects = projects_list;
+                    }
+                    let _ = super::render::all(&doc, &st.borrow());
+                }
+                if let Some(input) = doc.get_element_by_id("project-title-input") {
+                    if let Ok(input) = input.dyn_into::<HtmlInputElement>() {
+                        input.set_value("");
+                    }
+                }
+                if let Some(modal) = doc.get_element_by_id("project-modal") {
+                    modal.class_list().add_1("hidden").ok();
+                }
+            });
+        }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+        input.add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())?;
+        keydown.forget();
+    }
+
+    Ok(())
 }
 
 fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
@@ -697,6 +996,36 @@ fn bind_chat_form(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
     let submit_state = Rc::clone(&state);
     let handler = Closure::wrap(Box::new(move |event: Event| {
         event.prevent_default();
+
+        // A-5: 送信前バリデーション（TS版 handleChatSubmit 相当）
+        {
+            let current = submit_state.borrow();
+            // プロジェクト未選択
+            if current.current_project.is_none() {
+                alert("プロジェクトを選択または作成してください。");
+                return;
+            }
+            // 同時実行ガード
+            if current.is_generating || current.chat_in_flight {
+                return;
+            }
+            // チャットAI設定未完了
+            let provider_ok = current
+                .selected_provider
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+            let model_ok = current
+                .selected_model
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+            if !provider_ok || !model_ok {
+                alert("チャットのAI設定（プロバイダー・モデル）を設定してください。");
+                return;
+            }
+        }
+
         let Some(input) = submit_document
             .get_element_by_id("chat-input")
             .and_then(|item| item.dyn_into::<HtmlTextAreaElement>().ok())
@@ -704,17 +1033,52 @@ fn bind_chat_form(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
             return;
         };
         let content = input.value().trim().to_owned();
-        if content.is_empty() {}
+        if content.is_empty() {
+            return;
+        }
         input.set_value("");
         resize_chat_input(&input);
+
+        // A-5: inFlight ガードを設定
+        submit_state.borrow_mut().chat_in_flight = true;
+
         let document = submit_document.clone();
         let state = Rc::clone(&submit_state);
         spawn_local(async move {
-            if let Err(error) = super::ai_actions::chat(&document, &state, content).await {
-                state.borrow_mut().is_generating = false;
+            let result = super::ai_actions::chat(&document, &state, content).await;
+            // A-3: エラー時はチャット履歴にエラーメッセージを追加（TS版相当）
+            if let Err(error) = result {
+                let error_message = error
+                    .as_string()
+                    .unwrap_or_else(|| format!("{error:?}"));
+                let mut current = state.borrow_mut();
+                // 空のアシスタントメッセージを除去
+                if let Some(last) = current.chat.last() {
+                    if last.role == "assistant"
+                        && last.content.trim().is_empty()
+                        && last.thinking.as_deref().map(|t| t.trim().is_empty()).unwrap_or(true)
+                    {
+                        current.chat.pop();
+                    }
+                }
+                // エラーメッセージを履歴に追加
+                current.chat.push(super::ChatMessage {
+                    role: "assistant".into(),
+                    content: format!("⚠️ **エラーが発生しました**\n\n{error_message}"),
+                    thinking: None,
+                    exclude_from_context: true,
+                    id: None,
+                    created_at: None,
+                    transport: None,
+                });
+                current.is_generating = false;
+                drop(current);
+                let _ = super::ai_actions::save_chat(&state).await;
                 let _ = super::render::all(&document, &state.borrow());
-                report(error);
+                super::sync_chat(&state.borrow());
             }
+            // A-5: finally 相当 — inFlight ガードを解除
+            state.borrow_mut().chat_in_flight = false;
         });
     }) as Box<dyn FnMut(Event)>);
     form.add_event_listener_with_callback("submit", handler.as_ref().unchecked_ref())?;
@@ -1197,6 +1561,28 @@ async fn apply_child(
                     .first()
                     .and_then(|value| value.get("id")?.as_str())
                     .map(str::to_owned);
+                // E-1: 削除されたキャラクターを参照するリレーションシップを除去
+                if let Some(groups) = current
+                    .relationships
+                    .get_mut("groups")
+                    .and_then(|value| value.as_array_mut())
+                {
+                    for group in groups.iter_mut() {
+                        if let Some(rels) = group
+                            .get_mut("relationships")
+                            .and_then(|value| value.as_array_mut())
+                        {
+                            rels.retain(|rel| {
+                                rel.get("characterAId").and_then(|v| v.as_str()) != Some(id)
+                                    && rel.get("characterBId").and_then(|v| v.as_str())
+                                        != Some(id)
+                            });
+                        }
+                    }
+                }
+                let relationships = current.relationships.clone();
+                drop(current);
+                projects::write_document(&project_id, "relationships", &relationships).await?;
             }
         }
         ChildAction::SelectCharacter => {

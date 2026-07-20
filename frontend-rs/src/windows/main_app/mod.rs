@@ -42,6 +42,8 @@ struct State {
     memos: Value,
     chat: Vec<ChatMessage>,
     is_generating: bool,
+    /// チャット送信の同時実行防止ガード（TS版 `chatMessageInFlight` 相当）
+    chat_in_flight: bool,
     catalog: Vec<crate::runtime::ai::CatalogProvider>,
     selected_provider: Option<String>,
     selected_model: Option<String>,
@@ -408,6 +410,37 @@ async fn select_episode(
     state: &Rc<RefCell<State>>,
     episode_id: String,
 ) -> Result<(), JsValue> {
+    // E-3: 切り替え前に現在のエピソードの本文・要約・メモを保存する
+    {
+        let save_data = {
+            let current = state.borrow();
+            match (&current.current_project, &current.current_episode_id) {
+                (Some(project), Some(current_ep_id)) if current_ep_id != &episode_id => {
+                    let file_name = current
+                        .episodes
+                        .iter()
+                        .find(|ep| &ep.id == current_ep_id)
+                        .map(|ep| ep.file_name.clone());
+                    Some((
+                        project.id.clone(),
+                        file_name,
+                        current.editor_text.clone(),
+                        current.summaries.clone(),
+                        current.memos.clone(),
+                    ))
+                }
+                _ => None,
+            }
+        };
+        if let Some((project_id, file_name, editor_text, summaries, memos)) = save_data {
+            if let Some(file_name) = file_name {
+                let _ = projects::write_episode(&project_id, &file_name, &editor_text).await;
+            }
+            let _ = projects::write_document(&project_id, "summaries", &summaries).await;
+            let _ = projects::write_document(&project_id, "memos", &memos).await;
+        }
+    }
+
     let (project_id, file_name) = {
         let current = state.borrow();
         let project_id = current

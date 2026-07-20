@@ -43,6 +43,7 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     let state = Rc::new(RefCell::new(State::default()));
     events::bind(document, Rc::clone(&state))?;
     events::listen(document.clone(), Rc::clone(&state)).await?;
+    bind_resizer(document)?;
     state.borrow_mut().catalog = ai::catalog().await.unwrap_or_default();
     if let Ok((provider, model)) = ai::selection("chat").await {
         let mut current = state.borrow_mut();
@@ -53,6 +54,37 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     if !genre_id.is_empty() {
         load_genre(document, &state, genre_id).await?;
     }
+    Ok(())
+}
+
+fn bind_resizer(document: &Document) -> Result<(), JsValue> {
+    use crate::data::layout_store;
+    use crate::ui::resizable::{
+        apply_stored_ratio, create_vertical_resizer, ResizerConfig, ResizerPosition,
+    };
+    use wasm_bindgen::JsCast;
+
+    let Some(el) = document
+        .get_element_by_id("genre-chat-app")
+        .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+    else {
+        return Ok(());
+    };
+    apply_stored_ratio(
+        el.clone(),
+        "--genre-chat-sidebar-width",
+        layout_store::PANEL_GENRE_CHAT_SIDEBAR,
+        0.22,
+    );
+    let _ = create_vertical_resizer(
+        document,
+        ResizerConfig::new(
+            el,
+            "--genre-chat-sidebar-width",
+            ResizerPosition::Left,
+            layout_store::PANEL_GENRE_CHAT_SIDEBAR,
+        ),
+    )?;
     Ok(())
 }
 

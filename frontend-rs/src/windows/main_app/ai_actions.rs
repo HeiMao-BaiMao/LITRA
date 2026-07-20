@@ -10,6 +10,66 @@ use crate::{
     runtime::{ai, tauri},
 };
 
+/// 生成ステージの内部説明を TS と同じボタン表示用ラベルに変換する。
+/// 戻り値: (ラベル, 判断系モデルを使うか)
+fn stage_display_label(stage: &str) -> (&'static str, bool) {
+    match stage {
+        "場面状態を整理中" | "人物の話し方を整理中" => ("準備中…", true),
+        "構想を作成中" => ("構想中…", true),
+        "ビートごとに本文を生成中" | "本文候補を生成中" | "第2候補を生成中"
+        | "機械検査の指摘を再生成中" => ("執筆中…", false),
+        "候補を比較中" => ("比較中…", true),
+        "判断モデルで査読中" => ("査読中…", true),
+        "査読結果から改稿中" => ("改稿中…", false),
+        "改稿の回帰を確認中" => ("検証中…", true),
+        _ => ("生成中…", false),
+    }
+}
+
+/// AI 設定からステージ表示用のモデル名を取得する。
+/// TS の `stageModelLabel` / `truncateModelLabel` に相当。
+fn stage_model_label(settings: &serde_json::Value, judgment: bool) -> String {
+    let key = if judgment {
+        "judgmentModel"
+    } else {
+        "writingModel"
+    };
+    let source_key = if judgment {
+        "judgmentModelSource"
+    } else {
+        "writingModelSource"
+    };
+    let source = settings
+        .get(source_key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("main");
+    let model = if source != "main" {
+        settings
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .filter(|m| !m.trim().is_empty())
+            .or_else(|| settings.get("model").and_then(serde_json::Value::as_str))
+            .unwrap_or_default()
+    } else {
+        settings
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+    };
+    truncate_model_label(model)
+}
+
+/// 長いモデル ID をボタン表示用に切り詰める（TS `truncateModelLabel` 相当）。
+fn truncate_model_label(label: &str) -> String {
+    const MAX_CHARS: usize = 20;
+    if label.chars().count() <= MAX_CHARS {
+        label.to_owned()
+    } else {
+        let truncated: String = label.chars().take(MAX_CHARS).collect();
+        format!("{truncated}…")
+    }
+}
+
 /// 旧TS `systemPrompt` — 編集パートナーの役割定義。完成・洗礼済み。
 pub(crate) const EDITORIAL_PARTNER_SYSTEM_PROMPT: &str = include_str!("system_prompt.txt");
 pub async fn continue_story(
@@ -54,14 +114,29 @@ pub async fn continue_story(
             references.character_excerpts = format!("{context}\n\n{related}");
         }
     }
+    // TS handleContinue: ボタンにステージラベルを表示し、完了後に元に戻す
+    let btn_continue = document.get_element_by_id("btn-continue");
+    let original_label = btn_continue
+        .as_ref()
+        .and_then(|btn| btn.text_content());
     let result = super::generation::continue_story_with_references_progress(
         &settings,
         &context,
         "自然に続きを執筆する",
         &references,
-        |_| {},
+        |stage| {
+            if let Some(btn) = document.get_element_by_id("btn-continue") {
+                let (label, judgment) = stage_display_label(stage);
+                let model = stage_model_label(&settings, judgment);
+                btn.set_text_content(Some(&format!("{label}〔{model}〕")));
+            }
+        },
     )
     .await;
+    // finally: ボタンラベルを復元
+    if let Some(btn) = btn_continue.as_ref() {
+        btn.set_text_content(original_label.as_deref());
+    }
     generating(document, state, false)?;
     let generated = result?;
     let addition = generated.text.trim_start();
@@ -171,10 +246,14 @@ pub async fn chat(
     content: String,
 ) -> Result<(), JsValue> {
     let command = content.trim();
-    if command == "/clear" || command == "/new" {
-        if command == "/new" {
-            ai::cancel_active();
-        }
+    if command == "/clear" {
+        // /clear: 表示のみクリア（履歴は保持）— TS版相当
+        tauri::emit("chat-clear-display", &JsValue::NULL);
+        return Ok(());
+    }
+    if command == "/new" {
+        // /new: 履歴をクリア + 生成を中止
+        ai::cancel_active();
         {
             let mut current = state.borrow_mut();
             current.chat.clear();
@@ -249,7 +328,65 @@ pub async fn chat(
     }
     generating(document, state, true)?;
     let system = EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string();
-    let result = super::agent_tools::run(document, state, system, messages, direct).await;
+
+    const LENGTH_CONTINUATION_PROMPT: &str =
+        "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを書いてください。前置き、見出し、注釈は不要です。";
+    const MAX_LENGTH_CONTINUATIONS: usize = 2;
+
+    let mut continuation_count = 0;
+    let result = loop {
+        let run_result =
+            super::agent_tools::run(document, state, system.clone(), messages.clone(), direct)
+                .await;
+        match run_result {
+            Ok(ref generated)
+                if generated.finish_reason.as_deref() == Some("length")
+                    && !generated.text.trim().is_empty()
+                    && continuation_count < MAX_LENGTH_CONTINUATIONS =>
+            {
+                continuation_count += 1;
+                // 継続用ユーザーメッセージをチャットに追加
+                state.borrow_mut().chat.push(ChatMessage {
+                    role: "user".into(),
+                    content: LENGTH_CONTINUATION_PROMPT.into(),
+                    thinking: None,
+                    exclude_from_context: true,
+                    id: None,
+                    created_at: None,
+                    transport: None,
+                });
+                // メッセージを再構築
+                messages = state
+                    .borrow()
+                    .chat
+                    .iter()
+                    .filter(|message| {
+                        !message.exclude_from_context
+                            && !message.content.trim().is_empty()
+                            && matches!(message.role.as_str(), "user" | "assistant")
+                    })
+                    .rev()
+                    .take(30)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .map(|message| {
+                        serde_json::json!({
+                            "role": message.role,
+                            "content": message.content,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                messages.push(serde_json::json!({
+                    "role": "user",
+                    "content": LENGTH_CONTINUATION_PROMPT,
+                }));
+                continue;
+            }
+            other => break other,
+        }
+    };
+
     generating(document, state, false)?;
     if let Err(error) = result {
         // 失敗前に表示済みのThinkingやツール結果も失わない。
@@ -380,7 +517,7 @@ async fn push_assistant(
     sync_chat(&state.borrow());
     Ok(())
 }
-async fn save_chat(state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
+pub(super) async fn save_chat(state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
     let Some((project_id, chat)) = ({
         let current = state.borrow();
         current

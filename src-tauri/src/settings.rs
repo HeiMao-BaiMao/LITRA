@@ -352,24 +352,21 @@ pub async fn reset_all_settings(
     // 3. ウィンドウ状態を削除
     let _ = super::window_state::clear_window_state(app.clone());
 
-    // 4. 全プロバイダの API キーを削除
-    let api_key_names = [
-        "provider:openai",
-        "provider:anthropic",
-        "provider:deepseek",
-        "provider:google",
-        "provider:llamacpp",
-        "provider:sakura",
-        "provider:plamo",
-        "provider:opencode",
-        "provider:exa",
-    ];
-    for name in api_key_names {
-        let _ = crate::secrets::delete_secret(name);
+    // 4. 全プロバイダの API キーを削除（デフォルト設定の全プロバイダ ID を走査）
+    const DEFAULT_PROVIDERS: &str = include_str!("../../config/default-providers.json");
+    if let Ok(doc) = serde_json::from_str::<serde_json::Value>(DEFAULT_PROVIDERS) {
+        if let Some(providers) = doc["providers"].as_array() {
+            for provider in providers {
+                if let Some(id) = provider["id"].as_str() {
+                    let _ = crate::secrets::delete_secret(&format!("apikey:{id}"));
+                }
+            }
+        }
     }
 
-    // 5. WebDAV パスワード削除
+    // 5. WebDAV パスワード・Exa キー削除
     let _ = crate::secrets::delete_secret("webdav:password");
+    let _ = crate::secrets::delete_secret("websearch:exaApiKey");
 
     // 6. OAuth 認証情報を削除
     let _ = crate::ai::auth::store::oauth_credential_delete("codex".to_string());

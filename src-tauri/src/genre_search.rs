@@ -2,7 +2,6 @@ use crate::storage::{genre_dir, genre_search_index_dir as index_dir, read_json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{Schema, Value, STORED, TEXT};
@@ -73,7 +72,7 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
         json!({ "sources": [] })
     };
 
-    let knowledge_path = base.join("knowledge").join("index.json");
+    let knowledge_path = base.join("knowledge").join("current.json");
     let knowledge = if knowledge_path.exists() {
         read_json(&knowledge_path).unwrap_or_else(|_| json!({ "items": [], "candidates": [] }))
     } else {
@@ -103,62 +102,52 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
     for source in sources["sources"].as_array().unwrap_or(&Vec::new()) {
         let source_id = source["id"].as_str().unwrap_or_default();
         let title = source["title"].as_str().unwrap_or_default();
-        let segments_dir = base.join("sources").join("segments").join(source_id);
 
-        if segments_dir.exists() {
-            let mut entries: Vec<PathBuf> = fs::read_dir(&segments_dir)
-                .map_err(|e| format!("Failed to read segments dir: {}", e))?
-                .filter_map(|entry| entry.ok().map(|e| e.path()))
-                .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
-                .collect();
-            entries.sort();
+        // ソース本文は sources/{source_id}.md に保存されている
+        let content_path = base.join("sources").join(format!("{}.md", source_id));
+        let content = if content_path.exists() {
+            fs::read_to_string(&content_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
 
-            let mut content = String::new();
-            for entry in entries {
-                if let Ok(segment) = read_json(&entry) {
-                    if let Some(text) = segment["content"].as_str() {
-                        if !content.is_empty() {
-                            content.push('\n');
-                        }
-                        content.push_str(text);
-                    }
-                }
-            }
-
-            if !content.is_empty() {
-                let mut doc = TantivyDocument::default();
-                doc.add_text(id_field, format!("source-{}-fullText", source_id));
-                doc.add_text(genre_id_field, &genre_id);
-                doc.add_text(doc_type_field, "source");
-                doc.add_text(title_field, title);
-                doc.add_text(content_field, &content);
-                index_writer
-                    .add_document(doc)
-                    .map_err(|e| format!("Failed to add document: {}", e))?;
-                indexed += 1;
-            }
+        if !content.trim().is_empty() {
+            let mut doc = TantivyDocument::default();
+            doc.add_text(id_field, format!("source-{}-fullText", source_id));
+            doc.add_text(genre_id_field, &genre_id);
+            doc.add_text(doc_type_field, "source");
+            doc.add_text(title_field, title);
+            doc.add_text(content_field, &content);
+            index_writer
+                .add_document(doc)
+                .map_err(|e| format!("Failed to add document: {}", e))?;
+            indexed += 1;
         }
 
-        let analysis_path = base
-            .join("sources")
-            .join("analyses")
-            .join(format!("{}.json", source_id));
-        if analysis_path.exists() {
-            if let Ok(analysis) = read_json(&analysis_path) {
-                let summary = analysis["synthesizedAnalysis"]["summary"]
-                    .as_str()
-                    .unwrap_or_default();
-                if !summary.is_empty() {
-                    let mut doc = TantivyDocument::default();
-                    doc.add_text(id_field, format!("source-{}-analysis", source_id));
-                    doc.add_text(genre_id_field, &genre_id);
-                    doc.add_text(doc_type_field, "analysis");
-                    doc.add_text(title_field, format!("{} の分析", title));
-                    doc.add_text(content_field, summary);
-                    index_writer
-                        .add_document(doc)
-                        .map_err(|e| format!("Failed to add document: {}", e))?;
-                    indexed += 1;
+        // 分析結果は analyses/{run_id}.json に保存され、analyses/index.json で管理される
+        // ソースの latestAnalysisRunId から最新の分析を参照する
+        let run_id = source["latestAnalysisRunId"].as_str();
+        if let Some(run_id) = run_id {
+            let analysis_path = base
+                .join("analyses")
+                .join(format!("{}.json", run_id));
+            if analysis_path.exists() {
+                if let Ok(analysis) = read_json(&analysis_path) {
+                    let summary = analysis["synthesis"]["sourceSummary"]
+                        .as_str()
+                        .unwrap_or_default();
+                    if !summary.is_empty() {
+                        let mut doc = TantivyDocument::default();
+                        doc.add_text(id_field, format!("source-{}-analysis", source_id));
+                        doc.add_text(genre_id_field, &genre_id);
+                        doc.add_text(doc_type_field, "analysis");
+                        doc.add_text(title_field, format!("{} の分析", title));
+                        doc.add_text(content_field, summary);
+                        index_writer
+                            .add_document(doc)
+                            .map_err(|e| format!("Failed to add document: {}", e))?;
+                        indexed += 1;
+                    }
                 }
             }
         }

@@ -80,7 +80,7 @@ pub async fn run(
             exclude_from_context: false,
             id: None,
             created_at: None,
-            transport: Some(chat_transport(&generated.provider, &generated.model)),
+            transport: Some(chat_transport(&generated.provider, &generated.model, generated.finish_reason.as_deref())),
         });
         render_progress(document, state);
         return Ok(generated);
@@ -136,7 +136,7 @@ pub async fn run(
         if turn.tool_calls.is_empty() {
             if verify_tool_call_need(&messages, &turn.text, &tool_names).await {
                 if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
-                    message.transport = Some(chat_transport(&turn.provider, &turn.model));
+                    message.transport = Some(chat_transport(&turn.provider, &turn.model, turn.finish_reason.as_deref()));
                 }
                 messages.push(json!({"role":"assistant","content":turn.text}));
                 messages.push(json!({"role":"user","content":"まだ必要なツールを呼び出していないようです。先にツールを呼び出してから、必要であれば説明を続けてください。"}));
@@ -150,7 +150,7 @@ pub async fn run(
                         "（応答がありませんでした）".into()
                     };
                 }
-                message.transport = Some(chat_transport(&turn.provider, &turn.model));
+                message.transport = Some(chat_transport(&turn.provider, &turn.model, turn.finish_reason.as_deref()));
             }
             render_progress(document, state);
             return Ok(ai::GeneratedText {
@@ -161,7 +161,7 @@ pub async fn run(
             });
         }
         if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
-            message.transport = Some(chat_transport(&turn.provider, &turn.model));
+            message.transport = Some(chat_transport(&turn.provider, &turn.model, turn.finish_reason.as_deref()));
         }
         remove_empty_progress(state, progress_index);
         render_progress(document, state);
@@ -316,7 +316,7 @@ fn remove_empty_progress(state: &Rc<RefCell<State>>, index: usize) {
     }
 }
 
-fn chat_transport(provider: &str, model: &str) -> ChatTransportMetadata {
+fn chat_transport(provider: &str, model: &str, finish_reason: Option<&str>) -> ChatTransportMetadata {
     ChatTransportMetadata {
         provider: Some(provider.into()),
         model: Some(model.into()),
@@ -324,7 +324,7 @@ fn chat_transport(provider: &str, model: &str) -> ChatTransportMetadata {
         protocol: None,
         response_id: None,
         response_model_id: None,
-        finish_reason: None,
+        finish_reason: finish_reason.map(|s| s.into()),
         max_tokens: None,
         max_context_tokens: None,
         created_at: Some(now()),
@@ -359,7 +359,7 @@ fn upsert_tool_card(
         exclude_from_context: true,
         id: Some(call_id.into()),
         created_at: Some(now()),
-        transport: Some(chat_transport(provider, model)),
+        transport: Some(chat_transport(provider, model, None)),
     });
 }
 
@@ -370,15 +370,212 @@ fn format_tool_card(
     input: Option<&Value>,
     output: Option<&Value>,
 ) -> String {
-    let input = input
+    let chips = {
+        let mut chips = Vec::new();
+        if let Some(input) = input {
+            chips.extend(summarize_tool_input(name, input));
+        }
+        if let Some(output) = output {
+            chips.extend(summarize_tool_output(name, output));
+        }
+        chips
+    };
+    let input_display = input
         .map(|value| display_json(value, 6_000))
         .unwrap_or_else(|| "（モデルがツール引数を生成中です）".into());
     let result = output
         .map(|value| display_json(value, 12_000))
         .unwrap_or_else(|| "（実行中）".into());
+    let chips_line = if chips.is_empty() {
+        String::new()
+    } else {
+        format!("\nチップ: {}", chips.join("|"))
+    };
     format!(
-        "【ツール{status}: {name}】\n状態: {status}\nID: {call_id}\n入力: {input}\n結果:\n{result}"
+        "【ツール{status}: {name}】\n状態: {status}\nID: {call_id}{chips_line}\n入力: {input_display}\n結果:\n{result}"
     )
+}
+
+/// TS版 `summarizeToolInput` の移植 — ツール名と入力から要約チップを生成する。
+fn summarize_tool_input(name: &str, input: &Value) -> Vec<String> {
+    let Some(obj) = input.as_object() else {
+        return vec![];
+    };
+    match name {
+        "editEpisode" => {
+            let start = compact_int(obj, "startLine");
+            let end = compact_int(obj, "endLine");
+            let replacement_lines = obj
+                .get("replacementText")
+                .and_then(Value::as_str)
+                .map(|t| t.lines().count())
+                .unwrap_or(0);
+            vec![
+                format!("{start}-{end}行"),
+                format!("置換後 {replacement_lines}行"),
+            ]
+        }
+        "editEpisodeBatch" => {
+            let count = obj
+                .get("edits")
+                .and_then(Value::as_array)
+                .map(|a| a.len())
+                .unwrap_or(0);
+            vec![format!("{count}箇所")]
+        }
+        "searchEpisodes" | "findEpisodeLines" => {
+            let query = obj.get("query").and_then(Value::as_str).unwrap_or("");
+            if query.is_empty() {
+                vec![]
+            } else {
+                vec![format!("検索: {query}")]
+            }
+        }
+        "updateCharacter" => {
+            let id = obj
+                .get("characterId")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            let fields = obj
+                .get("updates")
+                .and_then(Value::as_object)
+                .map(|o| o.keys().cloned().collect::<Vec<_>>().join(", "))
+                .unwrap_or_else(|| "未指定".into());
+            vec![format!("ID: {id}"), format!("項目: {fields}")]
+        }
+        "updateWorldEntry" => {
+            let id = obj.get("entryId").and_then(Value::as_str).unwrap_or("?");
+            let fields = obj
+                .get("updates")
+                .and_then(Value::as_object)
+                .map(|o| o.keys().cloned().collect::<Vec<_>>().join(", "))
+                .unwrap_or_else(|| "未指定".into());
+            vec![format!("ID: {id}"), format!("項目: {fields}")]
+        }
+        "createCharacter" => {
+            let mut chips = Vec::new();
+            if let Some(name) = obj.get("name").and_then(Value::as_str) {
+                chips.push(format!("名前: {name}"));
+            }
+            chips
+        }
+        "createWorldEntry" => {
+            let mut chips = Vec::new();
+            if let Some(name) = obj.get("name").and_then(Value::as_str) {
+                chips.push(format!("名前: {name}"));
+            }
+            if let Some(cat) = obj.get("category").and_then(Value::as_str) {
+                chips.push(format!("カテゴリ: {cat}"));
+            }
+            chips
+        }
+        "retrieveEpisode" => {
+            let id = obj
+                .get("episodeId")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            vec![format!("episodeId: {id}")]
+        }
+        "saveEpisodeSummary" | "saveEpisodeOneLiner" | "saveEpisodeSummaryAndOneLiner" => {
+            let id = obj
+                .get("episodeId")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            vec![format!("episodeId: {id}")]
+        }
+        "webSearch" => {
+            let query = obj.get("query").and_then(Value::as_str).unwrap_or("");
+            if query.is_empty() {
+                vec![]
+            } else {
+                vec![format!("検索: {query}")]
+            }
+        }
+        "webFetch" => {
+            let url = obj.get("url").and_then(Value::as_str).unwrap_or("");
+            if url.is_empty() {
+                vec![]
+            } else {
+                vec![format!("URL: {url}")]
+            }
+        }
+        _ => {
+            // Default: show first key name
+            obj.keys()
+                .next()
+                .map(|k| vec![k.clone()])
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// TS版 `summarizeToolOutput` の移植 — ツール出力から要約チップを生成する。
+fn summarize_tool_output(name: &str, output: &Value) -> Vec<String> {
+    let Some(obj) = output.as_object() else {
+        return vec![];
+    };
+    let mut chips = Vec::new();
+    if let Some(success) = obj.get("success").and_then(Value::as_bool) {
+        chips.push(if success { "成功".into() } else { "失敗".into() });
+    }
+    if let Some(msg) = obj.get("message").and_then(Value::as_str) {
+        if !msg.is_empty() {
+            chips.push(msg.into());
+        }
+    }
+    if let Some(n) = obj.get("appliedEdits").and_then(Value::as_i64) {
+        chips.push(format!("適用 {n}件"));
+    }
+    if let Some(range) = obj.get("editedLineRange").and_then(Value::as_object) {
+        let start = range
+            .get("startLine")
+            .and_then(Value::as_i64)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "?".into());
+        let end = range
+            .get("endLine")
+            .and_then(Value::as_i64)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "?".into());
+        chips.push(format!("{start}-{end}行"));
+    }
+    if let Some(n) = obj.get("replacementLineCount").and_then(Value::as_i64) {
+        chips.push(format!("置換後 {n}行"));
+    }
+    if let Some(matches) = obj.get("matches").and_then(Value::as_array) {
+        chips.push(format!("一致 {}件", matches.len()));
+    }
+    if let Some(n) = obj.get("totalLines").and_then(Value::as_i64) {
+        chips.push(format!("全 {n}行"));
+    }
+    if let Some(updated) = obj.get("searchIndexUpdated").and_then(Value::as_bool) {
+        chips.push(if updated {
+            "索引更新済み".into()
+        } else {
+            "索引未更新".into()
+        });
+    }
+    if let Some(n) = obj.get("indexedDocuments").and_then(Value::as_i64) {
+        chips.push(format!("索引 {n}件"));
+    }
+    if name == "listCharacters" || name == "listWorldEntries" {
+        let key = if name == "listCharacters" {
+            "characters"
+        } else {
+            "entries"
+        };
+        if let Some(list) = obj.get(key).and_then(Value::as_array) {
+            chips.push(format!("{}件", list.len()));
+        }
+    }
+    chips
+}
+
+fn compact_int(obj: &serde_json::Map<String, Value>, key: &str) -> String {
+    obj.get(key)
+        .and_then(Value::as_i64)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "?".into())
 }
 
 fn display_json(value: &Value, limit: usize) -> String {
@@ -885,6 +1082,7 @@ mod tests {
         assert!(content.starts_with("【ツール実行中: searchEpisodes】"));
         assert!(content.contains("状態: 実行中"));
         assert!(content.contains("ID: call-1"));
+        assert!(content.contains("チップ: 検索: 伏線"));
         assert!(content.contains("結果:\n（実行中）"));
     }
 }
