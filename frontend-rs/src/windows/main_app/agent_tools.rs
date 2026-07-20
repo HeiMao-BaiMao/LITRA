@@ -174,6 +174,16 @@ pub async fn run(
                 .filter(|s| s.0 == signature.0 && s.1 == signature.1)
                 .count();
             if duplicate_count >= MAX_DUPLICATE_CALLS {
+                state.borrow_mut().chat.push(ChatMessage {
+                    role: "assistant".into(),
+                    content: "（ツール実行後にモデルが停止しました。追加の指示を送ってください。）".into(),
+                    thinking: None,
+                    exclude_from_context: false,
+                    id: None,
+                    created_at: None,
+                    transport: None,
+                });
+                render_progress(document, state);
                 return Err(JsValue::from_str(&format!(
                     "AI tool loop aborted: tool '{}' called repeatedly with the same input (likely stuck)",
                     call.name
@@ -265,6 +275,17 @@ pub async fn run(
         }
         messages.push(json!({"role":"tool","content":results}));
     }
+    // ツールループが最大ラウンド数に達した場合のフォールバックメッセージ
+    state.borrow_mut().chat.push(ChatMessage {
+        role: "assistant".into(),
+        content: "（ツール実行後にモデルが停止しました。追加の指示を送ってください。）".into(),
+        thinking: None,
+        exclude_from_context: false,
+        id: None,
+        created_at: None,
+        transport: None,
+    });
+    render_progress(document, state);
     Err(JsValue::from_str(
         "AI tool loop exceeded the maximum number of rounds",
     ))

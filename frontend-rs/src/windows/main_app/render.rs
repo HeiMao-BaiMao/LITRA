@@ -264,7 +264,7 @@ pub fn projects(document: &Document, state: &State) -> Result<(), JsValue> {
             "<div class=\"project-list-empty\">プロジェクトがありません。</div>".to_string()
         } else {
             state.projects.iter().map(|project| format!(
-                r#"<div class="project-list-item"><div class="project-list-info"><div class="project-list-title">{title}</div><div class="project-list-meta">更新: {updated}</div></div><div class="project-list-actions"><button data-action="open-project" data-id="{id}">開く</button><button data-action="delete-project" data-id="{id}" class="danger">削除</button></div></div>"#,
+                r#"<div class="project-list-item"><div class="project-list-info"><div class="project-list-title">{title}</div><div class="project-list-meta">更新: {updated}</div></div><div class="project-list-actions"><button data-action="open-project" data-id="{id}">開く</button><button data-action="rename-project" data-id="{id}">✎</button><button data-action="delete-project" data-id="{id}" class="danger">削除</button></div></div>"#,
                 id=escape(&project.id),
                 title=escape(&project.title),
                 updated=escape(&project.updated_at),

@@ -105,6 +105,39 @@ pub fn project_load(project_id: String) -> Result<Project, String> {
 }
 
 #[tauri::command]
+pub fn project_rename(project_id: String, new_title: String) -> Result<Project, String> {
+    validate_id(&project_id, "project ID")?;
+    let path = project_dir(&project_id)?.join("project.json");
+    let text = fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+    let mut project: Project =
+        serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    project.title = new_title;
+    project.updated_at = Utc::now().to_rfc3339();
+    write_json(
+        &path,
+        &serde_json::to_value(&project).map_err(|error| error.to_string())?,
+    )?;
+    Ok(project)
+}
+
+#[tauri::command]
+pub fn project_touch(project_id: String) -> Result<Project, String> {
+    validate_id(&project_id, "project ID")?;
+    let path = project_dir(&project_id)?.join("project.json");
+    let text = fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+    let mut project: Project =
+        serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    project.updated_at = Utc::now().to_rfc3339();
+    write_json(
+        &path,
+        &serde_json::to_value(&project).map_err(|error| error.to_string())?,
+    )?;
+    Ok(project)
+}
+
+#[tauri::command]
 pub fn project_delete(project_id: String) -> Result<(), String> {
     validate_id(&project_id, "project ID")?;
     crate::webdav_sync::remove_document_path(format!("litra/projects/{project_id}"), Some(true))

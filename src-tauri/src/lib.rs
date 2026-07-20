@@ -62,6 +62,8 @@ pub fn run() {
             project_store::project_list,
             project_store::project_create,
             project_store::project_load,
+            project_store::project_rename,
+            project_store::project_touch,
             project_store::project_delete,
             project_store::project_list_episodes,
             project_store::project_create_episode,

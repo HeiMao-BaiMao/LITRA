@@ -24,7 +24,7 @@ use crate::{
         project_settings,
         projects::{self, Episode, Project, ProjectSummary},
     },
-    runtime::tauri,
+    runtime::{invoke, tauri},
 };
 
 #[derive(Default)]
@@ -402,6 +402,9 @@ async fn open_project(
     current.current_view = "episode".into();
     render::all(document, &current)?;
     sync_children(&current);
+    // TS版と同様、プロジェクト読み込み後に検索インデックスを再構築する
+    let _: Result<serde_json::Value, _> =
+        invoke::invoke("rebuild_search_index", &json!({"projectId": project_id})).await;
     Ok(())
 }
 

@@ -7,7 +7,7 @@ use super::{sync_chat, sync_summary, ChatMessage, State};
 use crate::{
     ai::cache_observability,
     data::projects,
-    runtime::{ai, tauri},
+    runtime::{ai, invoke, tauri},
 };
 
 /// 生成ステージの内部説明を TS と同じボタン表示用ラベルに変換する。
@@ -90,7 +90,7 @@ pub async fn continue_story(
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let (settings, project_id, episode_id, mut references) = {
+    let (settings, project_id, episode_id, episodes, mut references) = {
         let current = state.borrow();
         let settings = current.ai_settings.clone();
         (
@@ -100,6 +100,7 @@ pub async fn continue_story(
                 .as_ref()
                 .map(|project| project.id.clone()),
             current.current_episode_id.clone(),
+            current.episodes.clone(),
             super::prompt_context::fiction_references(&current, &settings, &context),
         )
     };
@@ -114,6 +115,23 @@ pub async fn continue_story(
             references.character_excerpts = format!("{context}\n\n{related}");
         }
     }
+    // TS版 findPreviousEpisodeContent 相当: 文体指紋計測のために直前エピソードの本文を読み込む
+    let previous_episode_text: Option<String> =
+        if let (Some(pid), Some(eid)) = (project_id.as_deref(), episode_id.as_deref()) {
+            let current_idx = episodes.iter().position(|ep| ep.id == eid);
+            if let Some(idx) = current_idx {
+                if idx > 0 {
+                    let prev = &episodes[idx - 1];
+                    projects::read_episode(pid, &prev.file_name).await.ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
     // TS handleContinue: ボタンにステージラベルを表示し、完了後に元に戻す
     let btn_continue = document.get_element_by_id("btn-continue");
     let original_label = btn_continue
@@ -151,6 +169,7 @@ pub async fn continue_story(
             }
         },
         on_chunk,
+        previous_episode_text.as_deref(),
     )
     .await;
     // finally: ボタンラベルを復元
@@ -605,6 +624,10 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
     );
     let value = state.borrow().summaries.clone();
     projects::write_document(&project_id, "summaries", &value).await?;
+    // TS版と同様、要約更新後に検索インデックスを再構築する
+    let _: Result<serde_json::Value, _> =
+        invoke::invoke("rebuild_search_index", &serde_json::json!({"projectId": project_id}))
+            .await;
     super::render::all(document, &state.borrow())?;
     sync_summary(&state.borrow());
     Ok(())

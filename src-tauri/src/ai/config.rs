@@ -45,10 +45,17 @@ struct Provider {
     default_connection: Option<String>,
     #[serde(default)]
     connections: Vec<Connection>,
+    /// Whether this provider requires an API key (defaults to true).
+    #[serde(default = "default_requires_api_key")]
+    requires_api_key: bool,
     #[serde(default)]
     models: Vec<Model>,
     #[serde(default)]
     model_selection: String,
+}
+
+fn default_requires_api_key() -> bool {
+    true
 }
 
 #[derive(Default, Deserialize)]
@@ -226,7 +233,7 @@ pub fn ai_runtime_config(
         .filter(|value| !value.is_empty())
         .filter(|value| *value != provider.default_base_url.as_str())
         .map(str::to_owned);
-    let base_url = configured_base.unwrap_or_else(|| {
+    let raw_base_url = configured_base.unwrap_or_else(|| {
         connection
             .map(|item| item.base_url.clone())
             .unwrap_or_else(|| {
@@ -239,9 +246,25 @@ pub fn ai_runtime_config(
                 }
             })
     });
+    // Connection safety: replace stale cross-provider official URLs.
+    let base_url = resolve_provider_base_url(provider_id, &raw_base_url);
     let api_key = crate::secrets::get_secret(&format!("apikey:{provider_id}"))?.unwrap_or_default();
     let setting_number = |key: &str| settings.get(key).and_then(Value::as_f64);
     let role_number = |key: &str| role_overrides.and_then(|value| value.get(key)?.as_f64());
+
+    // Provider capacity cap (ported from TS applyProviderCapacityCap):
+    // OpenCode Go has strict usage limits – clamp max_output_tokens to the
+    // model's declared maxTokens so we never exceed the provider's quota.
+    let mut max_output_tokens = settings
+        .get("maxTokens")
+        .and_then(Value::as_u64)
+        .or_else(|| model.and_then(|item| item.max_tokens))
+        .unwrap_or(8192);
+    if provider_id == "opencode" {
+        if let Some(cap) = model.and_then(|item| item.max_tokens) {
+            max_output_tokens = max_output_tokens.min(cap);
+        }
+    }
 
     Ok(RuntimeAiConfig {
         provider: provider_id.into(),
@@ -251,11 +274,7 @@ pub fn ai_runtime_config(
         api_key,
         base_url,
         model: model_id,
-        max_output_tokens: settings
-            .get("maxTokens")
-            .and_then(Value::as_u64)
-            .or_else(|| model.and_then(|item| item.max_tokens))
-            .unwrap_or(8192),
+        max_output_tokens,
         temperature: role_number("temperature")
             .or_else(|| setting_number("temperature"))
             .or_else(|| model.and_then(|item| item.temperature)),
@@ -316,6 +335,7 @@ pub struct ProviderCatalogEntry {
     name: String,
     models: Vec<Model>,
     fixed_models: bool,
+    requires_api_key: bool,
     default_base_url: String,
     default_model: String,
 }
@@ -360,6 +380,9 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
                 .map(|item| item.model_selection.as_str())
                 .unwrap_or(&default.model_selection)
                 == "fixed",
+            requires_api_key: custom
+                .map(|item| item.requires_api_key)
+                .unwrap_or(default.requires_api_key),
             default_base_url: custom
                 .and_then(|item| {
                     (!item.default_base_url.is_empty()).then_some(item.default_base_url.clone())
@@ -383,6 +406,7 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
             name: custom.name.clone(),
             models: custom.models.clone(),
             fixed_models: custom.model_selection == "fixed",
+            requires_api_key: custom.requires_api_key,
             default_base_url: custom.default_base_url.clone(),
             default_model: custom.default_model.clone(),
         });
@@ -505,6 +529,63 @@ pub async fn ai_settings_reset(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Connection safety – ported from legacy-ts-archive/src/providers/connection-safety.ts
+// ---------------------------------------------------------------------------
+
+/// Official API hosts used for cross-provider stale-URL detection.
+const OFFICIAL_HOST_DEEPSEEK: &str = "api.deepseek.com";
+const OFFICIAL_HOST_OPENCODE: &str = "opencode.ai";
+const OFFICIAL_HOST_SAKURA: &str = "api.ai.sakura.ad.jp";
+
+/// Check whether `value` points at `host`.
+/// Tries to extract the hostname from a URL; falls back to a substring check
+/// (mirrors the TS `hasHost` helper).
+fn has_host(value: &str, host: &str) -> bool {
+    // Attempt a lightweight hostname extraction: strip scheme, take up to
+    // the first path / port / query / fragment delimiter.
+    let after_scheme = value
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(value);
+    let hostname = after_scheme
+        .split(['/', ':', '?', '#'])
+        .next()
+        .unwrap_or("");
+    if !hostname.is_empty() {
+        return hostname == host;
+    }
+    // Fallback for non-URL strings.
+    value.contains(host)
+}
+
+/// Detect and auto-correct stale cross-provider base URLs.
+///
+/// If a provider's configured base URL still points at a *different*
+/// provider's official host (e.g. the user switched from DeepSeek to Sakura
+/// but the old DeepSeek URL lingered in settings), replace it with the
+/// correct default for the active provider.  Custom / proxy URLs are kept
+/// as-is.
+fn resolve_provider_base_url(provider_id: &str, configured_base_url: &str) -> String {
+    let base_url = configured_base_url.trim();
+    match provider_id {
+        "sakura" if has_host(base_url, OFFICIAL_HOST_DEEPSEEK) => {
+            format!("https://{OFFICIAL_HOST_SAKURA}/v1")
+        }
+        "deepseek" if has_host(base_url, OFFICIAL_HOST_OPENCODE) => {
+            format!("https://{OFFICIAL_HOST_DEEPSEEK}")
+        }
+        "opencode" if has_host(base_url, OFFICIAL_HOST_DEEPSEEK) => {
+            format!("https://{OFFICIAL_HOST_OPENCODE}/zen/go/v1")
+        }
+        _ => base_url.to_owned(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 fn read_json(path: std::path::PathBuf) -> Option<Value> {
     fs::read_to_string(path)
         .ok()
@@ -517,4 +598,70 @@ fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Ported from legacy-ts-archive/src/ai/__tests__/tools.test.ts
+
+    #[test]
+    fn sakura_with_stale_deepseek_url_is_corrected() {
+        assert_eq!(
+            resolve_provider_base_url("sakura", "https://api.deepseek.com"),
+            "https://api.ai.sakura.ad.jp/v1"
+        );
+    }
+
+    #[test]
+    fn deepseek_with_stale_opencode_url_is_corrected() {
+        assert_eq!(
+            resolve_provider_base_url("deepseek", "https://opencode.ai/zen/go/v1"),
+            "https://api.deepseek.com"
+        );
+    }
+
+    #[test]
+    fn opencode_with_stale_deepseek_url_is_corrected() {
+        assert_eq!(
+            resolve_provider_base_url("opencode", "https://api.deepseek.com"),
+            "https://opencode.ai/zen/go/v1"
+        );
+    }
+
+    #[test]
+    fn custom_proxy_urls_are_preserved() {
+        assert_eq!(
+            resolve_provider_base_url("deepseek", "https://proxy.example/v1"),
+            "https://proxy.example/v1"
+        );
+        assert_eq!(
+            resolve_provider_base_url("sakura", "https://proxy.example/v1"),
+            "https://proxy.example/v1"
+        );
+    }
+
+    #[test]
+    fn unrelated_provider_is_untouched() {
+        assert_eq!(
+            resolve_provider_base_url("openai", "https://api.deepseek.com"),
+            "https://api.deepseek.com"
+        );
+    }
+
+    #[test]
+    fn whitespace_is_trimmed() {
+        assert_eq!(
+            resolve_provider_base_url("openai", "  https://api.openai.com/v1  "),
+            "https://api.openai.com/v1"
+        );
+    }
+
+    #[test]
+    fn has_host_extracts_hostname() {
+        assert!(has_host("https://api.deepseek.com/v1", "api.deepseek.com"));
+        assert!(!has_host("https://api.deepseek.com/v1", "opencode.ai"));
+        assert!(has_host("https://opencode.ai:443/zen", "opencode.ai"));
+    }
 }

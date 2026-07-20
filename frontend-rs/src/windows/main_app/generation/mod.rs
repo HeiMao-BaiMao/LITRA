@@ -65,7 +65,7 @@ pub async fn continue_story_with_references_progress<F>(
 where
     F: FnMut(&str),
 {
-    continue_story_full(settings, context, instruction, references, &mut on_stage, None).await
+    continue_story_full(settings, context, instruction, references, &mut on_stage, None, None).await
 }
 
 /// on_chunk 付きの完全版。ドラフト生成中にテキストデルタをリアルタイムで受け取れる。
@@ -76,11 +76,12 @@ pub async fn continue_story_streaming<F>(
     references: &FictionReferences,
     mut on_stage: F,
     on_chunk: ChunkCallback,
+    previous_episode_text: Option<&str>,
 ) -> Result<ai::GeneratedText, JsValue>
 where
     F: FnMut(&str),
 {
-    continue_story_full(settings, context, instruction, references, &mut on_stage, Some(on_chunk)).await
+    continue_story_full(settings, context, instruction, references, &mut on_stage, Some(on_chunk), previous_episode_text).await
 }
 
 async fn continue_story_full<F>(
@@ -90,12 +91,15 @@ async fn continue_story_full<F>(
     references: &FictionReferences,
     on_stage: &mut F,
     on_chunk: Option<ChunkCallback>,
+    previous_episode_text: Option<&str>,
 ) -> Result<ai::GeneratedText, JsValue>
 where
     F: FnMut(&str),
 {
     // 文体指紋を計測し、旧 TypeScript と同じ文体指標セクションをドラフトへ渡す。
-    let fingerprint = style_fingerprint::measure_style_fingerprint(context);
+    // 現エピソードが短い場合、直前エピソードの本文を補って計測材料を確保する（TS版 findPreviousEpisodeContent 相当）。
+    let style_sample = style_fingerprint::compose_style_sample_text(context, previous_episode_text);
+    let fingerprint = style_fingerprint::measure_style_fingerprint(&style_sample);
     let endings = fingerprint
         .sentence_endings
         .iter()

@@ -158,6 +158,31 @@ async fn handle_click(
                 }
             }
         }
+        "rename-project" => {
+            if let Some(id) = id {
+                let current_title = state
+                    .borrow()
+                    .projects
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.title.clone())
+                    .unwrap_or_default();
+                if let Some(new_title) = prompt("新しいプロジェクト名", &current_title) {
+                    let updated = projects::rename(&id, &new_title).await?;
+                    if state
+                        .borrow()
+                        .current_project
+                        .as_ref()
+                        .map(|p| p.id.as_str())
+                        == Some(&id)
+                    {
+                        state.borrow_mut().current_project = Some(updated);
+                    }
+                    refresh_projects(document, state).await?;
+                    super::render::all(document, &state.borrow())?;
+                }
+            }
+        }
         "new-episode" => {
             let Some(project_id) = state
                 .borrow()
@@ -233,6 +258,7 @@ async fn handle_click(
                 if let Some(target) = target {
                     ids.swap(index, target);
                     projects::reorder_episodes(&project_id, &ids).await?;
+                    let _ = projects::touch(&project_id).await;
                     state.borrow_mut().episodes = projects::list_episodes(&project_id).await?;
                     super::render::all(document, &state.borrow())?;
                 }
@@ -727,6 +753,7 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
             let id = ids.remove(from);
             ids.insert(to, id);
             let _ = projects::reorder_episodes(&project_id, &ids).await;
+            let _ = projects::touch(&project_id).await;
             if let Ok(episodes) = projects::list_episodes(&project_id).await {
                 st.borrow_mut().episodes = episodes;
             }
@@ -895,7 +922,7 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
             });
         });
         if let Ok(id) = window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), 400)
+            .set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), 500)
         {
             timeout_state.set(Some(id));
         }

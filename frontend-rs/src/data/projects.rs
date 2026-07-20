@@ -43,6 +43,12 @@ struct ProjectArgs<'a> {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct RenameArgs<'a> {
+    project_id: &'a str,
+    new_title: &'a str,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EpisodeFileArgs<'a> {
     project_id: &'a str,
     file_name: &'a str,
@@ -105,6 +111,19 @@ pub async fn create(title: &str) -> Result<Project, JsValue> {
 }
 pub async fn load(project_id: &str) -> Result<Project, JsValue> {
     call("project_load", &ProjectArgs { project_id }).await
+}
+pub async fn rename(project_id: &str, new_title: &str) -> Result<Project, JsValue> {
+    call(
+        "project_rename",
+        &RenameArgs {
+            project_id,
+            new_title,
+        },
+    )
+    .await
+}
+pub async fn touch(project_id: &str) -> Result<Project, JsValue> {
+    call("project_touch", &ProjectArgs { project_id }).await
 }
 pub async fn remove(project_id: &str) -> Result<(), JsValue> {
     call("project_delete", &ProjectArgs { project_id }).await
