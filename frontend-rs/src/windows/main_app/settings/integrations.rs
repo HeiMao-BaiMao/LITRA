@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{Document, HtmlElement, HtmlInputElement};
@@ -5,6 +7,21 @@ use web_sys::{Document, HtmlElement, HtmlInputElement};
 use crate::runtime::{invoke, tauri};
 
 const EXA_KEY: &str = "websearch:exaApiKey";
+
+// 同期進捗表示に使う現在のプロジェクト名。
+// メイン画面でプロジェクトを切り替えるたびに更新される。
+thread_local! {
+    static CURRENT_PROJECT_NAME: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// 同期進捗に表示するプロジェクト名を設定する。
+pub fn set_project_name(name: Option<String>) {
+    CURRENT_PROJECT_NAME.with(|cell| *cell.borrow_mut() = name);
+}
+
+fn current_project_name() -> Option<String> {
+    CURRENT_PROJECT_NAME.with(|cell| cell.borrow().clone())
+}
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +62,8 @@ struct SyncProgress {
     phase: String,
     current: usize,
     total: usize,
+    // バックエンドが送るファイルパス。表示には使わずプロジェクト名で代替する。
+    #[allow(dead_code)]
     message: String,
 }
 
@@ -360,16 +379,19 @@ fn update_sync_modal(window: &web_sys::Window, message: &str) {
 
 fn update_sync_progress(document: &Document, progress: &SyncProgress) {
     if let Some(message) = document.get_element_by_id("litra-sync-message") {
-        let fallback = if progress.phase == "pull" {
-            "WebDavから同期中..."
+        // ファイル名の羅列は煩雑なため、プロジェクト名と方向だけの簡潔な表示にする。
+        let direction = if progress.phase == "pull" {
+            "から同期中"
         } else {
-            "WebDavに同期中..."
+            "に同期中"
         };
-        message.set_text_content(Some(if progress.message.trim().is_empty() {
-            fallback
-        } else {
-            &progress.message
-        }));
+        let text = match current_project_name() {
+            Some(name) if !name.trim().is_empty() => {
+                format!("「{}」のファイルをWebDAV{}…", name.trim(), direction)
+            }
+            _ => format!("ファイルをWebDAV{}…", direction),
+        };
+        message.set_text_content(Some(&text));
     }
     if let Some(fill) = document.get_element_by_id("litra-sync-progress-fill") {
         set_style_property(

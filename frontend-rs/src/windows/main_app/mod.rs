@@ -365,6 +365,7 @@ async fn open_project(
         None => String::new(),
     };
     let mut current = state.borrow_mut();
+    settings::integrations::set_project_name(Some(project.title.clone()));
     current.current_project = Some(project);
     current.episodes = episodes;
     current.current_episode_id = current_id;
