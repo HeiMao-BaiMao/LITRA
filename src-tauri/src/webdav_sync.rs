@@ -531,6 +531,9 @@ struct SyncProgressPayload {
     current: usize,
     total: usize,
     message: String,
+    /// 同期対象の名前（プロジェクト名・ジャンル名など）。表示用に使う。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -782,6 +785,7 @@ fn emit_progress(
     current: usize,
     total: usize,
     message: &str,
+    target_name: Option<&str>,
     force: bool,
 ) {
     if !force && !current.is_multiple_of(PROGRESS_EMIT_EVERY) {
@@ -792,10 +796,48 @@ fn emit_progress(
         current,
         total,
         message: message.to_string(),
+        target_name: target_name.map(|s| s.to_string()),
     };
     if let Err(error) = app.emit(SYNC_PROGRESS_EVENT, payload) {
         eprintln!("[litra:webdav] failed to emit progress: {error}");
     }
+}
+
+/// 相対パスから同期対象の表示名を解決する。
+/// `projects/{id}/...`（または `litra/projects/{id}/...`）ならプロジェクト名、
+/// `genres/{id}/...` ならジャンル名を返す。
+/// キャッシュ `cache` で id→名前の解決結果を保持し、ファイルごとの再読み込みを避ける。
+fn resolve_target_name(
+    relative_path: &str,
+    cache: &mut std::collections::HashMap<String, Option<String>>,
+) -> Option<String> {
+    let parts: Vec<&str> = relative_path.split('/').collect();
+    // "projects" または "genres" セグメントを探し、その直後を id とみなす。
+    let mut kind_id: Option<(&str, &str)> = None;
+    for window in parts.windows(2) {
+        if window[0] == "projects" || window[0] == "genres" {
+            kind_id = Some((window[0], window[1]));
+            break;
+        }
+    }
+    let (kind, id) = kind_id?;
+    let cache_key = format!("{kind}/{id}");
+    if let Some(cached) = cache.get(&cache_key) {
+        return cached.clone();
+    }
+    let name = match kind {
+        "projects" => crate::storage::project_dir(id)
+            .ok()
+            .and_then(|dir| crate::storage::read_json_if_valid(&dir.join("project.json")))
+            .and_then(|json| json.get("title").and_then(|v| v.as_str()).map(|s| s.to_string())),
+        "genres" => crate::storage::genre_dir(id)
+            .ok()
+            .and_then(|dir| crate::storage::read_json_if_valid(&dir.join("genre.json")))
+            .and_then(|json| json.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())),
+        _ => None,
+    };
+    cache.insert(cache_key, name.clone());
+    name
 }
 
 /// 現在のキューが空になり、ドレイナも完了するまで最大 `timeout_ms` ミリ秒待機する。
@@ -866,12 +908,21 @@ pub async fn pull_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
         0,
         0,
         "WebDavから同期中...",
+        None,
         true,
     );
 
     // Pull フェーズ
-    if let Err(e) = pull_directory(&app, &root_url, &root_local, &mut remote_files, &mut summary)
-        .await
+    let mut name_cache = std::collections::HashMap::new();
+    if let Err(e) = pull_directory(
+        &app,
+        &root_url,
+        &root_local,
+        &mut remote_files,
+        &mut summary,
+        &mut name_cache,
+    )
+    .await
     {
         summary.record_error(format!("pull_directory: {e}"));
     }
@@ -900,6 +951,7 @@ pub async fn pull_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
         total,
         total,
         "WebDavからの同期が完了しました",
+        None,
         true,
     );
 
@@ -914,6 +966,7 @@ async fn pull_directory(
     local_dir: &Path,
     remote_files: &mut HashSet<String>,
     summary: &mut SyncSummary,
+    name_cache: &mut std::collections::HashMap<String, Option<String>>,
 ) -> Result<(), String> {
     if let Err(e) = fs::create_dir_all(local_dir) {
         return Err(format!(
@@ -936,6 +989,7 @@ async fn pull_directory(
                 summary.files_processed,
                 0,
                 &format!("PROPFIND 失敗をスキップ: {remote_url}"),
+                None,
                 true,
             );
             return Ok(());
@@ -977,6 +1031,7 @@ async fn pull_directory(
                 &child_local,
                 remote_files,
                 summary,
+                name_cache,
             ))
             .await?;
         } else {
@@ -1020,12 +1075,24 @@ async fn pull_directory(
             }
 
             summary.files_processed += 1;
+            // 同期対象名（プロジェクト名/ジャンル名）を表示用に解決する。
+            let target_name = child_local
+                .strip_prefix(
+                    documents_dir()
+                        .map(|d| d.join(SYNC_ROOT))
+                        .unwrap_or_else(|_| PathBuf::from(SYNC_ROOT)),
+                )
+                .ok()
+                .and_then(|rel| {
+                    resolve_target_name(&rel.to_string_lossy().replace('\\', "/"), name_cache)
+                });
             emit_progress(
                 app,
                 "pull",
                 summary.files_processed,
                 0,
                 &format!("取得: {}", child_local.display()),
+                target_name.as_deref(),
                 false,
             );
         }
@@ -1118,8 +1185,22 @@ pub async fn push_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
         }
     };
 
-    let total = files.len();
-    emit_progress(&app, "push", 0, total, "WebDavに同期中...", true);
+    // 相対パスを先に計算し、パス順（= プロジェクト/ジャンル単位）でソートする。
+    // これにより同じ対象のファイルが連続して処理され、進捗表示が対象ごとにまとまる。
+    let mut targets: Vec<(PathBuf, String)> = Vec::new();
+    for path in files {
+        match documents_relative_path(&path) {
+            Ok(relative) => targets.push((path, relative)),
+            Err(e) => {
+                summary.files_failed += 1;
+                summary.record_error(format!("documents_relative_path {}: {}", path.display(), e));
+            }
+        }
+    }
+    targets.sort_by(|a, b| a.1.cmp(&b.1));
+
+    let total = targets.len();
+    emit_progress(&app, "push", 0, total, "WebDavに同期中...", None, true);
 
     // ルートディレクトリを先に保証
     if let Ok(root_url) = remote_root_url() {
@@ -1128,7 +1209,9 @@ pub async fn push_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
         }
     }
 
-    for (idx, path) in files.iter().enumerate() {
+    let mut name_cache = std::collections::HashMap::new();
+    for (idx, (path, local_relative)) in targets.iter().enumerate() {
+        let target_name = resolve_target_name(local_relative, &mut name_cache);
         let content = match fs::read_to_string(path) {
             Ok(value) => value,
             Err(e) => {
@@ -1139,22 +1222,9 @@ pub async fn push_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
             }
         };
 
-        let local_relative = match documents_relative_path(path) {
-            Ok(value) => value,
-            Err(e) => {
-                summary.files_failed += 1;
-                summary.record_error(format!(
-                    "documents_relative_path {}: {}",
-                    path.display(),
-                    e
-                ));
-                continue;
-            }
-        };
-
         // 直接 PUT する（enqueue_put_path 経由のバックグラウンドキューだと
         // 成否がドレイン完了までわからず、summary に反映できないため）。
-        match put_remote_file(&local_relative, content).await {
+        match put_remote_file(local_relative, content).await {
             Ok(()) => summary.files_processed += 1,
             Err(e) => {
                 summary.files_failed += 1;
@@ -1169,6 +1239,7 @@ pub async fn push_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
             current,
             total,
             &format!("送信: {}", path.display()),
+            target_name.as_deref(),
             current == total || current % PROGRESS_EMIT_EVERY == 0,
         );
     }
@@ -1188,6 +1259,7 @@ pub async fn push_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
         total,
         total,
         "WebDavへの同期が完了しました",
+        None,
         true,
     );
 

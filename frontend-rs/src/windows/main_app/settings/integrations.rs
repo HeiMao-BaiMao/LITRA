@@ -62,9 +62,11 @@ struct SyncProgress {
     phase: String,
     current: usize,
     total: usize,
-    // バックエンドが送るファイルパス。表示には使わずプロジェクト名で代替する。
+    // バックエンドが送るファイルパス。表示には使わず対象名で代替する。
     #[allow(dead_code)]
     message: String,
+    /// 同期対象の名前（プロジェクト名・ジャンル名）。バックエンドが解決して送る。
+    target_name: Option<String>,
 }
 
 pub async fn populate(document: &Document) -> Result<(), JsValue> {
@@ -379,17 +381,23 @@ fn update_sync_modal(window: &web_sys::Window, message: &str) {
 
 fn update_sync_progress(document: &Document, progress: &SyncProgress) {
     if let Some(message) = document.get_element_by_id("litra-sync-message") {
-        // ファイル名の羅列は煩雑なため、プロジェクト名と方向だけの簡潔な表示にする。
+        // ファイル名の羅列は煩雑なため、同期対象（プロジェクト/ジャンル）名と
+        // 方向だけの簡潔な表示にする。対象名はバックエンドが解決して送る。
         let direction = if progress.phase == "pull" {
             "から同期中"
         } else {
             "に同期中"
         };
-        let text = match current_project_name() {
-            Some(name) if !name.trim().is_empty() => {
-                format!("「{}」のファイルをWebDAV{}…", name.trim(), direction)
-            }
-            _ => format!("ファイルをWebDAV{}…", direction),
+        // イベントの対象名を優先。無い場合（同期開始直後など）は現在のプロジェクト名、
+        // それも無ければ汎用表記にフォールバックする。
+        let name = progress
+            .target_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(current_project_name);
+        let text = match name {
+            Some(name) => format!("「{}」のファイルをWebDAV{}…", name.trim(), direction),
+            None => format!("ファイルをWebDAV{}…", direction),
         };
         message.set_text_content(Some(&text));
     }
