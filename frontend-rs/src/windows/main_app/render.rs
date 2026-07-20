@@ -164,10 +164,21 @@ fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
                 )
             })
             .collect::<String>();
+        // 最後のメッセージが空のアシスタント（ストリーミング中の進捗枠）の場合、
+        // それ自体が chat-pending として描画されるため、追加の pending 吹き出しは出さない。
+        // （二重の「…」吹き出しを防ぐ）
+        let last_is_empty_assistant = state
+            .chat
+            .last()
+            .is_some_and(|message| {
+                message.role == "assistant"
+                    && message.content.trim().is_empty()
+                    && message.thinking.as_deref().unwrap_or_default().trim().is_empty()
+            });
         container.set_inner_html(&format!(
             "{}{}",
             rows,
-            if state.is_generating {
+            if state.is_generating && !last_is_empty_assistant {
                 r#"<div class="chat-message assistant chat-pending"></div>"#
             } else {
                 ""
