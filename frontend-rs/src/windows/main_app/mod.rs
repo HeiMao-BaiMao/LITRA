@@ -186,13 +186,24 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     events::restore_detached_windows(document, &state).await;
     // メインウィンドウの移動・リサイズを追跡開始
     let _ = crate::runtime::windows::track_window_bounds_main("main");
-    // TS版 loadInitialProject 相当: 最初のプロジェクトを自動読み込み
-    if let Some(first) = state.borrow().projects.first().cloned() {
-        let document = document.clone();
-        let state = Rc::clone(&state);
-        wasm_bindgen_futures::spawn_local(async move {
-            let _ = open_project(&document, &state, first.id.clone()).await;
-        });
+    // 最後に開いたプロジェクトを復元。存在しなければ先頭のプロジェクトにフォールバック。
+    let projects = state.borrow().projects.clone();
+    if !projects.is_empty() {
+        let last_id: Option<String> =
+            crate::runtime::invoke::invoke("load_last_project_id", &serde_json::json!({}))
+                .await
+                .ok()
+                .flatten();
+        let target = last_id
+            .filter(|id| projects.iter().any(|project| &project.id == id))
+            .or_else(|| projects.first().map(|project| project.id.clone()));
+        if let Some(target_id) = target {
+            let document = document.clone();
+            let state = Rc::clone(&state);
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = open_project(&document, &state, target_id).await;
+            });
+        }
     }
     result
 }
@@ -339,6 +350,12 @@ async fn open_project(
 ) -> Result<(), JsValue> {
     let project = projects::load(&project_id).await?;
     crate::ai::cache_observability::set_ai_cache_project(Some(project_id.clone()));
+    // 最後に開いたプロジェクトとして記録（起動時の復元用）
+    let _ = crate::runtime::invoke::invoke::<_, ()>(
+        "save_last_project_id",
+        &serde_json::json!({ "projectId": project_id }),
+    )
+    .await;
     let episodes = projects::list_episodes(&project_id).await?;
     let summaries = projects::read_document(&project_id, "summaries")
         .await?

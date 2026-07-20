@@ -21,6 +21,8 @@ struct WindowStateFile {
     bounds: HashMap<String, WindowBounds>,
     #[serde(default)]
     detached: HashMap<String, bool>,
+    #[serde(default)]
+    last_project_id: Option<String>,
 }
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -87,4 +89,18 @@ pub fn save_window_detached(app: AppHandle, label: String, detached: bool) -> Re
 #[tauri::command]
 pub fn clear_window_state(app: AppHandle) -> Result<(), String> {
     write_state(&app, &WindowStateFile::default())
+}
+
+/// 最後に開いたプロジェクトIDを読み込む。起動時の復元に使う。
+#[tauri::command]
+pub fn load_last_project_id(app: AppHandle) -> Result<Option<String>, String> {
+    Ok(read_state(&app).last_project_id)
+}
+
+/// 最後に開いたプロジェクトIDを保存する。
+#[tauri::command]
+pub fn save_last_project_id(app: AppHandle, project_id: String) -> Result<(), String> {
+    let mut state = read_state(&app);
+    state.last_project_id = Some(project_id);
+    write_state(&app, &state)
 }

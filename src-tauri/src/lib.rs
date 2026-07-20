@@ -115,6 +115,8 @@ pub fn run() {
             window_state::load_window_detached,
             window_state::save_window_detached,
             window_state::clear_window_state,
+            window_state::load_last_project_id,
+            window_state::save_last_project_id,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
