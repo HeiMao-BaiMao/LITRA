@@ -119,7 +119,26 @@ pub async fn continue_story(
     let original_label = btn_continue
         .as_ref()
         .and_then(|btn| btn.text_content());
-    let result = super::generation::continue_story_with_references_progress(
+    // ストリーミング: ドラフト生成中にエディタへリアルタイム挿入
+    let stream_state = Rc::clone(state);
+    let stream_document = document.clone();
+    let on_chunk: super::generation::ChunkCallback =
+        std::rc::Rc::new(std::cell::RefCell::new(move |chunk: &str| {
+            let mut current = stream_state.borrow_mut();
+            if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
+                current.editor_text.push('\n');
+            }
+            current.editor_text.push_str(chunk);
+            // エディタDOMに反映（末尾にスクロール）
+            if let Some(editor) = stream_document
+                .get_element_by_id("editor")
+                .and_then(|el| el.dyn_into::<HtmlTextAreaElement>().ok())
+            {
+                editor.set_value(&current.editor_text);
+                editor.set_scroll_top(editor.scroll_height());
+            }
+        }));
+    let result = super::generation::continue_story_streaming(
         &settings,
         &context,
         "自然に続きを執筆する",
@@ -131,6 +150,7 @@ pub async fn continue_story(
                 btn.set_text_content(Some(&format!("{label}〔{model}〕")));
             }
         },
+        on_chunk,
     )
     .await;
     // finally: ボタンラベルを復元
@@ -139,9 +159,14 @@ pub async fn continue_story(
     }
     generating(document, state, false)?;
     let generated = result?;
+    // ストリーミングで既にeditor_textに追加済み。
+    // 最終的にサニタイズされたテキストで確定するため、
+    // ストリーミング前の長さに切り詰めてから最終テキストを付与する。
     let addition = generated.text.trim_start();
     let mut current = state.borrow_mut();
-    if !current.editor_text.ends_with('\n') {
+    let base_len = context.len();
+    current.editor_text.truncate(base_len);
+    if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
         current.editor_text.push('\n');
     }
     current.editor_text.push_str(addition);

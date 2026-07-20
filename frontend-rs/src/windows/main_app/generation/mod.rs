@@ -2,6 +2,9 @@ pub(crate) mod old_prompts;
 mod prompts;
 pub(crate) mod review;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use serde_json::Value;
 use wasm_bindgen::JsValue;
 
@@ -9,6 +12,9 @@ use crate::ai::draft_checks;
 use crate::ai::plan_beats;
 use crate::ai::style_fingerprint;
 use crate::runtime::ai;
+
+/// ドラフト生成中のテキストデルタを受け取るコールバック
+pub type ChunkCallback = Rc<RefCell<dyn FnMut(&str)>>;
 
 #[derive(Clone, Default)]
 pub struct FictionReferences {
@@ -55,6 +61,35 @@ pub async fn continue_story_with_references_progress<F>(
     instruction: &str,
     references: &FictionReferences,
     mut on_stage: F,
+) -> Result<ai::GeneratedText, JsValue>
+where
+    F: FnMut(&str),
+{
+    continue_story_full(settings, context, instruction, references, &mut on_stage, None).await
+}
+
+/// on_chunk 付きの完全版。ドラフト生成中にテキストデルタをリアルタイムで受け取れる。
+pub async fn continue_story_streaming<F>(
+    settings: &Value,
+    context: &str,
+    instruction: &str,
+    references: &FictionReferences,
+    mut on_stage: F,
+    on_chunk: ChunkCallback,
+) -> Result<ai::GeneratedText, JsValue>
+where
+    F: FnMut(&str),
+{
+    continue_story_full(settings, context, instruction, references, &mut on_stage, Some(on_chunk)).await
+}
+
+async fn continue_story_full<F>(
+    settings: &Value,
+    context: &str,
+    instruction: &str,
+    references: &FictionReferences,
+    on_stage: &mut F,
+    on_chunk: Option<ChunkCallback>,
 ) -> Result<ai::GeneratedText, JsValue>
 where
     F: FnMut(&str),
@@ -163,6 +198,7 @@ where
             references,
             scaffold(settings),
             None,
+            on_chunk.clone(),
         )
         .await?
     };
@@ -177,6 +213,7 @@ where
             &fingerprint_section,
             references,
             scaffold(settings),
+            None,
             None,
         )
         .await?;
@@ -213,6 +250,7 @@ where
             &fingerprint_section,
             references,
             scaffold(settings),
+            None,
             None,
         )
         .await?;
@@ -395,6 +433,7 @@ async fn draft(
     references: &FictionReferences,
     scaffold: Option<&str>,
     beat_directive: Option<(&str, usize, usize)>,
+    on_chunk: Option<ChunkCallback>,
 ) -> Result<ai::GeneratedText, JsValue> {
     let prompt = prompts::draft(
         context,
@@ -408,12 +447,23 @@ async fn draft(
         Some(style_fingerprint),
         beat_directive,
     );
-    let mut result = ai::generate(
-        "writing",
-        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
-        prompt.clone(),
-    )
-    .await?;
+    let system: String = super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into();
+    let mut result = if let Some(callback) = on_chunk {
+        let cb = Rc::clone(&callback);
+        ai::generate_streaming(
+            "writing",
+            system,
+            prompt.clone(),
+            None,
+            None,
+            move |chunk| {
+                (cb.borrow_mut())(chunk);
+            },
+        )
+        .await?
+    } else {
+        ai::generate("writing", system, prompt.clone()).await?
+    };
     // TS の continuation と同じく、出力上限で切れた場合は同じ会話を
     // 最大2回だけ継続し、途中で欠けた本文をそのまま連結する。
     for _ in 0..2 {
@@ -473,6 +523,7 @@ async fn draft_beats(
             references,
             scaffold,
             Some((beat, index + 1, beats.len())),
+            None,
         )
         .await?;
         let part_text = part.text.clone();
