@@ -4,6 +4,7 @@ use wasm_bindgen_futures::spawn_local;
 mod ai;
 mod components;
 mod data;
+mod hashline;
 mod runtime;
 mod ui;
 mod windows;
