@@ -1,7 +1,9 @@
 pub mod analyzer;
 pub mod chat;
+pub mod hash;
 pub mod knowledge;
 pub mod models;
 pub mod prompts;
 pub mod repository;
+pub mod segmentation;
 pub mod sources;

@@ -3,6 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use js_sys::Date;
 use serde_json::{json, Map, Value};
 use wasm_bindgen::JsValue;
+use web_sys::Document;
 
 use super::State;
 use crate::{
@@ -22,6 +23,7 @@ const MAX_SOURCE_SNIPPET: usize = 3_000;
 const MAX_KNOWLEDGE_SNIPPET: usize = 1_500;
 
 pub async fn run(
+    document: &Document,
     state: &Rc<RefCell<State>>,
     genre_id: &str,
     thread_id: &str,
@@ -29,18 +31,43 @@ pub async fn run(
     prompt: String,
     provider: Option<&str>,
     model: Option<&str>,
+    pending_index: usize,
 ) -> Result<ai::GeneratedText, JsValue> {
     system.push_str(GUIDANCE);
     let mut messages = vec![json!({"role":"user","content":prompt})];
     let definitions = definitions();
-    for _ in 0..MAX_TOOL_ROUNDS {
-        let turn = ai::agent_turn(
+    for round in 0..MAX_TOOL_ROUNDS {
+        // Reset pending message content for subsequent rounds (tool rounds produce intermediate text)
+        if round > 0 {
+            if let Some(msg) = state.borrow_mut().messages.get_mut(pending_index) {
+                msg.content.clear();
+                msg.thinking = None;
+            }
+        }
+        let progress_document = document.clone();
+        let progress_state = Rc::clone(state);
+        let turn = ai::agent_turn_observed(
             "chat",
             system.clone(),
             messages.clone(),
             definitions.clone(),
             provider,
             model,
+            move |update| {
+                if let Some(msg) = progress_state.borrow_mut().messages.get_mut(pending_index) {
+                    match update {
+                        ai::AgentStreamUpdate::TextDelta(delta) => {
+                            msg.content.push_str(&delta);
+                        }
+                        ai::AgentStreamUpdate::ReasoningDelta(delta) => {
+                            msg.thinking
+                                .get_or_insert_with(String::new)
+                                .push_str(&delta);
+                        }
+                    }
+                }
+                let _ = super::render::all(&progress_document, &progress_state.borrow());
+            },
         )
         .await?;
         if turn.tool_calls.is_empty() {

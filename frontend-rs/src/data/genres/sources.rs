@@ -4,10 +4,12 @@ use wasm_bindgen::JsValue;
 use crate::{data::genre_store, runtime::tauri};
 
 use super::{
+    hash::compute_text_hash,
     models::{
         GenreSource, SegmentDocument, SourceList, SourceSegment, SourceWithContent, SCHEMA_VERSION,
     },
     repository,
+    segmentation::{self, SegmentationOptions},
 };
 
 fn error(value: impl ToString) -> JsValue {
@@ -18,13 +20,6 @@ fn now() -> String {
         .to_iso_string()
         .as_string()
         .unwrap_or_default()
-}
-fn hash(text: &str) -> String {
-    let mut value = 0xcbf29ce484222325u64;
-    for byte in text.as_bytes() {
-        value = (value ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
-    }
-    format!("{value:016x}")
 }
 
 async fn load_list(genre_id: &str) -> Result<SourceList, JsValue> {
@@ -82,17 +77,23 @@ pub async fn create(
 ) -> Result<SourceWithContent, JsValue> {
     let id = tauri::random_uuid();
     let timestamp = now();
-    let content_hash = hash(content);
-    let segments = vec![SourceSegment {
-        id: tauri::random_uuid(),
-        source_id: id.clone(),
-        ordinal: 0,
-        heading: title.to_owned(),
-        start_offset: 0,
-        end_offset: content.len(),
-        content_hash: content_hash.clone(),
-        segmentation_method: "manual".into(),
-    }];
+    let content_hash = compute_text_hash(content).await?;
+    let segments =
+        segmentation::segment_source_text(&id, content, SegmentationOptions::default()).await?;
+    let segments = if segments.is_empty() {
+        vec![SourceSegment {
+            id: tauri::random_uuid(),
+            source_id: id.clone(),
+            ordinal: 0,
+            heading: title.to_owned(),
+            start_offset: 0,
+            end_offset: content.len(),
+            content_hash: content_hash.clone(),
+            segmentation_method: "manual".into(),
+        }]
+    } else {
+        segments
+    };
     let metadata = GenreSource {
         id: id.clone(),
         genre_id: genre_id.into(),

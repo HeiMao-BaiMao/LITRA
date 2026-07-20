@@ -121,6 +121,10 @@ async fn refresh(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), 
     load_genre(document, state, genre_id).await
 }
 
+const LENGTH_CONTINUATION_PROMPT: &str =
+    "前の応答は出力上限で途中で切れています。すでに書いた内容を繰り返さず、直前の文から自然に続きを書いてください。前置き、見出し、注釈は不要です。";
+const MAX_LENGTH_CONTINUATIONS: usize = 2;
+
 async fn send(
     document: &Document,
     state: &Rc<RefCell<State>>,
@@ -168,26 +172,115 @@ async fn send(
             current.selected_model.clone(),
         )
     };
-    let generated = tools::run(
-        state,
-        &genre_id,
-        &thread_id,
-        system,
-        history,
-        provider.as_deref(),
-        model.as_deref(),
-    )
-    .await;
+
+    // Add a pending assistant message for streaming display
+    let pending_index = {
+        let mut current = state.borrow_mut();
+        current.messages.push(Message {
+            id: String::new(),
+            thread_id: thread_id.clone(),
+            role: "assistant".into(),
+            content: String::new(),
+            thinking: None,
+            provider: None,
+            model: None,
+            finish_reason: None,
+            attachments: Vec::new(),
+            created_at: String::new(),
+            extra: std::collections::BTreeMap::new(),
+        });
+        current.messages.len() - 1
+    };
+    render::all(document, &state.borrow())?;
+
+    // Run with streaming and length auto-continuation
+    let mut continuation_count = 0;
+    let mut accumulated_text = String::new();
+    let mut accumulated_thinking = String::new();
+    let mut final_provider = String::new();
+    let mut final_model = String::new();
+
+    let mut current_prompt = history;
+    let result: Result<(), JsValue> = loop {
+        // Reset pending message content before each run (for continuations)
+        if continuation_count > 0 {
+            if let Some(msg) = state.borrow_mut().messages.get_mut(pending_index) {
+                msg.content.clear();
+                msg.thinking = None;
+            }
+        }
+        let generated = tools::run(
+            document,
+            state,
+            &genre_id,
+            &thread_id,
+            system.clone(),
+            current_prompt.clone(),
+            provider.as_deref(),
+            model.as_deref(),
+            pending_index,
+        )
+        .await;
+        match generated {
+            Ok(ref gen)
+                if gen.finish_reason.as_deref() == Some("length")
+                    && !gen.text.trim().is_empty()
+                    && continuation_count < MAX_LENGTH_CONTINUATIONS =>
+            {
+                continuation_count += 1;
+                accumulated_text.push_str(&gen.text);
+                if let Some(msg) = state.borrow().messages.get(pending_index) {
+                    if let Some(thinking) = &msg.thinking {
+                        accumulated_thinking.push_str(thinking);
+                    }
+                }
+                final_provider = gen.provider.clone();
+                final_model = gen.model.clone();
+                // Build continuation prompt with accumulated context
+                current_prompt = format!(
+                    "{}\n\nassistant: {}\n\nuser: {}",
+                    current_prompt, accumulated_text, LENGTH_CONTINUATION_PROMPT
+                );
+                continue;
+            }
+            Ok(gen) => {
+                accumulated_text.push_str(&gen.text);
+                if let Some(msg) = state.borrow().messages.get(pending_index) {
+                    if let Some(thinking) = &msg.thinking {
+                        if !accumulated_thinking.is_empty() {
+                            accumulated_thinking.push('\n');
+                        }
+                        accumulated_thinking.push_str(thinking);
+                    }
+                }
+                final_provider = gen.provider;
+                final_model = gen.model;
+                break Ok(());
+            }
+            Err(error) => break Err(error),
+        }
+    };
+
+    // Remove the pending message from state
+    state.borrow_mut().messages.pop();
     state.borrow_mut().is_streaming = false;
-    let generated = generated?;
+
+    result?;
+
+    // Persist the assistant message with thinking
+    let thinking = if accumulated_thinking.trim().is_empty() {
+        None
+    } else {
+        Some(accumulated_thinking)
+    };
     let document_data = chat::append(
         &genre_id,
         &thread_id,
         "assistant",
-        generated.text,
-        None,
-        Some(generated.provider),
-        Some(generated.model),
+        accumulated_text,
+        thinking,
+        Some(final_provider),
+        Some(final_model),
     )
     .await?;
     state.borrow_mut().messages = document_data.messages;

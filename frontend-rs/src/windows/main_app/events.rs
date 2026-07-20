@@ -787,9 +787,9 @@ fn bind_project_modal(document: &Document, state: Rc<RefCell<State>>) -> Result<
                 if title.trim().is_empty() {
                     return;
                 }
-                if let Ok(project) = projects::create_project(&title).await {
+                if let Ok(project) = projects::create(&title).await {
                     let _ = open_project(&doc, &st, project.id).await;
-                    if let Ok(projects_list) = projects::list_projects().await {
+                    if let Ok(projects_list) = projects::list().await {
                         st.borrow_mut().projects = projects_list;
                     }
                     let _ = super::render::all(&doc, &st.borrow());
