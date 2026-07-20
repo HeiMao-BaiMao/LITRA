@@ -2,6 +2,7 @@ mod agent_tools;
 mod ai_actions;
 mod events;
 mod generation;
+mod hashline_tools;
 mod imports;
 mod prompt_context;
 mod render;

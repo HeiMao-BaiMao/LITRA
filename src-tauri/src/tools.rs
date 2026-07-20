@@ -461,6 +461,19 @@ pub fn get_edit_log(req: GetEditLogRequest) -> Result<Vec<EditLogEntry>, String>
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AppendEditLogRequest {
+    pub project_id: String,
+    pub entries: Vec<EditLogEntry>,
+}
+
+/// hashline 編集など、フロントエンドで適用した編集のログを追記する。
+#[tauri::command]
+pub fn append_edit_log(req: AppendEditLogRequest) -> Result<(), String> {
+    append_edit_log_entries(&req.project_id, req.entries)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EpisodeLinesRequest {
     pub project_id: String,
     pub episode_id: String,

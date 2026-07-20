@@ -97,6 +97,7 @@ pub fn run() {
             tools::edit_episode_text_batch,
             tools::find_episode_lines,
             tools::get_edit_log,
+            tools::append_edit_log,
             tools::get_episode_lines,
             tools::list_episodes_with_summaries,
             tools::retrieve_episode_content,

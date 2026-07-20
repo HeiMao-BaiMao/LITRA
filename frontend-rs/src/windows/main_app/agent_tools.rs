@@ -445,25 +445,32 @@ fn summarize_tool_input(name: &str, input: &Value) -> Vec<String> {
     };
     match name {
         "editEpisode" => {
-            let start = compact_int(obj, "startLine");
-            let end = compact_int(obj, "endLine");
-            let replacement_lines = obj
-                .get("replacementText")
-                .and_then(Value::as_str)
-                .map(|t| t.lines().count())
-                .unwrap_or(0);
-            vec![
-                format!("{start}-{end}行"),
-                format!("置換後 {replacement_lines}行"),
-            ]
-        }
-        "editEpisodeBatch" => {
-            let count = obj
-                .get("edits")
-                .and_then(Value::as_array)
-                .map(|a| a.len())
-                .unwrap_or(0);
-            vec![format!("{count}箇所")]
+            // hashline パッチの `input` からセクション数と操作行数を要約する。
+            let input = obj.get("input").and_then(Value::as_str).unwrap_or("");
+            let sections = input
+                .lines()
+                .filter(|l| {
+                    let t = l.trim_start();
+                    t.starts_with('[') && t.contains('#') && t.trim_end().ends_with(']')
+                })
+                .count();
+            let ops = input
+                .lines()
+                .filter(|l| {
+                    let t = l.trim_start();
+                    t.starts_with("SWAP")
+                        || t.starts_with("DEL")
+                        || t.starts_with("INS")
+                })
+                .count();
+            let mut chips = Vec::new();
+            if sections > 0 {
+                chips.push(format!("{sections}セクション"));
+            }
+            if ops > 0 {
+                chips.push(format!("{ops}操作"));
+            }
+            chips
         }
         "searchEpisodes" | "findEpisodeLines" => {
             let query = obj.get("query").and_then(Value::as_str).unwrap_or("");
@@ -613,13 +620,6 @@ fn summarize_tool_output(name: &str, output: &Value) -> Vec<String> {
     chips
 }
 
-fn compact_int(obj: &serde_json::Map<String, Value>, key: &str) -> String {
-    obj.get(key)
-        .and_then(Value::as_i64)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|| "?".into())
-}
-
 fn display_json(value: &Value, limit: usize) -> String {
     let text = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
     if text.chars().count() <= limit {
@@ -636,6 +636,22 @@ fn now() -> String {
         .as_string()
         .unwrap_or_default()
 }
+
+/// ツール入力の episodeId を解決する。空または未指定なら現在のエピソードにフォールバック。
+fn resolve_episode_id(
+    input: &serde_json::Map<String, Value>,
+    current_episode: Option<&str>,
+) -> Result<String, JsValue> {
+    if let Some(id) = input.get("episodeId").and_then(Value::as_str) {
+        if !id.is_empty() {
+            return Ok(id.to_string());
+        }
+    }
+    current_episode
+        .map(String::from)
+        .ok_or_else(|| JsValue::from_str("episodeId is required (no current episode)"))
+}
+
 async fn execute(
     state: &Rc<RefCell<State>>,
     project_id: &str,
@@ -684,27 +700,78 @@ async fn execute(
             .await?;
             json!({"success":true})
         }
-        command => {
-            input.insert("projectId".into(), Value::String(project_id.into()));
-            if matches!(
-                name,
-                "getEpisodeLines" | "findEpisodeLines" | "editEpisode" | "editEpisodeBatch"
-            ) && input
+        "getEpisodeLines" => {
+            let episode_id = resolve_episode_id(&input, current_episode)?;
+            let start = input.get("startLine").and_then(Value::as_u64).map(|v| v as u32);
+            let end = input.get("endLine").and_then(Value::as_u64).map(|v| v as u32);
+            let episodes = state.borrow().episodes.clone();
+            super::hashline_tools::ground_episode_lines(
+                project_id, &episode_id, &episodes, start, end,
+            )
+            .await?
+        }
+        "findEpisodeLines" => {
+            let episode_id = resolve_episode_id(&input, current_episode)?;
+            let query = input
+                .get("query")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let context = input.get("contextLines").and_then(Value::as_u64).map(|v| v as u32);
+            let max = input.get("maxMatches").and_then(Value::as_u64).map(|v| v as usize);
+            let case_sensitive = input.get("caseSensitive").and_then(Value::as_bool);
+            let episodes = state.borrow().episodes.clone();
+            super::hashline_tools::ground_find_episode_lines(
+                project_id, &episode_id, &episodes, &query, context, max, case_sensitive,
+            )
+            .await?
+        }
+        "editEpisode" => {
+            let patch_input = input
+                .get("input")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    JsValue::from_str("editEpisode requires 'input' (the hashline patch text)")
+                })?
+                .to_string();
+            let reason = input
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let episodes = state.borrow().episodes.clone();
+            let result =
+                super::hashline_tools::apply_hashline_edit(project_id, &episodes, &patch_input, &reason)
+                    .await?;
+            // 現在のエピソードが編集されていればエディタ本文を再読み込み
+            let edited_id = result
                 .get("episodeId")
                 .and_then(Value::as_str)
-                .is_none_or(str::is_empty)
-            {
-                if let Some(episode_id) = current_episode {
-                    input.insert("episodeId".into(), Value::String(episode_id.into()));
+                .map(String::from);
+            if let Some(edited_id) = edited_id {
+                if Some(edited_id.as_str()) == current_episode {
+                    if let Some(file_name) = episodes
+                        .iter()
+                        .find(|ep| ep.id == edited_id)
+                        .map(|ep| ep.file_name.clone())
+                    {
+                        if let Ok(text) = projects::read_episode(project_id, &file_name).await {
+                            state.borrow_mut().editor_text = text;
+                        }
+                    }
                 }
             }
+            let _: Value =
+                invoke::invoke("rebuild_search_index", &json!({"projectId":project_id}))
+                    .await
+                    .unwrap_or(Value::Null);
+            result
+        }
+        command => {
+            input.insert("projectId".into(), Value::String(project_id.into()));
             let command = match command {
                 "retrieveEpisode" => "retrieve_episode_content",
                 "searchEpisodes" => "search_episodes",
-                "getEpisodeLines" => "get_episode_lines",
-                "findEpisodeLines" => "find_episode_lines",
-                "editEpisode" => "edit_episode_text",
-                "editEpisodeBatch" => "edit_episode_text_batch",
                 "getEditLog" => "get_edit_log",
                 "saveEpisodeSummary" => "save_episode_summary",
                 "saveEpisodeOneLiner" => "save_episode_one_liner",
@@ -713,16 +780,6 @@ async fn execute(
             invoke::invoke(command, &json!({"req":input})).await?
         }
     };
-    if matches!(name, "editEpisode" | "editEpisodeBatch") {
-        if let Some(text) = value.get("newText").and_then(Value::as_str) {
-            if input.get("episodeId").and_then(Value::as_str) == current_episode {
-                state.borrow_mut().editor_text = text.into();
-            }
-        }
-        let _: Value = invoke::invoke("rebuild_search_index", &json!({"projectId":project_id}))
-            .await
-            .unwrap_or(Value::Null);
-    }
     if matches!(
         name,
         "saveEpisodeSummary" | "saveEpisodeOneLiner" | "saveEpisodeSummaryAndOneLiner"
@@ -761,7 +818,7 @@ fn definitions() -> Vec<Value> {
         ),
         tool(
             "getEpisodeLines",
-            "Reads exact episode text with one-based line numbers before editing.",
+            "Reads episode text as hashline-numbered lines: a `[episodeId#TAG]` header plus `LINE:TEXT` rows. Copy the header (including #TAG) and line numbers verbatim to anchor an editEpisode.",
             object([
                 ("episodeId", string()),
                 ("startLine", integer()),
@@ -770,7 +827,7 @@ fn definitions() -> Vec<Value> {
         ),
         tool(
             "findEpisodeLines",
-            "Finds exact matching lines and context in an episode.",
+            "Searches an episode and returns matching lines with context as hashline-numbered output (`[episodeId#TAG]` header + `LINE:TEXT` rows).",
             object([
                 ("episodeId", string()),
                 ("query", string()),
@@ -781,28 +838,11 @@ fn definitions() -> Vec<Value> {
         ),
         tool(
             "editEpisode",
-            "Replaces an exact line range. Read lines first and copy expectedText exactly.",
+            "Edits an episode with a hashline patch. `input` is the full patch: one or more `[episodeId#TAG]` sections (TAG from your latest getEpisodeLines/findEpisodeLines) followed by line ops — `SWAP N.=M:` replace lines, `DEL N.=M` delete, `INS.PRE N:`/`INS.POST N:`/`INS.HEAD:`/`INS.TAIL:` insert, each body row a `+TEXT` literal. Read lines first; the #TAG certifies the snapshot.",
             object([
-                ("episodeId", string()),
-                ("startLine", integer()),
-                ("endLine", integer()),
-                ("expectedText", string()),
-                ("replacementText", string()),
+                ("input", string()),
                 ("reason", string()),
             ]),
-        ),
-        tool(
-            "editEpisodeBatch",
-            "Atomically replaces multiple exact non-overlapping ranges.",
-            json!({
-                "type":"object",
-                "properties":{
-                    "episodeId":string(),
-                    "edits":{"type":"array","items":object([
-                        ("startLine",integer()),("endLine",integer()),("expectedText",string()),("replacementText",string()),("reason",string())
-                    ])}
-                }
-            }),
         ),
         tool(
             "getEditLog",
@@ -892,21 +932,27 @@ fn build_tool_guidance(tool_names: &[&str], direct_creative_edit: bool) -> Strin
     // EPISODE TEXT EDITING
     let has_episode_tools = available.contains("findEpisodeLines")
         || available.contains("getEpisodeLines")
-        || available.contains("editEpisode")
-        || available.contains("editEpisodeBatch");
+        || available.contains("editEpisode");
     if has_episode_tools {
         s.push_str(r#"
 
-EPISODE TEXT EDITING - follow in this order:
+EPISODE TEXT EDITING (hashline) - follow in this order:
 1. WHEN THE USER ASKS YOU TO WRITE FICTION: 「〜を書いて」「本文に追加して」「小説の続きを書いて」「物語を作って」「以下の内容を反映して」など、ユーザーが明示的に本文執筆・追記・編集を依頼した場合 → 相談だけで終わらず、必ずツールを使って実際に本文に書き込むこと。執筆依頼をチャットの相談にすり替えてツールを呼ばないことは禁止。
-2. Before editing, ALWAYS read the current text and line numbers with findEpisodeLines or getEpisodeLines. NEVER guess line numbers or current text from memory.
-3. expectedText MUST be a character-for-character copy of the text you just read, with the line-number prefixes removed. Change nothing else in it.
-4. replacementText must be Japanese, unless the user explicitly asked for another language.
-5. IF the edit is one contiguous range → call editEpisode once. IF multiple separate ranges → collect ALL from the same pre-edit text and call editEpisodeBatch exactly once. NEVER chain editEpisode calls range by range.
-6. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range, the intended change, or the canon impact is ambiguous or high-risk.
-7. IF the tool reports an expectedText mismatch → re-read only the failed range, then retry with the latest exact text.
-8. After a successful edit, report editSummary or editedLineRanges once. Do not print expectedText or replacementText unless the user asks.
-9. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read.
+2. GROUND FIRST: Before editing, ALWAYS read the target with getEpisodeLines (a range) or findEpisodeLines (a search). They return a `[episodeId#TAG]` header plus `LINE:TEXT` rows. NEVER guess line numbers or content from memory.
+3. EDIT WITH A PATCH: call editEpisode with `input` = one or more sections. Each section starts with the `[episodeId#TAG]` header you just read (copy it verbatim, including #TAG), followed by line ops:
+   - `SWAP N.=M:` replace original lines N..M (inclusive) with the `+TEXT` body rows below.
+   - `DEL N.=M` delete lines N..M (no body).
+   - `INS.PRE N:` / `INS.POST N:` insert body before/after line N. `INS.HEAD:` / `INS.TAIL:` insert at file start/end.
+   - Every body row is `+TEXT` (a literal line; `+` alone = blank line). A Markdown bullet is `+- item`. NEVER write `-old` or bare context lines — the range names what changes, the body is only the new content.
+   - Single line: `SWAP N.=N:` / `DEL N`.
+4. Line numbers refer to the ORIGINAL read output and never shift as hunks apply. Touch only lines the read literally displayed.
+5. RANGES ARE TIGHT: cover ONLY lines whose content changes. Never widen a range over unchanged lines. Pure additions use `INS.*`, never a widened `SWAP`.
+6. RE-GROUND AFTER EVERY EDIT: each successful editEpisode mints a fresh #TAG and renumbers. Take the next edit's header/numbers from the edit response (it returns updated `numberedText`) or a fresh getEpisodeLines. On a stale-tag rejection or any surprising result, STOP and re-read before further edits.
+7. Multiple separate changes = multiple sections (or multiple hunks under one header) in a SINGLE editEpisode call — they apply all-or-nothing. Never chain editEpisode calls for changes that belong together.
+8. Body text must be Japanese, unless the user explicitly asked for another language.
+9. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range, the intended change, or the canon impact is ambiguous or high-risk.
+10. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read.
+11. After a successful edit, report what changed once (the returned warnings/numberedText). Do not reprint the whole patch unless the user asks.
 "#);
     }
 
@@ -915,7 +961,7 @@ EPISODE TEXT EDITING - follow in this order:
         s.push_str(r#"
 
 NEW FICTION GENERATION (continuePassage):
-- IF the user asks you to write a new continuation, scene, passage, dialogue sequence, or other manuscript prose → you MUST call continuePassage. Do NOT compose the prose in the chat model and do NOT place prose you invented directly into editEpisode/editEpisodeBatch.
+- IF the user asks you to write a new continuation, scene, passage, dialogue sequence, or other manuscript prose → you MUST call continuePassage. Do NOT compose the prose in the chat model and do NOT place prose you invented directly into editEpisode.
 - Put the complete author request into instruction: desired event, mood, length, viewpoint constraints, and anything that must or must not happen.
 - The tool uses the dedicated writing settings and, when enabled, multiple candidates, judgment-model selection, review, and deterministic checks.
 - The result is saved in the proposal cache and does NOT modify the manuscript by itself. If the user explicitly requested writing/application now, immediately call applyPassageProposal with the returned proposalId. Do not copy generatedText into editEpisode.
@@ -928,11 +974,11 @@ NEW FICTION GENERATION (continuePassage):
         s.push_str(r#"
 
 DIRECT CREATIVE EDITING MODE - ACTIVE:
-- This mode replaces the multi-stage continuePassage pipeline. For a request to write new fiction, you MUST write the final Japanese prose yourself and apply it with editEpisode in this same turn. Do not call continuePassage, rewritePassage, lineEditPassage, or any proposal-selection/review pipeline.
-- Read the exact target with getEpisodeLines or findEpisodeLines first. For a continuation at the end, replace the final line with that exact line followed by the newly written continuation in replacementText. Preserve the original final line character-for-character.
+- This mode replaces the multi-stage continuePassage pipeline. For a request to write new fiction, you MUST write the final Japanese prose yourself and apply it with editEpisode (a hashline patch) in this same turn. Do not call continuePassage, rewritePassage, lineEditPassage, or any proposal-selection/review pipeline.
+- Ground first with getEpisodeLines or findEpisodeLines, then issue a hashline patch. For a continuation at the end, use `INS.TAIL:` (or `INS.POST N:` after the final line) with the newly written prose as `+TEXT` body rows. Do not retype unchanged lines.
 - Do not merely print or propose the prose in chat. The requested result is complete only after editEpisode returns success.
 - Keep canon, viewpoint, tense, voice, and the user's requested length, but perform no separate planning, candidate generation, literary review, or regression comparison.
-- If editEpisode rejects an exact-text mismatch, re-read the affected range and retry once. If it still fails, report the failure without claiming that the manuscript changed.
+- If editEpisode rejects with a stale tag, re-read the affected range and retry once with the fresh `[episodeId#TAG]`. If it still fails, report the failure without claiming that the manuscript changed.
 "#);
     }
 
@@ -1076,7 +1122,7 @@ STEP 4 — IF A CALL FAILS:
 
 STEP 5 — REPORT AND STOP:
 - When the tools that answer the request have succeeded, give exactly one short Japanese report. Then stop calling tools.
-- In the report, use editSummary or editedLineRanges when provided. Do not restate expectedText, replacementText, or other raw tool arguments.
+- In the report, summarize what changed (lines/sections edited). Do not reprint the full hashline patch or other raw tool arguments unless the user asks.
 
 JAPANESE DATA CHECK — run before every create/update/save call:
 1. Every natural-language field value MUST be Japanese. 保存する説明文・メモ・要約は必ず日本語で書くこと。IF a value is ordinary descriptive English → translate it into natural Japanese first.
