@@ -52,6 +52,11 @@ async fn commit(mut document: KnowledgeDocument, bump: bool) -> Result<Knowledge
     }
     document.updated_at = now();
     save(&document).await?;
+    if bump {
+        let text = serde_json::to_string_pretty(&document).map_err(error)?;
+        let path = format!("knowledge/history/{}.json", document.revision);
+        genre_store::write_text(&document.genre_id, &path, &text).await?;
+    }
     repository::rebuild_counts(&document.genre_id).await?;
     Ok(document)
 }

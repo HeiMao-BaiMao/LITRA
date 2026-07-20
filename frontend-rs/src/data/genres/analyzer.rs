@@ -1,3 +1,5 @@
+use std::{cell::Cell, rc::Rc};
+
 use js_sys::Date;
 use serde::Deserialize;
 use serde_json::Value;
@@ -44,7 +46,13 @@ fn now() -> String {
         .unwrap_or_default()
 }
 
-pub async fn analyze(genre_id: &str, source_id: &str, genre_name: &str) -> Result<usize, JsValue> {
+pub async fn analyze(
+    genre_id: &str,
+    source_id: &str,
+    genre_name: &str,
+    on_progress: &mut impl FnMut(usize, usize, usize),
+    cancelled: &Rc<Cell<bool>>,
+) -> Result<usize, JsValue> {
     let source = sources::load(genre_id, source_id).await?;
     let genre = repository::load(genre_id).await?;
     let _ = genre_name;
@@ -64,7 +72,13 @@ pub async fn analyze(genre_id: &str, source_id: &str, genre_name: &str) -> Resul
     } else {
         source.segments.clone()
     };
-    for segment in &segments {
+    let total = segments.len();
+    let mut completed: usize = 0;
+    let mut failed: usize = 0;
+    for (index, segment) in segments.iter().enumerate() {
+        if cancelled.get() {
+            return Err(JsValue::from_str("分析がキャンセルされました。"));
+        }
         let segment_text = source
             .content
             .get(segment.start_offset..segment.end_offset)
@@ -76,7 +90,7 @@ pub async fn analyze(genre_id: &str, source_id: &str, genre_name: &str) -> Resul
             segment,
             segment_text,
         );
-        let analysis: Value = structured_output::generate_structured_object(
+        let result = structured_output::generate_structured_object::<Value>(
             "chat",
             Some(system),
             &prompt,
@@ -84,8 +98,23 @@ pub async fn analyze(genre_id: &str, source_id: &str, genre_name: &str) -> Resul
             None,
             None,
         )
-        .await?;
-        segment_analyses.push(analysis);
+        .await;
+        match result {
+            Ok(analysis) => {
+                segment_analyses.push(analysis);
+                completed += 1;
+            }
+            Err(error) => {
+                failed += 1;
+                web_sys::console::error_1(
+                    &format!("[litra:genres] segment {index} analysis failed: {error:?}").into(),
+                );
+            }
+        }
+        on_progress(completed, total, failed);
+    }
+    if cancelled.get() {
+        return Err(JsValue::from_str("分析がキャンセルされました。"));
     }
     let analyses_value = Value::Array(segment_analyses);
     let synthesis_prompt = prompts::source_synthesis(
@@ -104,6 +133,9 @@ pub async fn analyze(genre_id: &str, source_id: &str, genre_name: &str) -> Resul
         None,
     )
     .await?;
+    if cancelled.get() {
+        return Err(JsValue::from_str("分析がキャンセルされました。"));
+    }
     let existing = knowledge::load(genre_id).await?;
     let extraction_prompt =
         prompts::candidate_extraction(&genre, &analyses_value, &synthesis, &existing);
@@ -143,11 +175,12 @@ pub async fn analyze(genre_id: &str, source_id: &str, genre_name: &str) -> Resul
     knowledge::append_candidates(genre_id, candidates).await?;
     let run_id = tauri::random_uuid();
     let (provider, model) = ai::selection("chat").await.unwrap_or_default();
+    let status = if failed == 0 { "completed" } else { "partial" };
     let run = serde_json::json!({
-        "id": run_id, "genreId": genre_id, "sourceId": source_id, "status": "completed",
+        "id": run_id, "genreId": genre_id, "sourceId": source_id, "status": status,
         "sourceHash": source.metadata.content_hash, "promptVersion": prompts::ANALYSIS_VERSION,
-        "provider": provider, "model": model, "totalSegments": segments.len(),
-        "completedSegments": segments.len(), "failedSegments": 0, "segmentResults": analyses_value,
+        "provider": provider, "model": model, "totalSegments": total,
+        "completedSegments": completed, "failedSegments": failed, "segmentResults": analyses_value,
         "synthesis": synthesis,
         "startedAt": timestamp, "completedAt": now()
     });

@@ -525,15 +525,71 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
         episode_title.as_deref(),
         Some(&episode_id),
     );
-    let result = generate(
-        state,
-        "background",
-        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
-        prompt,
-    )
-    .await;
+    // TS版と同様にチャットにユーザーメッセージを追加
+    let user_msg = format!(
+        "「{}」の要約と一行要約を作成してください。",
+        episode_title.as_deref().unwrap_or("無題")
+    );
+    state.borrow_mut().chat.push(ChatMessage {
+        role: "user".into(),
+        content: user_msg,
+        thinking: None,
+        exclude_from_context: false,
+        id: None,
+        created_at: None,
+        transport: None,
+    });
+    // ストリーミング表示
+    let msg_index = {
+        let mut current = state.borrow_mut();
+        current.chat.push(ChatMessage {
+            role: "assistant".into(),
+            content: String::new(),
+            thinking: None,
+            exclude_from_context: false,
+            id: None,
+            created_at: None,
+            transport: None,
+        });
+        current.chat.len() - 1
+    };
+    super::render::all(document, &state.borrow())?;
+
+    let stream_state = Rc::clone(state);
+    let stream_document = document.clone();
+    let result = {
+        let current = state.borrow();
+        let provider = current.selected_provider.clone();
+        let model = current.selected_model.clone();
+        drop(current);
+        ai::generate_streaming(
+            "background",
+            super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+            prompt,
+            provider.as_deref(),
+            model.as_deref(),
+            |chunk| {
+                if let Some(msg) = stream_state.borrow_mut().chat.get_mut(msg_index) {
+                    msg.content.push_str(chunk);
+                }
+                let _ = super::render::all(&stream_document, &stream_state.borrow());
+            },
+        )
+        .await
+    };
     generating(document, state, false)?;
     let generated = result?;
+    // 最終テキストで確定
+    if let Some(msg) = state.borrow_mut().chat.get_mut(msg_index) {
+        msg.content = generated.text.clone();
+        msg.transport = Some(super::agent_tools::make_transport(
+            &generated.provider,
+            &generated.model,
+            generated.finish_reason.as_deref(),
+            "summary",
+        ));
+    }
+    save_chat(state).await?;
     let (summary, one_liner) =
         crate::windows::main_app::generation::old_prompts::parse_summary_output(&generated.text);
     if summary.is_none() && one_liner.is_none() {

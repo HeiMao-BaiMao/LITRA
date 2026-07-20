@@ -1,4 +1,7 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use js_sys::Reflect;
 use serde::Serialize;
@@ -237,7 +240,20 @@ async fn handle_action(
                 if let Some(status) = document.get_element_by_id("analysis-status") {
                     status.set_text_content(Some("Rust AIで分析中…"));
                 }
-                let count = analyzer::analyze(&genre_id, &source_id, &genre_name).await?;
+                let cancelled = Rc::new(Cell::new(false));
+                let mut on_progress = |completed: usize, total: usize, failed: usize| {
+                    if let Some(status) = document.get_element_by_id("analysis-status") {
+                        let label = if failed > 0 {
+                            format!("セグメント分析中 ({completed}/{total}, 失敗 {failed})…")
+                        } else {
+                            format!("セグメント分析中 ({completed}/{total})…")
+                        };
+                        status.set_text_content(Some(&label));
+                    }
+                };
+                let count =
+                    analyzer::analyze(&genre_id, &source_id, &genre_name, &mut on_progress, &cancelled)
+                        .await?;
                 if let Some(status) = document.get_element_by_id("analysis-status") {
                     status.set_text_content(Some(&format!("分析完了: 知識候補 {count} 件")));
                 }

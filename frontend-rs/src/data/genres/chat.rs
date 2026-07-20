@@ -172,6 +172,24 @@ pub async fn append(
     Ok(document)
 }
 
+/// Update the attachments list on a specific message within a thread.
+pub async fn set_message_attachments(
+    genre_id: &str,
+    thread_id: &str,
+    message_id: &str,
+    attachments: Vec<serde_json::Value>,
+) -> Result<(), JsValue> {
+    let mut document = load(genre_id, thread_id).await?;
+    if let Some(message) = document
+        .messages
+        .iter_mut()
+        .find(|message| message.id == message_id)
+    {
+        message.attachments = attachments;
+    }
+    save(genre_id, &document).await
+}
+
 pub async fn rename(genre_id: &str, thread_id: &str, title: String) -> Result<(), JsValue> {
     let mut document = load(genre_id, thread_id).await?;
     document.thread.title = title;

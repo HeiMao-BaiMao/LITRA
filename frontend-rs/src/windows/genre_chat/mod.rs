@@ -9,6 +9,7 @@ use web_sys::Document;
 
 use crate::{
     data::genres::{
+        attachments,
         chat::{self, Message, Thread},
         knowledge,
         models::Genre,
@@ -144,8 +145,48 @@ async fn send(
         state.borrow_mut().current_thread_id = Some(thread.id.clone());
         thread.id
     };
+    // Detect whether the user message should be auto-captured as an attachment
+    let auto_attachment_type = if attachments::detect_novel_text(&content) {
+        Some("novel_text")
+    } else if attachments::detect_long_text(&content) {
+        Some("long_text")
+    } else {
+        None
+    };
+
     let document_data =
         chat::append(&genre_id, &thread_id, "user", content, None, None, None).await?;
+
+    // Auto-save attachment for novel/long text messages
+    if let Some(att_type) = auto_attachment_type {
+        if let Some(user_msg) = document_data.messages.last() {
+            let message_id = user_msg.id.clone();
+            let preview = attachments::extract_preview(&user_msg.content, 500);
+            let name: String = preview.chars().take(30).collect();
+            let name = format!("{name}…");
+            if let Ok(attachment) = attachments::save(
+                &genre_id,
+                &thread_id,
+                &message_id,
+                &name,
+                att_type,
+                &user_msg.content,
+            )
+            .await
+            {
+                let attachment_value =
+                    serde_json::to_value(&attachment).unwrap_or_default();
+                let _ = chat::set_message_attachments(
+                    &genre_id,
+                    &thread_id,
+                    &message_id,
+                    vec![attachment_value],
+                )
+                .await;
+            }
+        }
+    }
+
     {
         let mut current = state.borrow_mut();
         current.messages = document_data.messages.clone();
