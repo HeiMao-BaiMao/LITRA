@@ -345,12 +345,25 @@ pub async fn rewrite_passage_with_references(
     instruction: &str,
     references: &FictionReferences,
 ) -> Result<ai::GeneratedText, JsValue> {
+    rewrite_passage_streaming(settings, context, passage, instruction, references, None).await
+}
+
+/// on_chunk 付きの書き直し。第一候補の生成中にテキストデルタを受け取れる。
+pub async fn rewrite_passage_streaming(
+    settings: &Value,
+    context: &str,
+    passage: &str,
+    instruction: &str,
+    references: &FictionReferences,
+    on_chunk: Option<ChunkCallback>,
+) -> Result<ai::GeneratedText, JsValue> {
     let first = rewrite_candidate(
         context,
         passage,
         instruction,
         references,
         scaffold(settings),
+        on_chunk,
     )
     .await?;
     let mut selected = if enabled(settings, "continuationBestOfTwo") {
@@ -360,6 +373,7 @@ pub async fn rewrite_passage_with_references(
             instruction,
             references,
             scaffold(settings),
+            None,
         )
         .await?;
         if review::choose_candidate(
@@ -551,19 +565,25 @@ async fn rewrite_candidate(
     instruction: &str,
     references: &FictionReferences,
     scaffold: Option<&str>,
+    on_chunk: Option<ChunkCallback>,
 ) -> Result<ai::GeneratedText, JsValue> {
-    ai::generate(
-        "writing",
-        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
-        prompts::rewrite(
-            context,
-            passage,
-            scaffold,
-            Some(instruction),
-            nonempty(&references.settings_context),
-        ),
-    )
-    .await
+    let system: String = super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into();
+    let prompt = prompts::rewrite(
+        context,
+        passage,
+        scaffold,
+        Some(instruction),
+        nonempty(&references.settings_context),
+    );
+    if let Some(callback) = on_chunk {
+        let cb = Rc::clone(&callback);
+        ai::generate_streaming("writing", system, prompt, None, None, move |chunk| {
+            (cb.borrow_mut())(chunk);
+        })
+        .await
+    } else {
+        ai::generate("writing", system, prompt).await
+    }
 }
 
 async fn optional_judgment(system: &str, prompt: String) -> String {

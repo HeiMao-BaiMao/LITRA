@@ -209,12 +209,35 @@ pub async fn rewrite_selection(
         (settings, references)
     };
     generating(document, state, true)?;
-    let result = super::generation::rewrite_passage_with_references(
+    // ストリーミング: 書き直し中に選択範囲をリアルタイム置換
+    let stream_state = Rc::clone(state);
+    let stream_document = document.clone();
+    let stream_before = text[..start].to_owned();
+    let stream_after = text[end..].to_owned();
+    let on_chunk: super::generation::ChunkCallback =
+        std::rc::Rc::new(std::cell::RefCell::new({
+            let mut accumulated = String::new();
+            move |chunk: &str| {
+                accumulated.push_str(chunk);
+                let mut next = stream_before.clone();
+                next.push_str(accumulated.trim());
+                next.push_str(&stream_after);
+                stream_state.borrow_mut().editor_text = next;
+                if let Some(editor) = stream_document
+                    .get_element_by_id("editor")
+                    .and_then(|el| el.dyn_into::<HtmlTextAreaElement>().ok())
+                {
+                    editor.set_value(&stream_state.borrow().editor_text);
+                }
+            }
+        }));
+    let result = super::generation::rewrite_passage_streaming(
         &settings,
         &context,
         selected,
         "選択範囲を前後の文脈になじむように推敲する",
         &references,
+        Some(on_chunk),
     )
     .await;
     generating(document, state, false)?;
