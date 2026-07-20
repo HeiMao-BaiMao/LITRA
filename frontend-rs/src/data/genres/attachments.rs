@@ -1,3 +1,6 @@
+// TS API互換のため未使用の公開関数を含む
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
 

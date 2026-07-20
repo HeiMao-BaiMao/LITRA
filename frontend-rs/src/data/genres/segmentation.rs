@@ -349,6 +349,7 @@ pub async fn segment_source_text(
 }
 
 /// Extract a segment's content from the full source text.
+#[allow(dead_code)]
 pub fn extract_segment_content(source_text: &str, segment: &SourceSegment) -> String {
     let normalized = normalize_line_endings(source_text);
     normalized[segment.start_offset..segment.end_offset].to_owned()

@@ -24,37 +24,6 @@ pub struct FictionReferences {
     pub character_excerpts: String,
 }
 
-pub async fn continue_story(settings: &Value, context: &str) -> Result<ai::GeneratedText, JsValue> {
-    continue_story_with_instruction(settings, context, "自然に続きを執筆する").await
-}
-
-pub async fn continue_story_with_instruction(
-    settings: &Value,
-    context: &str,
-    instruction: &str,
-) -> Result<ai::GeneratedText, JsValue> {
-    continue_story_with_progress(settings, context, instruction, |_| {}).await
-}
-
-pub async fn continue_story_with_progress<F>(
-    settings: &Value,
-    context: &str,
-    instruction: &str,
-    on_stage: F,
-) -> Result<ai::GeneratedText, JsValue>
-where
-    F: FnMut(&str),
-{
-    continue_story_with_references_progress(
-        settings,
-        context,
-        instruction,
-        &FictionReferences::default(),
-        on_stage,
-    )
-    .await
-}
-
 pub async fn continue_story_with_references_progress<F>(
     settings: &Value,
     context: &str,
@@ -325,21 +294,6 @@ where
         }
     }
     Ok(selected)
-}
-
-pub async fn rewrite_passage(
-    settings: &Value,
-    context: &str,
-    passage: &str,
-) -> Result<ai::GeneratedText, JsValue> {
-    rewrite_passage_with_references(
-        settings,
-        context,
-        passage,
-        "選択範囲を前後の文脈になじむように推敲する",
-        &FictionReferences::default(),
-    )
-    .await
 }
 
 pub async fn rewrite_passage_with_references(

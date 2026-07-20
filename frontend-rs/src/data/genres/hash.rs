@@ -23,6 +23,7 @@ pub async fn compute_text_hash(text: &str) -> Result<String, JsValue> {
 }
 
 /// Return the first `length` characters of a hex hash (default 16).
+#[allow(dead_code)]
 pub fn shorten_hash(hash: &str, length: usize) -> &str {
     let end = hash.len().min(length);
     &hash[..end]

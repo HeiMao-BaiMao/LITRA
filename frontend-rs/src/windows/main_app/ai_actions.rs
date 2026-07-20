@@ -5,7 +5,6 @@ use web_sys::{Document, HtmlTextAreaElement};
 
 use super::{sync_chat, sync_summary, ChatMessage, State};
 use crate::{
-    ai::cache_observability,
     data::projects,
     runtime::{ai, invoke, tauri},
 };
@@ -644,50 +643,6 @@ pub fn cancel(document: &Document, state: &Rc<RefCell<State>>) {
     sync_chat(&state.borrow());
 }
 
-async fn generate(
-    state: &Rc<RefCell<State>>,
-    role: &str,
-    system: String,
-    prompt: String,
-) -> Result<ai::GeneratedText, JsValue> {
-    let current = state.borrow();
-    let provider = (role == "chat")
-        .then(|| current.selected_provider.clone())
-        .flatten();
-    let model = (role == "chat")
-        .then(|| current.selected_model.clone())
-        .flatten();
-    drop(current);
-    let result =
-        ai::generate_with(role, system, prompt, provider.as_deref(), model.as_deref()).await?;
-    // キャッシュ使用量を記録（非同期・ベストエフォート）
-    let _ = cache_observability::record_provider_cache_usage(
-        role,
-        &result.provider,
-        &result.model,
-        &serde_json::Value::Null, // provider_metadata は現状の ai::generate_with では取得不可
-    );
-    Ok(result)
-}
-async fn push_assistant(
-    document: &Document,
-    state: &Rc<RefCell<State>>,
-    content: String,
-) -> Result<(), JsValue> {
-    state.borrow_mut().chat.push(ChatMessage {
-        role: "assistant".into(),
-        content,
-        thinking: None,
-        exclude_from_context: false,
-        id: None,
-        created_at: None,
-        transport: None,
-    });
-    save_chat(state).await?;
-    super::render::all(document, &state.borrow())?;
-    sync_chat(&state.borrow());
-    Ok(())
-}
 pub(super) async fn save_chat(state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
     let Some((project_id, chat)) = ({
         let current = state.borrow();
