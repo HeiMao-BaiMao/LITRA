@@ -574,16 +574,15 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
     let stream_state = Rc::clone(state);
     let stream_document = document.clone();
     let result = {
-        let current = state.borrow();
-        let provider = current.selected_provider.clone();
-        let model = current.selected_model.clone();
-        drop(current);
+        // role="background" の解決（backgroundModel、無ければ chatModel へフォールバック）に委ねる。
+        // メイン画面で選択中の provider/model をここで上書きすると、設定画面で
+        // 背景モデルを個別に構成していてもそれが無視され「背景」の意味と食い違う。
         ai::generate_streaming(
             "background",
             super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
             prompt,
-            provider.as_deref(),
-            model.as_deref(),
+            None,
+            None,
             |chunk| {
                 if let Some(msg) = stream_state.borrow_mut().chat.get_mut(msg_index) {
                     msg.content.push_str(chunk);
