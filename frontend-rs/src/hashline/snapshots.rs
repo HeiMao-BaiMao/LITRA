@@ -49,6 +49,26 @@ fn merge_seen_lines(snapshot: &mut Snapshot, lines: Option<&[u32]>) {
     }
 }
 
+/// スナップショットの記録時刻を返す。
+///
+/// `js_sys::Date::now` は wasm-bindgen のインポートなので、wasm 以外の
+/// ターゲットで実行するユニットテストから呼び出せない。ブラウザでは従来の
+/// JS 時計を使い、それ以外では標準ライブラリの epoch 時刻へフォールバックする。
+fn now_millis() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64() * 1000.0)
+            .unwrap_or_default()
+    }
+}
+
 /// インメモリのスナップショットストア。パスごとの履歴は全文版本の短い輪
 /// （古いものから落とす）、パス管理は LRU 上限付きで冷えたパスから老化する。
 ///
@@ -120,7 +140,7 @@ impl InMemorySnapshotStore {
     /// 読み取りをまたいで [`Snapshot::seen_lines`] へ和集合される。
     pub fn record(&mut self, path: &str, full_text: &str, seen_lines: Option<&[u32]>) -> String {
         let hash = compute_file_hash(full_text);
-        let now = js_sys::Date::now();
+        let now = now_millis();
         let max_versions = self.max_versions_per_path;
         {
             let history = self.versions.entry(path.to_string()).or_default();
@@ -248,7 +268,9 @@ mod tests {
         let mut store = InMemorySnapshotStore::new();
         let tag = store.record("f.txt", "hello\nworld", Some(&[1, 2]));
         assert_eq!(tag, compute_file_hash("hello\nworld"));
-        let snap = store.by_hash("f.txt", &tag).expect("by_hash should find it");
+        let snap = store
+            .by_hash("f.txt", &tag)
+            .expect("by_hash should find it");
         assert_eq!(snap.text, "hello\nworld");
         assert_eq!(store.head("f.txt").expect("head").hash, tag);
         let seen = snap.seen_lines.as_ref().expect("seen_lines recorded");
