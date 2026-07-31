@@ -21,6 +21,7 @@ struct Model {
     connection: Option<String>,
     temperature: Option<f64>,
     max_tokens: Option<u64>,
+    max_context_tokens: Option<u64>,
     top_p: Option<f64>,
     top_k: Option<u64>,
     frequency_penalty: Option<f64>,
@@ -31,6 +32,19 @@ struct Model {
     anthropic_thinking_budget: Option<u64>,
     anthropic_thinking_effort: Option<String>,
     google_thinking_level: Option<String>,
+    /// モデル単位の役割別既定プロファイル（providers.json の "writing"/"judgment"）。
+    /// 現状 promptScaffold のみを消費する（他フィールドは role_overrides 経由で別途処理）。
+    #[serde(default)]
+    writing: RoleProfile,
+    #[serde(default)]
+    judgment: RoleProfile,
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoleProfile {
+    #[serde(default)]
+    prompt_scaffold: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -83,6 +97,12 @@ pub struct RuntimeAiConfig {
     thinking_budget: Option<u64>,
     anthropic_thinking_effort: Option<String>,
     thinking_level: Option<String>,
+    /// この役割（writing/judgment）でモデルカタログが既定するプロンプト scaffold。
+    /// ユーザーの明示オーバーライド（writingOverrides/judgmentOverrides）はここに含めない。
+    /// 優先順位の判断はフロント側（generation::scaffold 系）に委ねる。
+    prompt_scaffold: Option<String>,
+    /// このモデルの実効コンテキスト上限（トークン）。設定値優先、無ければモデル既定。
+    max_context_tokens: Option<u64>,
 }
 
 #[tauri::command]
@@ -390,6 +410,20 @@ pub fn ai_runtime_config(
         thinking_level: string(&settings, "googleThinkingLevel")
             .map(str::to_owned)
             .or_else(|| model.and_then(|item| item.google_thinking_level.clone())),
+        prompt_scaffold: match role {
+            "writing" => model.and_then(|item| item.writing.prompt_scaffold.clone()),
+            "judgment" => model.and_then(|item| item.judgment.prompt_scaffold.clone()),
+            _ => None,
+        },
+        max_context_tokens: settings
+            .get("maxContextTokens")
+            .and_then(Value::as_u64)
+            .or_else(|| model.and_then(|item| item.max_context_tokens))
+            .or_else(|| {
+                cached_copilot_model
+                    .as_ref()
+                    .and_then(|item| item.max_prompt_tokens)
+            }),
     })
 }
 

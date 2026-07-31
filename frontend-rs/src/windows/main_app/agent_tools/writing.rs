@@ -87,16 +87,31 @@ async fn continue_passage(
     let episode_id =
         current_episode.ok_or_else(|| JsValue::from_str("エピソードが選択されていません。"))?;
     let instruction = required(input, "instruction")?;
-    let (settings, context, mut references) = {
+    // writing ロールの実効コンテキスト上限を末尾スライスの文字数上限に反映する
+    // （大コンテキストモデルでもデフォルトは超えない。取得不可なら従来通り24,000字）。
+    let writing_defaults = ai::role_defaults("writing").await.ok();
+    let slice_chars = prompt_context::context_slice_chars(
+        writing_defaults.as_ref().and_then(|value| value.max_context_tokens),
+        24_000,
+    );
+    let (mut settings, context, mut references) = {
         let current = state.borrow();
         let settings = current.ai_settings.clone();
-        let context = tail(&current.editor_text, 24_000);
+        let context = tail(&current.editor_text, slice_chars);
         (
             settings.clone(),
             context.clone(),
             prompt_context::fiction_references(&current, &settings, &context),
         )
     };
+    if generation::scaffold(&settings).is_none() {
+        if let Some(value) = writing_defaults.and_then(|value| value.prompt_scaffold) {
+            if let Some(obj) = settings.as_object_mut() {
+                obj.insert("writingModelDefaultScaffold".into(), Value::String(value));
+            }
+        }
+    }
+    let settings = generation::seed_judgment_scaffold_default(settings).await;
     references.related_scenes = prompt_context::build_related_scenes(
         project_id,
         Some(episode_id),
@@ -148,6 +163,7 @@ async fn rewrite_passage(
             prompt_context::fiction_references(&current, &settings, &context),
         )
     };
+    let settings = generation::seed_model_scaffold_defaults(settings).await;
     let generated = generation::rewrite_passage_with_references_progress(
         &settings,
         &context,
@@ -203,6 +219,7 @@ async fn line_edit(
             prompt_context::fiction_references(&current, &settings, &context),
         )
     };
+    let settings = generation::seed_model_scaffold_defaults(settings).await;
     on_progress("対象本文の前後を確認中");
     on_progress("判断モデルで査読中");
     let review = ai::generate(

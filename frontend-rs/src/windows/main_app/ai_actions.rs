@@ -77,21 +77,20 @@ pub async fn continue_story(
     document: &Document,
     state: &Rc<RefCell<State>>,
 ) -> Result<(), JsValue> {
-    let context = state
-        .borrow()
-        .editor_text
-        .chars()
-        .rev()
-        .take(24000)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>();
-    if context.trim().is_empty() {
+    if state.borrow().editor_text.trim().is_empty() {
         return Err(JsValue::from_str("本文が空です。"));
     }
     generating(document, state, true)?;
-    let (settings, project_id, episode_id, episodes, mut references) = {
+    // writing ロールの実効コンテキスト上限を取得し、末尾スライスの文字数上限に反映する。
+    // 取得できない、または既定の24,000字を上回る場合は既定値のまま
+    // （大コンテキストモデルでプロンプト費用が際限なく増えないための上限キャップ）。
+    let writing_defaults = ai::role_defaults("writing").await.ok();
+    let slice_chars = super::prompt_context::context_slice_chars(
+        writing_defaults.as_ref().and_then(|value| value.max_context_tokens),
+        24_000,
+    );
+    let context = super::prompt_context::tail_chars(&state.borrow().editor_text, slice_chars);
+    let (mut settings, project_id, episode_id, episodes, mut references) = {
         let current = state.borrow();
         let settings = current.ai_settings.clone();
         (
@@ -105,6 +104,17 @@ pub async fn continue_story(
             super::prompt_context::fiction_references(&current, &settings, &context),
         )
     };
+    if super::generation::scaffold(&settings).is_none() {
+        if let Some(value) = writing_defaults.and_then(|value| value.prompt_scaffold) {
+            if let Some(obj) = settings.as_object_mut() {
+                obj.insert(
+                    "writingModelDefaultScaffold".into(),
+                    serde_json::Value::String(value),
+                );
+            }
+        }
+    }
+    let settings = super::generation::seed_judgment_scaffold_default(settings).await;
     if let Some(project_id) = project_id.as_deref() {
         references.related_scenes = super::prompt_context::build_related_scenes(
             project_id,
@@ -228,6 +238,7 @@ pub async fn rewrite_selection(
         let references = super::prompt_context::fiction_references(&current, &settings, &context);
         (settings, references)
     };
+    let settings = super::generation::seed_model_scaffold_defaults(settings).await;
     generating(document, state, true)?;
     // ストリーミング: 書き直し中に選択範囲をリアルタイム置換
     let stream_state = Rc::clone(state);

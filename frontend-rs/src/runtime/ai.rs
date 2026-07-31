@@ -105,6 +105,10 @@ struct RuntimeConfig {
     thinking_budget: Option<u64>,
     anthropic_thinking_effort: Option<String>,
     thinking_level: Option<String>,
+    #[serde(default)]
+    prompt_scaffold: Option<String>,
+    #[serde(default)]
+    max_context_tokens: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -288,6 +292,31 @@ pub async fn forced_tool_choice(
         &config.model,
         config.thinking_enabled,
     ))
+}
+
+/// 指定ロール（"writing"/"judgment" 等）に実効解決されるモデルの既定値を返す。
+/// プロンプト構築前に scaffold・コンテキスト上限を知る必要がある呼び出し元
+/// （generation::seed_model_scaffold_defaults 等）から使う。
+/// generate() 内部の ai_runtime_config 呼び出しと同じコマンドを叩くだけの軽量版。
+pub struct RoleDefaults {
+    pub prompt_scaffold: Option<String>,
+    pub max_context_tokens: Option<u64>,
+}
+
+pub async fn role_defaults(role: &str) -> Result<RoleDefaults, JsValue> {
+    let config: RuntimeConfig = invoke::invoke(
+        "ai_runtime_config",
+        &ConfigArgs {
+            role,
+            provider_override: None,
+            model_override: None,
+        },
+    )
+    .await?;
+    Ok(RoleDefaults {
+        prompt_scaffold: config.prompt_scaffold,
+        max_context_tokens: config.max_context_tokens,
+    })
 }
 
 pub async fn generate(

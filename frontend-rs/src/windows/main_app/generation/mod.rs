@@ -540,7 +540,16 @@ async fn draft(
     Ok(result)
 }
 
-fn is_length_finish(reason: Option<&str>) -> bool {
+/// 改稿ゲート: LLM査読が要修正と判定したか、機械検査のhard違反が残っているかのどちらかで改稿へ進む。
+fn review_gate_requires_revision(findings: &str, has_hard_mechanical: bool) -> bool {
+    review::requires_revision(findings) || has_hard_mechanical
+}
+
+/// finish_reason が「出力上限で切れた」ことを示すかを判定する。
+/// プロバイダごとの生値をそのまま受け取る前提で、大小文字を無視して
+/// OpenAI chat("length")、Anthropic/OpenAI compatible("max_tokens")、
+/// OpenAI responses("max_output_tokens")、Gemini("MAX_TOKENS")を等しく扱う。
+pub(crate) fn is_length_finish(reason: Option<&str>) -> bool {
     reason.is_some_and(|reason| {
         matches!(
             reason.to_ascii_lowercase().as_str(),
@@ -648,32 +657,110 @@ fn nonempty(value: &str) -> Option<&str> {
 }
 
 /// 執筆系プロンプトの scaffold("light" 等)を設定から解決する。
-/// 設定画面の執筆詳細(writingOverrides.promptScaffold)を優先し、
-/// 旧形式のトップレベル promptScaffold へフォールバックする。
+/// 優先順位: 設定画面の執筆詳細(writingOverrides.promptScaffold)
+/// → 旧形式のトップレベル promptScaffold
+/// → seed_model_scaffold_defaults が注入したモデルカタログ既定値
+/// → None(重装)。
 pub(crate) fn scaffold(settings: &Value) -> Option<&str> {
     settings
         .get("writingOverrides")
         .and_then(|overrides| overrides.get("promptScaffold"))
         .and_then(Value::as_str)
         .or_else(|| settings.get("promptScaffold").and_then(Value::as_str))
+        .or_else(|| {
+            settings
+                .get("writingModelDefaultScaffold")
+                .and_then(Value::as_str)
+        })
         .filter(|value| !value.trim().is_empty())
 }
 
 /// 判断系タスク(候補比較・査読基準)のプロンプトに使う scaffold。
-/// judgmentOverrides.promptScaffold を優先し、トップレベルへフォールバックする。
+/// judgmentOverrides.promptScaffold を優先し、トップレベル、
+/// 最後に判断系モデルのカタログ既定値へフォールバックする。
 pub(crate) fn judgment_scaffold(settings: &Value) -> Option<&str> {
     settings
         .get("judgmentOverrides")
         .and_then(|overrides| overrides.get("promptScaffold"))
         .and_then(Value::as_str)
         .or_else(|| settings.get("promptScaffold").and_then(Value::as_str))
+        .or_else(|| {
+            settings
+                .get("judgmentModelDefaultScaffold")
+                .and_then(Value::as_str)
+        })
         .filter(|value| !value.trim().is_empty())
+}
+
+/// 生成パイプラインの入口で1度だけ呼ぶ。writingOverrides/judgmentOverrides や
+/// トップレベル promptScaffold にユーザーの明示指定が既にある場合は
+/// ai_runtime_config への問い合わせをスキップする。無い場合のみ、実際に
+/// 解決されるモデル（providers.json の writing/judgment プロファイル）の
+/// promptScaffold 既定値を取得し、settings のクローンへ注入する。
+/// この注入先キーは scaffold()/judgment_scaffold() の最終フォールバックとしてのみ
+/// 参照され、writingOverrides 等のユーザー設定とは混同されない。
+pub(crate) async fn seed_model_scaffold_defaults(settings: Value) -> Value {
+    let settings = seed_writing_scaffold_default(settings).await;
+    seed_judgment_scaffold_default(settings).await
+}
+
+/// writing ロールのモデル既定 scaffold だけを注入する版。
+/// writing ロールのコンテキスト上限も同時に取得したい呼び出し元
+/// （本文スライス長の算出と1回のai_runtime_config呼び出しで済ませたい場合）は、
+/// これを呼ばず ai::role_defaults("writing") を直接使う。
+pub(crate) async fn seed_writing_scaffold_default(mut settings: Value) -> Value {
+    if scaffold(&settings).is_none() {
+        if let Ok(defaults) = ai::role_defaults("writing").await {
+            if let Some(value) = defaults.prompt_scaffold {
+                if let Some(obj) = settings.as_object_mut() {
+                    obj.insert("writingModelDefaultScaffold".into(), Value::String(value));
+                }
+            }
+        }
+    }
+    settings
+}
+
+/// judgment ロールのモデル既定 scaffold だけを注入する版。
+pub(crate) async fn seed_judgment_scaffold_default(mut settings: Value) -> Value {
+    if judgment_scaffold(&settings).is_none() {
+        if let Ok(defaults) = ai::role_defaults("judgment").await {
+            if let Some(value) = defaults.prompt_scaffold {
+                if let Some(obj) = settings.as_object_mut() {
+                    obj.insert("judgmentModelDefaultScaffold".into(), Value::String(value));
+                }
+            }
+        }
+    }
+    settings
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn scaffold_falls_back_to_seeded_model_default_when_no_explicit_override() {
+        // writingOverrides/トップレベル promptScaffold のどちらも無い場合のみ、
+        // seed_model_scaffold_defaults が注入する既定値が採用される。
+        assert_eq!(
+            scaffold(&json!({"writingModelDefaultScaffold":"light"})),
+            Some("light")
+        );
+        // 明示オーバーライドがあれば既定値より優先される。
+        assert_eq!(
+            scaffold(&json!({
+                "promptScaffold":"heavy",
+                "writingModelDefaultScaffold":"light"
+            })),
+            Some("heavy")
+        );
+        assert_eq!(
+            judgment_scaffold(&json!({"judgmentModelDefaultScaffold":"light"})),
+            Some("light")
+        );
+    }
 
     #[test]
     fn review_gate_forces_revision_on_hard_mechanical_violation_even_if_review_is_clean() {

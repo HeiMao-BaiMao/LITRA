@@ -22,17 +22,36 @@ struct Budgets {
     current_memo: usize,
 }
 
+/// コンテキスト上限（トークン）と出力上限（トークン）から、プロンプトに使える
+/// 文字数を算出する（1トークン≈1.6文字換算）。budgets() と役割別の本文スライス
+/// 予算（context_slice_chars）が共有する換算式。
+fn usable_context_chars(max_context_tokens: f64, max_output_tokens: f64) -> f64 {
+    let max_context = max_context_tokens.max(1.0);
+    let max_output = max_output_tokens.max(0.0);
+    let reserved =
+        (max_output.max(1_024.0) + CONTEXT_OVERHEAD_TOKENS).min((max_context * 0.5).floor());
+    let usable_tokens = (max_context - reserved).max(2_048.0);
+    (usable_tokens * CONTEXT_CHAR_PER_TOKEN).floor().max(4_096.0)
+}
+
+/// 役割（writing等）の実効コンテキスト上限から、直前本文スライスに使う文字数を
+/// 算出する。上限が取得できない場合、または算出値が default を上回る場合は
+/// default をそのまま使う（大コンテキストモデルでスライスが際限なく伸びて
+/// プロンプト費用が急増しないようにする安全弁）。
+pub(crate) fn context_slice_chars(max_context_tokens: Option<u64>, default: usize) -> usize {
+    let Some(max_context_tokens) = max_context_tokens else {
+        return default;
+    };
+    let usable = usable_context_chars(max_context_tokens as f64, 8_192.0);
+    (usable as usize).min(default)
+}
+
 fn budgets(settings: &Value) -> Budgets {
     let max_context = positive(settings, "maxContextTokens")
         .unwrap_or(DEFAULT_MAX_CONTEXT_TOKENS)
         .floor();
     let max_output = positive(settings, "maxTokens").unwrap_or(8_192.0).floor();
-    let reserved =
-        (max_output.max(1_024.0) + CONTEXT_OVERHEAD_TOKENS).min((max_context * 0.5).floor());
-    let usable_tokens = (max_context - reserved).max(2_048.0);
-    let usable_chars = (usable_tokens * CONTEXT_CHAR_PER_TOKEN)
-        .floor()
-        .max(4_096.0);
+    let usable_chars = usable_context_chars(max_context, max_output);
     let scaled = |ratio: f64, min: usize, max: usize| {
         (usable_chars * ratio).clamp(min as f64, max as f64).floor() as usize
     };
@@ -468,7 +487,7 @@ fn relationship_line(relation: &Value, state: &State) -> String {
     )
 }
 
-fn tail_chars(value: &str, count: usize) -> String {
+pub(crate) fn tail_chars(value: &str, count: usize) -> String {
     value
         .chars()
         .rev()
@@ -482,6 +501,18 @@ fn tail_chars(value: &str, count: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn context_slice_chars_shrinks_for_small_context_models_but_never_exceeds_default() {
+        // 上限不明ならデフォルトをそのまま使う。
+        assert_eq!(context_slice_chars(None, 24_000), 24_000);
+        // 大きなコンテキストモデルでもデフォルトを超えない（回帰防止の上限キャップ）。
+        assert_eq!(context_slice_chars(Some(1_000_000), 24_000), 24_000);
+        // 小さなコンテキストモデル（例: ローカル8Kモデル）では実効値まで縮む。
+        let shrunk = context_slice_chars(Some(8_192), 24_000);
+        assert!(shrunk < 24_000);
+        assert!(shrunk >= 4_096);
+    }
 
     #[test]
     fn mentioned_names_follow_last_mention_order() {
