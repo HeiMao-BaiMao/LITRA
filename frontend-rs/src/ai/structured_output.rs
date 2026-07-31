@@ -20,7 +20,8 @@ const STRUCTURED_OUTPUT_TOOL_NAME: &str = "submit_structured_output";
 /// `prompt` はユーザープロンプト。
 /// `role` は使用する AI ロール（例: "judgment"）。
 ///
-/// モデルがツールを呼ばなかった場合、または出力がスキーマに合わない場合はエラーを返す。
+/// モデルがツールを呼ばなかった場合は、互換性のためテキスト JSON を
+/// フォールバックとして検証する。どちらもスキーマに合わない場合はエラーを返す。
 pub async fn generate_structured_object<T: DeserializeOwned>(
     role: &str,
     system: Option<&str>,
@@ -55,17 +56,119 @@ pub async fn generate_structured_object<T: DeserializeOwned>(
         .iter()
         .find(|c| c.name == STRUCTURED_OUTPUT_TOOL_NAME);
 
-    let Some(call) = call else {
-        return Err(JsValue::from_str(&format!(
-            "generateStructuredObject: model did not call \"{STRUCTURED_OUTPUT_TOOL_NAME}\""
-        )));
-    };
+    if let Some(call) = call {
+        let parsed: T = serde_json::from_value(call.input.clone()).map_err(|e| {
+            JsValue::from_str(&format!(
+                "generateStructuredObject: structured output validation failed: {e}"
+            ))
+        })?;
+        return Ok(parsed);
+    }
 
-    let parsed: T = serde_json::from_value(call.input.clone()).map_err(|e| {
+    // OpenCode's DeepSeek V4 route intentionally removes tool_choice while
+    // thinking is enabled. Keep structured generation usable there by
+    // accepting a JSON object returned as the assistant text.
+    parse_structured_text(&turn.text).ok_or_else(|| {
         JsValue::from_str(&format!(
-            "generateStructuredObject: structured output validation failed: {e}"
+            "generateStructuredObject: model did not call \"{STRUCTURED_OUTPUT_TOOL_NAME}\" and did not return valid JSON"
         ))
-    })?;
+    })
+}
 
-    Ok(parsed)
+fn parse_structured_text<T: DeserializeOwned>(text: &str) -> Option<T> {
+    let trimmed = text.trim();
+    for candidate in [trimmed, strip_code_fence(trimmed)] {
+        if let Ok(value) = serde_json::from_str(candidate) {
+            return Some(value);
+        }
+    }
+    let start = trimmed.find('{')?;
+    let end = trimmed.rfind('}')?;
+    if start >= end {
+        return None;
+    }
+    let candidate = &trimmed[start..=end];
+    serde_json::from_str(candidate)
+        .ok()
+        .or_else(|| serde_json::from_str(&escape_raw_json_controls(candidate)).ok())
+}
+
+fn strip_code_fence(text: &str) -> &str {
+    let text = text.strip_prefix("```").unwrap_or(text);
+    let text = text
+        .strip_prefix("json")
+        .or_else(|| text.strip_prefix("JSON"))
+        .unwrap_or(text);
+    text.strip_suffix("```").unwrap_or(text).trim()
+}
+
+fn escape_raw_json_controls(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut escaped_character = false;
+    for character in text.chars() {
+        if in_string {
+            if escaped_character {
+                escaped.push(character);
+                escaped_character = false;
+            } else if character == '\\' {
+                escaped.push(character);
+                escaped_character = true;
+            } else if character == '"' {
+                escaped.push(character);
+                in_string = false;
+            } else if character == '\n' {
+                escaped.push_str("\\n");
+            } else if character == '\r' {
+                escaped.push_str("\\r");
+            } else if character == '\t' {
+                escaped.push_str("\\t");
+            } else {
+                escaped.push(character);
+            }
+        } else {
+            if character == '"' {
+                in_string = true;
+            }
+            escaped.push(character);
+        }
+    }
+    escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_structured_text;
+    use serde_json::json;
+
+    #[test]
+    fn parses_direct_json_text() {
+        assert_eq!(
+            parse_structured_text::<serde_json::Value>(r#"{"ok":true}"#),
+            Some(json!({"ok": true}))
+        );
+    }
+
+    #[test]
+    fn parses_fenced_json_with_preamble() {
+        assert_eq!(
+            parse_structured_text::<serde_json::Value>(
+                "結果です。\n```json\n{\"ok\":true}\n```"
+            ),
+            Some(json!({"ok": true}))
+        );
+    }
+
+    #[test]
+    fn rejects_non_json_text() {
+        assert_eq!(parse_structured_text::<serde_json::Value>("結果だけです"), None);
+    }
+
+    #[test]
+    fn parses_multiline_json_string_from_compatible_model() {
+        assert_eq!(
+            parse_structured_text::<serde_json::Value>("{\"text\":\"一行目。\n二行目。\"}"),
+            Some(json!({"text": "一行目。\n二行目。"}))
+        );
+    }
 }
