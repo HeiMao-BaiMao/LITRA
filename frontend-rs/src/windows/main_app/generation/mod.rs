@@ -107,6 +107,7 @@ where
         optional_judgment(
             "あなたは小説の連続性を管理する編集者です。",
             prompts::scene_state(context, nonempty(&references.settings_context)),
+            &mut *on_stage,
         )
         .await
     } else {
@@ -127,6 +128,7 @@ where
                 },
                 nonempty(&references.settings_context),
             ),
+            &mut *on_stage,
         )
         .await
     } else {
@@ -264,6 +266,10 @@ where
         )
         .await?;
         let checked = draft_checks::check_draft(&selected.text, context);
+        // hard違反は決定論的に「誤りである」と言い切れる検査のみ（文の反復等）。
+        // soft（一人称ドリフト等）は意図的な視点交代の可能性があるため、
+        // 参考情報として findings には含めるが、改稿ゲートは動かさない。
+        let has_hard_mechanical = !checked.hard.is_empty();
         let mechanical_findings = checked
             .hard
             .into_iter()
@@ -279,7 +285,9 @@ where
                     .join("\n"),
             );
         }
-        if !review::requires_revision(&findings) {
+        // LLM査読が「問題なし」と判定していても、機械検査のhard違反が
+        // 残っている場合は改稿へ進む（査読が見落とした反復等を黙って通さない）。
+        if !review_gate_requires_revision(&findings, has_hard_mechanical) {
             return Ok(selected);
         }
         on_stage("査読結果から改稿中");
@@ -608,11 +616,21 @@ async fn rewrite_candidate(
     }
 }
 
-async fn optional_judgment(system: &str, prompt: String) -> String {
-    ai::generate("judgment", system.to_owned(), prompt)
-        .await
-        .map(|result| result.text)
-        .unwrap_or_default()
+/// 場面状態カード・話し方カードのような「無くても続行できる」判断系生成。
+/// 失敗しても続きの生成は止めない（カード無しで続行）が、黙って握り潰さず
+/// on_stage で一拍可視化する（詳細は runtime::ai のログに残る）。
+async fn optional_judgment(
+    system: &str,
+    prompt: String,
+    on_stage: &mut dyn FnMut(&str),
+) -> String {
+    match ai::generate("judgment", system.to_owned(), prompt).await {
+        Ok(result) => result.text,
+        Err(_) => {
+            on_stage("場面整理に失敗（スキップして続行）");
+            String::new()
+        }
+    }
 }
 
 fn enabled(settings: &Value, key: &str) -> bool {
@@ -650,6 +668,13 @@ pub(crate) fn judgment_scaffold(settings: &Value) -> Option<&str> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn review_gate_forces_revision_on_hard_mechanical_violation_even_if_review_is_clean() {
+        assert!(review_gate_requires_revision("【総合判定】問題なし", true));
+        assert!(!review_gate_requires_revision("【総合判定】問題なし", false));
+        assert!(review_gate_requires_revision("【総合判定】要修正", false));
+    }
 
     #[test]
     fn missing_pipeline_flags_are_disabled() {
