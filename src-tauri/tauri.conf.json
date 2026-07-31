@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "identifier": "org.hmbm.litra",
   "build": {
-    "beforeDevCommand": "trunk serve --port 1420",
+    "beforeDevCommand": "trunk serve --port 1420 --no-sri",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "trunk build --release",
     "frontendDist": "../dist"
