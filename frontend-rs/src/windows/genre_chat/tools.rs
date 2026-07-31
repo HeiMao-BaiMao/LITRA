@@ -15,7 +15,7 @@ use crate::{
             repository, sources,
         },
     },
-    runtime::{ai, tauri},
+    runtime::{ai, invoke, tauri},
 };
 
 const MAX_TOOL_ROUNDS: usize = 8;
@@ -36,6 +36,19 @@ pub async fn run(
     system.push_str(GUIDANCE);
     let mut messages = vec![json!({"role":"user","content":prompt})];
     let definitions = definitions();
+    let search_priority = invoke::invoke::<_, Value>("ai_settings_snapshot", &json!({}))
+        .await
+        .ok()
+        .and_then(|settings| settings.get("webSearchPriority").cloned())
+        .and_then(|value| value.as_array().cloned())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     for round in 0..MAX_TOOL_ROUNDS {
         // Reset pending message content for subsequent rounds (tool rounds produce intermediate text)
         if round > 0 {
@@ -53,6 +66,8 @@ pub async fn run(
             definitions.clone(),
             provider,
             model,
+            search_priority.clone(),
+            None,
             move |update| {
                 if let Some(msg) = progress_state.borrow_mut().messages.get_mut(pending_index) {
                     match update {
@@ -66,7 +81,7 @@ pub async fn run(
                         }
                     }
                 }
-                let _ = super::render::all(&progress_document, &progress_state.borrow());
+                super::render::schedule(&progress_document, &progress_state);
             },
         )
         .await?;
@@ -82,13 +97,19 @@ pub async fn run(
         if !turn.text.trim().is_empty() {
             assistant_parts.push(json!({"type":"text","text":turn.text}));
         }
+        append_native_tool_context(&mut assistant_parts, &turn);
         for call in &turn.tool_calls {
             assistant_parts.push(json!({
                 "type":"tool-call", "toolCallId":call.id,
                 "toolName":call.name, "input":call.input,
             }));
         }
-        messages.push(json!({"role":"assistant","content":assistant_parts}));
+        push_responses_assistant(
+            &mut messages,
+            json!(assistant_parts),
+            turn.responses_reasoning.as_ref(),
+            &turn.responses_tool_items,
+        );
         let mut results = Vec::new();
         for call in turn.tool_calls {
             let output = execute(state, genre_id, thread_id, &call.name, call.input)
@@ -104,6 +125,51 @@ pub async fn run(
     Err(JsValue::from_str(
         "ジャンルチャットのツール実行回数が上限を超えました。",
     ))
+}
+
+fn push_responses_assistant(
+    messages: &mut Vec<Value>,
+    content: Value,
+    reasoning_item: Option<&Value>,
+    responses_tool_items: &[Value],
+) {
+    let mut message = json!({"role":"assistant","content":content});
+    let mut response_items = Vec::new();
+    if let Some(item) = reasoning_item {
+        response_items.push(item.clone());
+    }
+    response_items.extend(responses_tool_items.iter().cloned());
+    if !response_items.is_empty() {
+        message["responsesItems"] = Value::Array(response_items);
+    }
+    messages.push(message);
+}
+
+fn append_native_tool_context(parts: &mut Vec<Value>, turn: &ai::AgentTurn) {
+    if !turn.reasoning.trim().is_empty() {
+        parts.push(json!({
+            "type": "reasoning",
+            "text": turn.reasoning,
+        }));
+    }
+    for block in &turn.anthropic_thinking {
+        parts.push(json!({
+            "type": "anthropic-thinking-block",
+            "block": block,
+        }));
+    }
+    for part in &turn.google_tool_context {
+        parts.push(json!({
+            "type": "google-server-part",
+            "part": part,
+        }));
+    }
+    for block in &turn.anthropic_tool_context {
+        parts.push(json!({
+            "type": "anthropic-server-block",
+            "block": block,
+        }));
+    }
 }
 
 async fn execute(
