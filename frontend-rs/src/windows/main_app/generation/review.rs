@@ -1,3 +1,4 @@
+use serde_json::Value;
 use wasm_bindgen::JsValue;
 
 use crate::runtime::ai;
@@ -83,14 +84,53 @@ pub async fn inspect(
 }
 
 pub fn requires_revision(review: &str) -> bool {
-    let verdict = review
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with("【総合判定】"));
+    if let Some(verdict) = parse_verdict_json(review) {
+        return !verdict_is_clean(&verdict);
+    }
+
+    let verdict = review.lines().map(str::trim).find(|line| {
+        let lower = line.to_ascii_lowercase();
+        line.starts_with("【総合判定】")
+            || lower.starts_with("verdict")
+            || lower.starts_with("decision")
+    });
     let Some(verdict) = verdict else {
         return true;
     };
-    !(verdict.contains("問題なし") || verdict.contains("修正なしで採用可"))
+    !verdict_is_clean(verdict)
+}
+
+fn parse_verdict_json(review: &str) -> Option<String> {
+    let trimmed = review.trim();
+    let json_text = if trimmed.starts_with('{') {
+        trimmed
+    } else {
+        let start = trimmed.find('{')?;
+        let end = trimmed.rfind('}')?;
+        trimmed.get(start..=end)?
+    };
+    let value: Value = serde_json::from_str(json_text).ok()?;
+    let object = value.as_object()?;
+    [
+        "verdict",
+        "decision",
+        "status",
+        "result",
+        "判定",
+        "総合判定",
+    ]
+    .iter()
+    .find_map(|key| object.get(*key).and_then(Value::as_str).map(str::to_owned))
+}
+
+fn verdict_is_clean(verdict: &str) -> bool {
+    let normalized = verdict.trim().to_ascii_lowercase();
+    verdict.contains("問題なし")
+        || verdict.contains("修正なしで採用可")
+        || normalized.contains("no revision")
+        || normalized.contains("no issue")
+        || normalized == "pass"
+        || normalized == "ok"
 }
 
 pub async fn prefer_revision(
@@ -122,5 +162,12 @@ mod tests {
         assert!(!requires_revision("【総合判定】修正なしで採用可"));
         assert!(requires_revision("【総合判定】要修正"));
         assert!(requires_revision("形式外の応答"));
+    }
+
+    #[test]
+    fn understands_structured_and_english_verdicts() {
+        assert!(!requires_revision(r#"{"verdict":"pass"}"#));
+        assert!(!requires_revision("Decision: no revision needed"));
+        assert!(requires_revision(r#"{"decision":"revise"}"#));
     }
 }

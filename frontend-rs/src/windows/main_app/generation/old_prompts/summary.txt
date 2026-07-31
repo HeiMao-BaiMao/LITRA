@@ -18,10 +18,11 @@ ONE-LINE SUMMARY RULES (oneLiner):
 
 EXECUTION — follow in this exact order:
 1. Read the episode text below.
-2. Compose both summaries following the rules above. Do NOT print them in chat.
-3. Call saveEpisodeSummaryAndOneLiner exactly once. Pass episodeId, content (= detailed summary), and oneLiner together in the same call.
-4. After the tool succeeds: report briefly in Japanese, without repeating the full summary. NEVER call the tool a second time.
-5. Only if the tool cannot technically be called → output exactly these Japanese headings as a text fallback:
+2. Compose both summaries following the rules above.
+3. This request is handled by the application as a direct generation request. Do NOT call tools, do NOT explain the process, and do NOT repeat the full summary outside the response object.
+4. Output exactly one JSON object and nothing else. Use this schema:
+   {"episodeId":"{{episode_id}}","content":"詳細要約","oneLiner":"一行要約"}
+5. Only if JSON output is technically impossible → output exactly these Japanese headings as a text fallback:
   【要約】
   （詳細要約）
   【一行要約】
