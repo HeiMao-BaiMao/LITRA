@@ -31,6 +31,16 @@ static TRAILING_CODE_FENCE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\n```\s*$").unwrap());
 static LEADING_HEADING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*#{1,6}\s+[^\n]*\n+").unwrap());
+/// 出力先頭（文字列全体の先頭のみ。(?m)を付けず ^ を \A 相当に限定する）に付いた
+/// 既知の日本語ラベル前置きだけを許可リスト方式で除去する。汎用の「行頭【…】除去」は
+/// 【スキル取得】等の正当な地の文表現を誤って削るため避け、前置きとして定義上あり得る
+/// 語彙だけに絞る。
+static LEADING_LABEL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^\s*(?:【(?:続き|本文|続きの本文|修正稿|改稿|書き直し|出力|回答)】|(?:続き|本文|修正稿)\s*[:：])\s*",
+    )
+    .unwrap()
+});
 
 /// 前置き・コードフェンス・見出しの混入を除去する（検出ではなく無条件の除去）。
 /// 弱いモデルが「承知しました」等の応答的な前置きを本文に混ぜてしまう事故を潰す。
@@ -40,6 +50,7 @@ pub fn sanitize_draft_text(draft: &str) -> String {
     text = TRAILING_CODE_FENCE.replace_all(&text, "").to_string();
     text = PREAMBLE_LINE.replace_all(&text, "").to_string();
     text = LEADING_HEADING.replace_all(&text, "").to_string();
+    text = LEADING_LABEL.replace(&text, "").to_string();
     text
 }
 
@@ -177,6 +188,27 @@ mod tests {
         let draft = "## 続き\n主人公は歩き出した。";
         let result = sanitize_draft_text(draft);
         assert_eq!(result.trim(), "主人公は歩き出した。");
+    }
+
+    #[test]
+    fn sanitize_removes_leading_bracket_label() {
+        let draft = "【続き】\n主人公は歩き出した。";
+        let result = sanitize_draft_text(draft);
+        assert_eq!(result.trim(), "主人公は歩き出した。");
+    }
+
+    #[test]
+    fn sanitize_removes_leading_colon_label() {
+        let draft = "本文: 主人公は歩き出した。";
+        let result = sanitize_draft_text(draft);
+        assert_eq!(result.trim(), "主人公は歩き出した。");
+    }
+
+    #[test]
+    fn sanitize_keeps_bracket_terms_not_on_the_allow_list() {
+        let draft = "【スキル取得】\n主人公は歩き出した。";
+        let result = sanitize_draft_text(draft);
+        assert_eq!(result, draft);
     }
 
     #[test]
