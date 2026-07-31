@@ -136,6 +136,12 @@ pub async fn continue_story(
     // TS handleContinue: ボタンにステージラベルを表示し、完了後に元に戻す
     let btn_continue = document.get_element_by_id("btn-continue");
     let original_label = btn_continue.as_ref().and_then(|btn| btn.text_content());
+    // ストリーミング開始前の本文長を確定処理用に確保する。
+    // context は末尾24,000文字のスライスにすぎないため、原稿全体が
+    // 24,000字を超えるとそのバイト長は editor_text 全体の途中を指してしまい、
+    // truncate が UTF-8 境界でパニックするか本文を破壊する。ここで
+    // editor_text 全体の終端（＝追記開始位置）を取得しておく。
+    let base_len = state.borrow().editor_text.len();
     // ストリーミング: ドラフト生成中にエディタへリアルタイム挿入
     let stream_state = Rc::clone(state);
     let stream_document = document.clone();
@@ -178,7 +184,6 @@ pub async fn continue_story(
     let addition = generated.text.trim_start();
     {
         let mut current = state.borrow_mut();
-        let base_len = context.len();
         current.editor_text.truncate(base_len);
         if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
             current.editor_text.push('\n');
