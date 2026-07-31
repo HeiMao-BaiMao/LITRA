@@ -347,6 +347,61 @@ pub async fn feedback_selection(
     Ok(())
 }
 
+/// チャット履歴からAPI送信用メッセージ列を組み立てる（直近30件・空文字/文脈除外を除く）。
+/// 初回送信と長さ超過時の継続送信の両方から呼ばれ、組み立てロジックを1箇所に保つ。
+fn collect_chat_messages(chat: &[ChatMessage]) -> Vec<serde_json::Value> {
+    chat.iter()
+        .filter(|message| {
+            !message.exclude_from_context
+                && !message.content.trim().is_empty()
+                && matches!(message.role.as_str(), "user" | "assistant")
+        })
+        .rev()
+        .take(30)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|message| {
+            serde_json::json!({
+                "role": message.role,
+                "content": message.content,
+            })
+        })
+        .collect::<Vec<_>>()
+}
+
+/// direct writing モード用に、最後の user メッセージへ現在の本文を注入する。
+/// 長さ超過による継続送信でも messages を再構築するたびに呼び直す必要がある
+/// （でなければ継続ターンのモデルが本文を一切見ずに書くことになる）。
+fn inject_direct_context(messages: &mut [serde_json::Value], editor_context: &str) {
+    if let Some(last_user) = messages
+        .iter_mut()
+        .rev()
+        .find(|message| message.get("role").and_then(|value| value.as_str()) == Some("user"))
+    {
+        let request = last_user
+            .get("content")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_owned();
+        last_user["content"] = serde_json::Value::String(format!(
+            "現在の本文（末尾最大12000文字）:\n{editor_context}\n\n【依頼】\n{request}"
+        ));
+    }
+}
+
+fn tail_editor_context(state: &State) -> String {
+    state
+        .editor_text
+        .chars()
+        .rev()
+        .take(12000)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>()
+}
+
 pub async fn chat(
     document: &Document,
     state: &Rc<RefCell<State>>,
@@ -385,53 +440,13 @@ pub async fn chat(
     super::render::all(document, &state.borrow())?;
     sync_chat(&state.borrow());
     let current = state.borrow();
-    let mut messages = current
-        .chat
-        .iter()
-        .filter(|message| {
-            !message.exclude_from_context
-                && !message.content.trim().is_empty()
-                && matches!(message.role.as_str(), "user" | "assistant")
-        })
-        .rev()
-        .take(30)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .map(|message| {
-            serde_json::json!({
-                "role": message.role,
-                "content": message.content,
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut messages = collect_chat_messages(&current.chat);
     let direct = current.direct_writing;
-    let editor_context = current
-        .editor_text
-        .chars()
-        .rev()
-        .take(12000)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>();
     drop(current);
 
     if direct {
-        if let Some(last_user) = messages
-            .iter_mut()
-            .rev()
-            .find(|message| message.get("role").and_then(|value| value.as_str()) == Some("user"))
-        {
-            let request = last_user
-                .get("content")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_owned();
-            last_user["content"] = serde_json::Value::String(format!(
-                "現在の本文（末尾最大12000文字）:\n{editor_context}\n\n【依頼】\n{request}"
-            ));
-        }
+        let editor_context = tail_editor_context(&state.borrow());
+        inject_direct_context(&mut messages, &editor_context);
     }
     generating(document, state, true)?;
     let system = EDITORIAL_PARTNER_SYSTEM_PROMPT.to_string();
@@ -447,7 +462,7 @@ pub async fn chat(
                 .await;
         match run_result {
             Ok(ref generated)
-                if generated.finish_reason.as_deref() == Some("length")
+                if super::generation::is_length_finish(generated.finish_reason.as_deref())
                     && !generated.text.trim().is_empty()
                     && continuation_count < MAX_LENGTH_CONTINUATIONS =>
             {
@@ -462,28 +477,14 @@ pub async fn chat(
                     created_at: None,
                     transport: None,
                 });
-                // メッセージを再構築
-                messages = state
-                    .borrow()
-                    .chat
-                    .iter()
-                    .filter(|message| {
-                        !message.exclude_from_context
-                            && !message.content.trim().is_empty()
-                            && matches!(message.role.as_str(), "user" | "assistant")
-                    })
-                    .rev()
-                    .take(30)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .map(|message| {
-                        serde_json::json!({
-                            "role": message.role,
-                            "content": message.content,
-                        })
-                    })
-                    .collect::<Vec<_>>();
+                // メッセージを再構築（direct モードなら現在の本文を再注入する。
+                // 初回送信中のストリーミングで editor_text が伸びている場合、
+                // 古いスナップショットより現在の本文の方が接続判断に適する）。
+                messages = collect_chat_messages(&state.borrow().chat);
+                if direct {
+                    let editor_context = tail_editor_context(&state.borrow());
+                    inject_direct_context(&mut messages, &editor_context);
+                }
                 messages.push(serde_json::json!({
                     "role": "user",
                     "content": LENGTH_CONTINUATION_PROMPT,
