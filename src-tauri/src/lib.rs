@@ -4,8 +4,8 @@ mod genre_search;
 mod genre_store;
 mod genre_windows;
 mod import;
-mod project_memo;
 mod layout_store;
+mod project_memo;
 mod project_store;
 mod search;
 mod secrets;
@@ -103,6 +103,7 @@ pub fn run() {
             tools::retrieve_episode_content,
             tools::save_episode_one_liner,
             tools::save_episode_summary,
+            tools::save_episode_summary_and_one_liner,
             web_search::web_search,
             web_fetch::web_fetch,
             webdav_sync::load_webdav_sync_config,
