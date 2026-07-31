@@ -26,6 +26,15 @@ pub struct ChatSyncPayload {
     pub direct_writing_enabled: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatProgressPayload {
+    pub message_index: usize,
+    pub message: ChatMessage,
+    pub is_generating: bool,
+    pub direct_writing_enabled: bool,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ProviderModel {
     pub id: String,

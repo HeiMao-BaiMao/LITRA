@@ -56,8 +56,7 @@ pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValu
             return;
         };
         let content = input.value().trim().to_owned();
-        if content.is_empty() {
-        }
+        if content.is_empty() {}
         input.set_value("");
         resize_chat_input(&input);
         let document = submit_document.clone();
@@ -125,9 +124,11 @@ pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValu
                 .find(|item| item.id == provider)
                 .and_then(|item| item.models.first())
                 .map(|item| item.id.clone());
-            let mut current = change_state.borrow_mut();
-            current.selected_provider = Some(provider);
-            current.selected_model = model;
+            {
+                let mut current = change_state.borrow_mut();
+                current.selected_provider = Some(provider);
+                current.selected_model = model;
+            }
         } else if select.id() == "chat-model" {
             change_state.borrow_mut().selected_model = Some(select.value());
         } else {
@@ -238,7 +239,9 @@ async fn action_click(
         "archive-thread" => {
             if let (Some(genre_id), Some(id)) = (genre_id, id) {
                 chat::archive(&genre_id, &id).await?;
-                if state.borrow().current_thread_id.as_deref() == Some(&id) {
+                let is_current_thread =
+                    { state.borrow().current_thread_id.as_deref() == Some(&id) };
+                if is_current_thread {
                     state.borrow_mut().current_thread_id = None;
                 }
                 refresh(document, state).await?;
@@ -248,7 +251,9 @@ async fn action_click(
             if let (Some(genre_id), Some(id)) = (genre_id, id) {
                 if confirm("このスレッドを削除しますか？") {
                     chat::remove(&genre_id, &id).await?;
-                    if state.borrow().current_thread_id.as_deref() == Some(&id) {
+                    let is_current_thread =
+                        { state.borrow().current_thread_id.as_deref() == Some(&id) };
+                    if is_current_thread {
                         state.borrow_mut().current_thread_id = None;
                     }
                     refresh(document, state).await?;
@@ -313,8 +318,11 @@ fn resize_chat_input(input: &HtmlTextAreaElement) {
             .ok()
             .and_then(|v| v.trim_end_matches("px").parse().ok())
             .unwrap_or(0.0);
-        let max_height =
-            line_height * max_rows as f64 + padding_top + padding_bottom + border_top + border_bottom;
+        let max_height = line_height * max_rows as f64
+            + padding_top
+            + padding_bottom
+            + border_top
+            + border_bottom;
         let style = input.style();
         let _ = style.set_property("height", "auto");
         let scroll_height = input.scroll_height() as f64;

@@ -15,7 +15,9 @@ fn stage_display_label(stage: &str) -> (&'static str, bool) {
     match stage {
         "場面状態を整理中" | "人物の話し方を整理中" => ("準備中…", true),
         "構想を作成中" => ("構想中…", true),
-        "ビートごとに本文を生成中" | "本文候補を生成中" | "第2候補を生成中"
+        "ビートごとに本文を生成中"
+        | "本文候補を生成中"
+        | "第2候補を生成中"
         | "機械検査の指摘を再生成中" => ("執筆中…", false),
         "候補を比較中" => ("比較中…", true),
         "判断モデルで査読中" => ("査読中…", true),
@@ -133,27 +135,20 @@ pub async fn continue_story(
         };
     // TS handleContinue: ボタンにステージラベルを表示し、完了後に元に戻す
     let btn_continue = document.get_element_by_id("btn-continue");
-    let original_label = btn_continue
-        .as_ref()
-        .and_then(|btn| btn.text_content());
+    let original_label = btn_continue.as_ref().and_then(|btn| btn.text_content());
     // ストリーミング: ドラフト生成中にエディタへリアルタイム挿入
     let stream_state = Rc::clone(state);
     let stream_document = document.clone();
     let on_chunk: super::generation::ChunkCallback =
         std::rc::Rc::new(std::cell::RefCell::new(move |chunk: &str| {
-            let mut current = stream_state.borrow_mut();
-            if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
-                current.editor_text.push('\n');
-            }
-            current.editor_text.push_str(chunk);
-            // エディタDOMに反映（末尾にスクロール）
-            if let Some(editor) = stream_document
-                .get_element_by_id("editor")
-                .and_then(|el| el.dyn_into::<HtmlTextAreaElement>().ok())
             {
-                editor.set_value(&current.editor_text);
-                editor.set_scroll_top(editor.scroll_height());
+                let mut current = stream_state.borrow_mut();
+                if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
+                    current.editor_text.push('\n');
+                }
+                current.editor_text.push_str(chunk);
             }
+            super::render::schedule_editor(&stream_document, &stream_state);
         }));
     let result = super::generation::continue_story_streaming(
         &settings,
@@ -181,15 +176,17 @@ pub async fn continue_story(
     // 最終的にサニタイズされたテキストで確定するため、
     // ストリーミング前の長さに切り詰めてから最終テキストを付与する。
     let addition = generated.text.trim_start();
-    let mut current = state.borrow_mut();
-    let base_len = context.len();
-    current.editor_text.truncate(base_len);
-    if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
-        current.editor_text.push('\n');
+    {
+        let mut current = state.borrow_mut();
+        let base_len = context.len();
+        current.editor_text.truncate(base_len);
+        if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
+            current.editor_text.push('\n');
+        }
+        current.editor_text.push_str(addition);
     }
-    current.editor_text.push_str(addition);
-    save_editor(&current).await?;
-    super::render::all(document, &current)
+    save_editor(Rc::clone(state)).await?;
+    super::render::all(document, &state.borrow())
 }
 
 pub async fn rewrite_selection(
@@ -232,23 +229,17 @@ pub async fn rewrite_selection(
     let stream_document = document.clone();
     let stream_before = text[..start].to_owned();
     let stream_after = text[end..].to_owned();
-    let on_chunk: super::generation::ChunkCallback =
-        std::rc::Rc::new(std::cell::RefCell::new({
-            let mut accumulated = String::new();
-            move |chunk: &str| {
-                accumulated.push_str(chunk);
-                let mut next = stream_before.clone();
-                next.push_str(accumulated.trim());
-                next.push_str(&stream_after);
-                stream_state.borrow_mut().editor_text = next;
-                if let Some(editor) = stream_document
-                    .get_element_by_id("editor")
-                    .and_then(|el| el.dyn_into::<HtmlTextAreaElement>().ok())
-                {
-                    editor.set_value(&stream_state.borrow().editor_text);
-                }
-            }
-        }));
+    let on_chunk: super::generation::ChunkCallback = std::rc::Rc::new(std::cell::RefCell::new({
+        let mut accumulated = String::new();
+        move |chunk: &str| {
+            accumulated.push_str(chunk);
+            let mut next = stream_before.clone();
+            next.push_str(accumulated.trim());
+            next.push_str(&stream_after);
+            stream_state.borrow_mut().editor_text = next;
+            super::render::schedule_editor(&stream_document, &stream_state);
+        }
+    }));
     let result = super::generation::rewrite_passage_streaming(
         &settings,
         &context,
@@ -264,7 +255,7 @@ pub async fn rewrite_selection(
     next.push_str(generated.text.trim());
     next.push_str(&text[end..]);
     state.borrow_mut().editor_text = next;
-    save_editor(&state.borrow()).await?;
+    save_editor(Rc::clone(state)).await?;
     super::render::all(document, &state.borrow())
 }
 
@@ -309,6 +300,7 @@ pub async fn feedback_selection(
         current.chat.len() - 1
     };
     super::render::all(document, &state.borrow())?;
+    super::sync_chat(&state.borrow());
 
     let stream_state = Rc::clone(state);
     let stream_document = document.clone();
@@ -327,7 +319,7 @@ pub async fn feedback_selection(
                 if let Some(msg) = stream_state.borrow_mut().chat.get_mut(msg_index) {
                     msg.content.push_str(chunk);
                 }
-                let _ = super::render::all(&stream_document, &stream_state.borrow());
+                super::render::schedule_chat(&stream_document, &stream_state);
             },
         )
         .await
@@ -572,6 +564,7 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
         current.chat.len() - 1
     };
     super::render::all(document, &state.borrow())?;
+    super::sync_chat(&state.borrow());
 
     let stream_state = Rc::clone(state);
     let stream_document = document.clone();
@@ -590,7 +583,7 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
                 if let Some(msg) = stream_state.borrow_mut().chat.get_mut(msg_index) {
                     msg.content.push_str(chunk);
                 }
-                let _ = super::render::all(&stream_document, &stream_state.borrow());
+                super::render::schedule_chat(&stream_document, &stream_state);
             },
         )
         .await
@@ -607,28 +600,38 @@ pub async fn summary(document: &Document, state: &Rc<RefCell<State>>) -> Result<
             "summary",
         ));
     }
-    save_chat(state).await?;
     let (summary, one_liner) =
         crate::windows::main_app::generation::old_prompts::parse_summary_output(&generated.text);
     if summary.is_none() && one_liner.is_none() {
+        let _ = save_chat(state).await;
         return Err(JsValue::from_str(
             "要約応答を解析できませんでした。保存内容は変更していません。",
         ));
     }
-    super::events::set_summary_parts(
-        &mut state.borrow_mut(),
-        &episode_id,
-        summary.as_deref(),
-        one_liner.as_deref(),
-    );
-    let value = state.borrow().summaries.clone();
+    let value = {
+        let current = state.borrow();
+        let mut next = current.summaries.clone();
+        super::events::set_summary_parts_value(
+            &mut next,
+            &episode_id,
+            summary.as_deref(),
+            one_liner.as_deref(),
+        );
+        next
+    };
     projects::write_document(&project_id, "summaries", &value).await?;
-    // TS版と同様、要約更新後に検索インデックスを再構築する
-    let _: Result<serde_json::Value, _> =
-        invoke::invoke("rebuild_search_index", &serde_json::json!({"projectId": project_id}))
-            .await;
+    state.borrow_mut().summaries = value;
+    // 要約保存をチャット履歴保存の失敗に巻き込まない。先に画面へ反映し、
+    // チャット保存の失敗は要約保存成功後の独立したエラーとして扱う。
     super::render::all(document, &state.borrow())?;
     sync_summary(&state.borrow());
+    save_chat(state).await?;
+    // TS版と同様、要約更新後に検索インデックスを再構築する
+    let _: Result<serde_json::Value, _> = invoke::invoke(
+        "rebuild_search_index",
+        &serde_json::json!({"projectId": project_id}),
+    )
+    .await;
     Ok(())
 }
 
@@ -660,14 +663,30 @@ pub(super) async fn save_chat(state: &Rc<RefCell<State>>) -> Result<(), JsValue>
     let value = super::chat_document_value(&chat, &updated_at);
     projects::write_document(&project_id, "chat", &value).await
 }
-async fn save_editor(state: &State) -> Result<(), JsValue> {
-    let (Some(project), Some(id)) = (&state.current_project, &state.current_episode_id) else {
+async fn save_editor(state: Rc<RefCell<State>>) -> Result<(), JsValue> {
+    let Some((project_id, file_name, content)) = ({
+        let current = state.borrow();
+        match (
+            current.current_project.as_ref(),
+            current.current_episode_id.as_ref(),
+        ) {
+            (Some(project), Some(episode_id)) => current
+                .episodes
+                .iter()
+                .find(|episode| &episode.id == episode_id)
+                .map(|episode| {
+                    (
+                        project.id.clone(),
+                        episode.file_name.clone(),
+                        current.editor_text.clone(),
+                    )
+                }),
+            _ => None,
+        }
+    }) else {
         return Ok(());
     };
-    let Some(episode) = state.episodes.iter().find(|episode| &episode.id == id) else {
-        return Ok(());
-    };
-    projects::write_episode(&project.id, &episode.file_name, &state.editor_text).await
+    projects::write_episode(&project_id, &file_name, &content).await
 }
 fn editor(document: &Document) -> Result<HtmlTextAreaElement, JsValue> {
     document

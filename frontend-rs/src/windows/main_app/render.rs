@@ -1,4 +1,6 @@
-use wasm_bindgen::{JsCast, JsValue};
+use std::{cell::RefCell, rc::Rc};
+
+use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{Document, HtmlTextAreaElement};
 
 use super::{memo, summary, State};
@@ -43,7 +45,7 @@ pub fn all(document: &Document, state: &State) -> Result<(), JsValue> {
         state.current_episode_id.is_none(),
     )?;
     render_chat(document, state)?;
-    render_view(document, state)?;
+    view(document, state)?;
     render_collapsible(document, state)?;
     render_detached(document, state)?;
     if let Some(button) = document.get_element_by_id("btn-generate-summary") {
@@ -56,7 +58,7 @@ pub fn all(document: &Document, state: &State) -> Result<(), JsValue> {
     Ok(())
 }
 
-fn render_view(document: &Document, state: &State) -> Result<(), JsValue> {
+pub fn view(document: &Document, state: &State) -> Result<(), JsValue> {
     let view = if state.current_view.is_empty() {
         "episode"
     } else {
@@ -140,41 +142,20 @@ fn render_collapsible(document: &Document, state: &State) -> Result<(), JsValue>
 
 fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
     if let Some(container) = document.get_element_by_id("chat-messages") {
-        let rows = state
-            .chat
-            .iter()
-            .map(|message| {
-                crate::windows::chat::render::render_message_html(
-                    &message.role,
-                    &message.content,
-                    message.thinking.as_deref(),
-                    message.id.as_deref(),
-                    message
-                        .transport
-                        .as_ref()
-                        .and_then(|value| value.provider.as_deref()),
-                    message
-                        .transport
-                        .as_ref()
-                        .and_then(|value| value.model.as_deref()),
-                    message
-                        .transport
-                        .as_ref()
-                        .and_then(|value| value.response_model_id.as_deref()),
-                )
-            })
-            .collect::<String>();
+        let rows = state.chat.iter().map(chat_message_html).collect::<String>();
         // 最後のメッセージが空のアシスタント（ストリーミング中の進捗枠）の場合、
         // それ自体が chat-pending として描画されるため、追加の pending 吹き出しは出さない。
         // （二重の「…」吹き出しを防ぐ）
-        let last_is_empty_assistant = state
-            .chat
-            .last()
-            .is_some_and(|message| {
-                message.role == "assistant"
-                    && message.content.trim().is_empty()
-                    && message.thinking.as_deref().unwrap_or_default().trim().is_empty()
-            });
+        let last_is_empty_assistant = state.chat.last().is_some_and(|message| {
+            message.role == "assistant"
+                && message.content.trim().is_empty()
+                && message
+                    .thinking
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+        });
         container.set_inner_html(&format!(
             "{}{}",
             rows,
@@ -184,6 +165,8 @@ fn render_chat(document: &Document, state: &State) -> Result<(), JsValue> {
                 ""
             }
         ));
+        crate::windows::chat::render::collapse_thinking_before_tool_cards(&container);
+        crate::windows::chat::render::scroll_stream_cards_to_bottom(&container);
         container.set_scroll_top(container.scroll_height());
         if state.is_generating {
             crate::windows::chat::render::pin_stream_to_bottom(&container);
@@ -269,6 +252,152 @@ pub fn chat(document: &Document, state: &State) -> Result<(), JsValue> {
     render_chat(document, state)
 }
 
+pub fn episode_textareas(document: &Document, state: &State) -> Result<(), JsValue> {
+    set_textarea(
+        document,
+        "episode-summary",
+        &summary(state),
+        state.current_episode_id.is_none(),
+    )?;
+    set_textarea(
+        document,
+        "episode-memo",
+        &memo(state),
+        state.current_episode_id.is_none(),
+    )?;
+    Ok(())
+}
+
+pub fn schedule_editor(document: &Document, state: &Rc<RefCell<State>>) {
+    {
+        let mut current = state.borrow_mut();
+        if current.editor_render_scheduled {
+            return;
+        }
+        current.editor_render_scheduled = true;
+    }
+    let Some(window) = web_sys::window() else {
+        state.borrow_mut().editor_render_scheduled = false;
+        return;
+    };
+    let document = document.clone();
+    let state = Rc::clone(state);
+    let callback = Closure::once_into_js(move |_timestamp: f64| {
+        state.borrow_mut().editor_render_scheduled = false;
+        let value = state.borrow().editor_text.clone();
+        if let Some(editor) = document
+            .get_element_by_id("editor")
+            .and_then(|element| element.dyn_into::<HtmlTextAreaElement>().ok())
+        {
+            editor.set_value(&value);
+            editor.set_scroll_top(editor.scroll_height());
+        }
+    });
+    let _ = window.request_animation_frame(callback.unchecked_ref());
+}
+
+/// ストリーミング中のチャット更新を次の描画フレームへまとめる。
+///
+/// AIのトークン到着頻度に合わせて全履歴を再描画すると、DOM更新とJSON化が
+/// 入力処理を圧迫するため、1フレームにつき最大1回だけ末尾を更新する。
+pub fn schedule_chat(document: &Document, state: &Rc<RefCell<State>>) {
+    {
+        let mut current = state.borrow_mut();
+        if current.chat_render_scheduled {
+            return;
+        }
+        current.chat_render_scheduled = true;
+    }
+
+    let Some(window) = web_sys::window() else {
+        state.borrow_mut().chat_render_scheduled = false;
+        let current = state.borrow();
+        if let Err(error) = chat(document, &current) {
+            web_sys::console::error_1(
+                &format!("[litra-chat] render failed before animation frame: {error:?}").into(),
+            );
+        }
+        super::sync_chat(&current);
+        return;
+    };
+
+    let document = document.clone();
+    let state = Rc::clone(state);
+    let callback = Closure::once_into_js(move |_timestamp: f64| {
+        state.borrow_mut().chat_render_scheduled = false;
+        let current = state.borrow();
+        if let Err(error) = render_chat_incremental(&document, &current) {
+            web_sys::console::error_1(
+                &format!("[litra-chat] incremental render failed: {error:?}").into(),
+            );
+        }
+        super::sync_chat_progress(&current);
+    });
+    let _ = window.request_animation_frame(callback.unchecked_ref());
+}
+
+fn render_chat_incremental(document: &Document, state: &State) -> Result<(), JsValue> {
+    if !state.is_generating || state.chat.is_empty() {
+        return render_chat(document, state);
+    }
+    let Some(container) = document.get_element_by_id("chat-messages") else {
+        return Ok(());
+    };
+    let last_is_empty_assistant = state.chat.last().is_some_and(|message| {
+        message.role == "assistant"
+            && message.content.trim().is_empty()
+            && message
+                .thinking
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+    });
+    let expected_children = state.chat.len() + usize::from(!last_is_empty_assistant);
+    let message_nodes = container.query_selector_all(".chat-message")?;
+    if message_nodes.length() != expected_children as u32 {
+        return render_chat(document, state);
+    }
+    let Some(last) = message_nodes
+        .item((state.chat.len() - 1) as u32)
+        .and_then(|node| node.dyn_into::<web_sys::Element>().ok())
+    else {
+        return render_chat(document, state);
+    };
+    let follow_bottom = crate::windows::chat::render::should_follow_bottom(&container);
+    last.set_outer_html(&chat_message_html(
+        state.chat.last().expect("chat is not empty"),
+    ));
+    crate::windows::chat::render::collapse_thinking_before_tool_cards(&container);
+    crate::windows::chat::render::scroll_stream_cards_to_bottom(&container);
+    if follow_bottom {
+        container.set_scroll_top(container.scroll_height());
+        crate::windows::chat::render::pin_stream_to_bottom(&container);
+    }
+    Ok(())
+}
+
+fn chat_message_html(message: &super::ChatMessage) -> String {
+    crate::windows::chat::render::render_message_html(
+        &message.role,
+        &message.content,
+        message.thinking.as_deref(),
+        message.id.as_deref(),
+        message
+            .transport
+            .as_ref()
+            .and_then(|value| value.provider.as_deref()),
+        message
+            .transport
+            .as_ref()
+            .and_then(|value| value.model.as_deref()),
+        message
+            .transport
+            .as_ref()
+            .and_then(|value| value.response_model_id.as_deref()),
+    )
+}
+
 pub fn projects(document: &Document, state: &State) -> Result<(), JsValue> {
     if let Some(list) = document.get_element_by_id("project-list") {
         let html = if state.projects.is_empty() {
@@ -294,7 +423,7 @@ fn episodes(document: &Document, state: &State) -> Result<(), JsValue> {
             let up_disabled = if index == 0 { " disabled" } else { "" };
             let down_disabled = if index + 1 >= count { " disabled" } else { "" };
             format!(
-                r#"<div class="nav-episode-item{active}" data-order="{order}" data-id="{id}"><span class="nav-episode-drag-handle" draggable="true">≡</span><div class="nav-episode-move-controls"><button class="nav-episode-move" data-action="move-episode-up" data-id="{id}"{up_disabled} title="上へ">▲</button><button class="nav-episode-move" data-action="move-episode-down" data-id="{id}"{down_disabled} title="下へ">▼</button></div><div class="nav-episode-title-container"><button data-action="select-episode" data-id="{id}" class="nav-episode-title">{title}</button><button data-action="rename-episode" data-id="{id}" class="nav-episode-edit" title="名前変更">✎</button><button data-action="delete-episode" data-id="{id}" class="nav-episode-delete" title="削除">×</button></div></div>"#,
+                r#"<div class="nav-episode-item{active}" data-order="{order}" data-id="{id}"><span class="nav-episode-drag-handle" draggable="true">≡</span><div class="nav-episode-move-controls"><button class="nav-episode-move" data-action="move-episode-up" data-id="{id}"{up_disabled} title="上へ">▲</button><button class="nav-episode-move" data-action="move-episode-down" data-id="{id}"{down_disabled} title="下へ">▼</button></div><div class="nav-episode-title-container" data-action="select-episode" data-id="{id}"><button data-action="select-episode" data-id="{id}" class="nav-episode-title">{title}</button><button data-action="rename-episode" data-id="{id}" class="nav-episode-edit" title="名前変更">✎</button><button data-action="delete-episode" data-id="{id}" class="nav-episode-delete" title="削除">×</button></div></div>"#,
                 active=active,
                 order=episode.order,
                 id=escape(&episode.id),

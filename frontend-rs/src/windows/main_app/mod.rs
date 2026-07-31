@@ -42,6 +42,10 @@ struct State {
     summaries: Value,
     memos: Value,
     chat: Vec<ChatMessage>,
+    /// ストリーミング中のチャット描画をフレーム単位にまとめるための状態。
+    chat_render_scheduled: bool,
+    /// AI執筆中の本文反映をフレーム単位にまとめるための状態。
+    editor_render_scheduled: bool,
     is_generating: bool,
     /// チャット送信の同時実行防止ガード（TS版 `chatMessageInFlight` 相当）
     chat_in_flight: bool,
@@ -150,10 +154,12 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
         memos: json!({"memos":{}}),
         ..Default::default()
     }));
-    state.borrow_mut().catalog = crate::runtime::ai::catalog().await.unwrap_or_default();
+    let catalog = crate::runtime::ai::catalog().await.unwrap_or_default();
+    state.borrow_mut().catalog = catalog;
     // 多段執筆の各フラグはメイン状態から参照するため、設定画面を開く前にも読み込む。
-    state.borrow_mut().ai_settings =
+    let ai_settings =
         crate::runtime::invoke::invoke("ai_settings_snapshot", &serde_json::json!({})).await?;
+    state.borrow_mut().ai_settings = ai_settings;
     // メインウィンドウの前回位置を復元
     let _ = crate::runtime::windows::apply_window_bounds_main("main").await;
     // TS版 createSyncOverlay 相当: WebDAV同期オーバーレイを事前作成（最初の同期前にDOM要素を用意）
@@ -340,7 +346,8 @@ async fn bind_close_sync(state: Rc<RefCell<State>>) -> Result<(), JsValue> {
 }
 
 async fn refresh_projects(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
-    state.borrow_mut().projects = projects::list().await?;
+    let projects = projects::list().await?;
+    state.borrow_mut().projects = projects;
     render::projects(document, &state.borrow())
 }
 
@@ -420,7 +427,8 @@ async fn open_project(
         .map(str::to_owned);
     current.current_view = "episode".into();
     render::all(document, &current)?;
-    sync_children(&current);
+    drop(current);
+    sync_children(&state.borrow());
     // TS版と同様、プロジェクト読み込み後に検索インデックスを再構築する
     let _: Result<serde_json::Value, _> =
         invoke::invoke("rebuild_search_index", &json!({"projectId": project_id})).await;
@@ -571,6 +579,21 @@ fn sync_chat(state: &State) {
     }
 }
 
+fn sync_chat_progress(state: &State) {
+    let Some((message_index, message)) = state.chat.iter().enumerate().next_back() else {
+        return;
+    };
+    let progress = json!({
+        "messageIndex": message_index,
+        "message": message,
+        "isGenerating": state.is_generating,
+        "directWritingEnabled": state.direct_writing,
+    });
+    if let Ok(payload) = serde_wasm_bindgen::to_value(&progress) {
+        tauri::emit("chat-progress", &payload);
+    }
+}
+
 fn sync_chat_settings(state: &State) {
     let chat_settings = json!({"provider":state.selected_provider.as_deref().unwrap_or(""),"model":state.selected_model.as_deref().unwrap_or(""),"chatSubmitShortcut":state.ai_settings.get("chatSubmitShortcut").and_then(Value::as_str).unwrap_or("ctrlEnter"),"providerConfig":{"providers":state.catalog}});
     if let Ok(payload) = serde_wasm_bindgen::to_value(&chat_settings) {
@@ -579,6 +602,9 @@ fn sync_chat_settings(state: &State) {
 }
 
 fn report(error: JsValue) {
+    if crate::runtime::ai::is_cancelled_error(&error) {
+        return;
+    }
     if let Some(window) = web_sys::window() {
         let _ = window.alert_with_message(&format!(
             "エラー: {}",

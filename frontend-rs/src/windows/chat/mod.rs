@@ -14,7 +14,7 @@ use web_sys::{
 };
 
 use crate::runtime::tauri;
-use types::{ChatSettingsSyncPayload, ChatSyncPayload, ProviderConfig};
+use types::{ChatProgressPayload, ChatSettingsSyncPayload, ChatSyncPayload, ProviderConfig};
 
 struct Controls {
     messages: Element,
@@ -49,6 +49,28 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
                 );
                 set_generating(&controls, payload.is_generating);
                 set_direct_writing(&controls.direct_writing, payload.direct_writing_enabled);
+            }) as Box<dyn FnMut(JsValue)>),
+        )
+        .await?;
+    }
+
+    {
+        let controls = Rc::clone(&controls);
+        tauri::listen(
+            "chat-progress",
+            Closure::wrap(Box::new(move |payload: JsValue| {
+                let Ok(payload) = serde_wasm_bindgen::from_value::<ChatProgressPayload>(payload)
+                else {
+                    return;
+                };
+                if render::render_message_at(
+                    &controls.messages,
+                    payload.message_index,
+                    &payload.message,
+                ) {
+                    set_generating(&controls, payload.is_generating);
+                    set_direct_writing(&controls.direct_writing, payload.direct_writing_enabled);
+                }
             }) as Box<dyn FnMut(JsValue)>),
         )
         .await?;

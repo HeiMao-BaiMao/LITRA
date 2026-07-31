@@ -7,16 +7,70 @@ use web_sys::Element;
 use super::types::{ChatMessage, ProviderConfig};
 
 pub fn render_messages(container: &Element, messages: &[ChatMessage], is_generating: bool) {
+    let follow_bottom = should_follow_bottom(container);
+    if is_generating && !messages.is_empty() {
+        if let Ok(message_nodes) = container.query_selector_all(".chat-message") {
+            if let Some(last) = message_nodes
+                .item((messages.len() - 1) as u32)
+                .and_then(|node| node.dyn_into::<Element>().ok())
+            {
+                last.set_outer_html(&render_message(
+                    messages.last().expect("messages is not empty"),
+                ));
+                collapse_thinking_before_tool_cards(container);
+                scroll_stream_cards_to_bottom(container);
+                if follow_bottom {
+                    container.set_scroll_top(container.scroll_height());
+                    pin_stream_to_bottom(container);
+                }
+                return;
+            }
+        }
+    }
     let html = messages
         .iter()
         .map(render_message)
         .collect::<Vec<_>>()
         .join("");
     container.set_inner_html(&html);
-    container.set_scroll_top(container.scroll_height());
-    if is_generating {
+    collapse_thinking_before_tool_cards(container);
+    scroll_stream_cards_to_bottom(container);
+    if follow_bottom {
+        container.set_scroll_top(container.scroll_height());
+    }
+    if is_generating && follow_bottom {
         pin_stream_to_bottom(container);
     }
+}
+
+pub fn render_message_at(container: &Element, index: usize, message: &ChatMessage) -> bool {
+    let Ok(message_nodes) = container.query_selector_all(".chat-message") else {
+        return false;
+    };
+    let Some(element) = message_nodes
+        .item(index as u32)
+        .and_then(|node| node.dyn_into::<Element>().ok())
+    else {
+        return false;
+    };
+    let follow_bottom = should_follow_bottom(container);
+    element.set_outer_html(&render_message(message));
+    collapse_thinking_before_tool_cards(container);
+    scroll_stream_cards_to_bottom(container);
+    if follow_bottom {
+        container.set_scroll_top(container.scroll_height());
+        pin_stream_to_bottom(container);
+    }
+    true
+}
+
+pub(crate) fn should_follow_bottom(container: &Element) -> bool {
+    let client_height = js_sys::Reflect::get(container, &"clientHeight".into())
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or_default();
+    let distance = container.scroll_height() as f64 - container.scroll_top() as f64 - client_height;
+    distance <= 48.0
 }
 
 pub(crate) fn pin_stream_to_bottom(container: &Element) {
@@ -33,13 +87,62 @@ pub(crate) fn pin_stream_to_bottom(container: &Element) {
     }
 }
 
+/// 思考・実行中ツールのカード内スクロールを末尾へ揃える。
+///
+/// 外側のチャットをユーザーが遡っていても、現在更新中のカード内部は
+/// 最新内容を表示し続ける。閉じている details はユーザーの操作を尊重して変更しない。
+pub(crate) fn scroll_stream_cards_to_bottom(container: &Element) {
+    for selector in [
+        ".thinking-panel.streaming[open] .thinking-content",
+        ".tool-call-card.running[open] .tool-call-value",
+    ] {
+        let Ok(nodes) = container.query_selector_all(selector) else {
+            continue;
+        };
+        for index in 0..nodes.length() {
+            let Some(element) = nodes
+                .item(index)
+                .and_then(|node| node.dyn_into::<Element>().ok())
+            else {
+                continue;
+            };
+            element.set_scroll_top(element.scroll_height());
+        }
+    }
+}
+
+/// ツールカードが追加された後、直前まで開いていた思考カードを閉じる。
+pub(crate) fn collapse_thinking_before_tool_cards(container: &Element) {
+    let Ok(messages) = container.query_selector_all(".chat-message") else {
+        return;
+    };
+    let mut latest_thinking = None;
+    for index in 0..messages.length() {
+        let Some(message) = messages
+            .item(index)
+            .and_then(|node| node.dyn_into::<Element>().ok())
+        else {
+            continue;
+        };
+        if let Ok(Some(thinking)) = message.query_selector(".thinking-panel[open]") {
+            latest_thinking = Some(thinking);
+        }
+        if message
+            .query_selector(".tool-call-card")
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            if let Some(thinking) = latest_thinking.take() {
+                let _ = thinking.remove_attribute("open");
+            }
+        }
+    }
+}
+
 fn scroll_stream_to_bottom(container: &Element) {
     container.set_scroll_top(container.scroll_height());
-    if let Ok(Some(thinking)) =
-        container.query_selector(".thinking-panel.streaming .thinking-content")
-    {
-        thinking.set_scroll_top(thinking.scroll_height());
-    }
+    scroll_stream_cards_to_bottom(container);
 }
 
 pub fn provider_options(config: &ProviderConfig) -> String {
@@ -254,7 +357,12 @@ fn render_tool_chips(chips: &[String]) -> String {
     }
     let items = chips
         .iter()
-        .map(|chip| format!(r#"<span class="tool-call-chip">{}</span>"#, escape_html(chip)))
+        .map(|chip| {
+            format!(
+                r#"<span class="tool-call-chip">{}</span>"#,
+                escape_html(chip)
+            )
+        })
         .collect::<String>();
     format!(r#"<div class="tool-call-chips">{items}</div>"#)
 }
@@ -300,8 +408,7 @@ fn format_tool_value(value: &Value) -> String {
             }
         }
         _ => {
-            let text =
-                serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
+            let text = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
             if text.chars().count() > 800 {
                 format!("{}…", text.chars().take(800).collect::<String>())
             } else {
@@ -354,6 +461,12 @@ mod tests {
             render_message_html("assistant", "回答", Some("検討中"), None, None, None, None);
         assert!(thinking.contains("thinking-panel"));
         assert!(thinking.contains("検討中"));
+
+        let streaming =
+            render_message_html("assistant", "", Some("検討中"), None, None, None, None);
+        assert!(streaming.contains("thinking-panel streaming"));
+        assert!(streaming.contains(" open>"));
+        assert!(!thinking.contains(" open>"));
 
         let tool = render_message_html(
             "assistant",

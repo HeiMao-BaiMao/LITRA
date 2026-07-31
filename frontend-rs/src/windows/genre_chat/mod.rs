@@ -33,6 +33,8 @@ struct State {
     threads: Vec<Thread>,
     current_thread_id: Option<String>,
     messages: Vec<Message>,
+    /// ストリーミング中の再描画をフレーム単位にまとめるための状態。
+    render_scheduled: bool,
     is_streaming: bool,
     catalog: Vec<ai::CatalogProvider>,
     selected_provider: Option<String>,
@@ -45,7 +47,8 @@ pub async fn mount(document: &Document) -> Result<(), JsValue> {
     events::bind(document, Rc::clone(&state))?;
     events::listen(document.clone(), Rc::clone(&state)).await?;
     bind_resizer(document)?;
-    state.borrow_mut().catalog = ai::catalog().await.unwrap_or_default();
+    let catalog = ai::catalog().await.unwrap_or_default();
+    state.borrow_mut().catalog = catalog;
     if let Ok((provider, model)) = ai::selection("chat").await {
         let mut current = state.borrow_mut();
         current.selected_provider = Some(provider);
@@ -138,7 +141,8 @@ async fn send(
     let (Some(genre_id), Some(genre)) = (genre_id, genre) else {
         return Err(JsValue::from_str("ジャンルが選択されていません。"));
     };
-    let thread_id = if let Some(id) = state.borrow().current_thread_id.clone() {
+    let current_thread_id = { state.borrow().current_thread_id.clone() };
+    let thread_id = if let Some(id) = current_thread_id {
         id
     } else {
         let thread = chat::create(&genre_id, &content.chars().take(30).collect::<String>()).await?;
@@ -174,8 +178,7 @@ async fn send(
             )
             .await
             {
-                let attachment_value =
-                    serde_json::to_value(&attachment).unwrap_or_default();
+                let attachment_value = serde_json::to_value(&attachment).unwrap_or_default();
                 let _ = chat::set_message_attachments(
                     &genre_id,
                     &thread_id,
@@ -332,6 +335,9 @@ async fn send(
 }
 
 fn report(error: JsValue) {
+    if crate::runtime::ai::is_cancelled_error(&error) {
+        return;
+    }
     if let Some(window) = web_sys::window() {
         let _ = window.alert_with_message(&format!(
             "エラー: {}",

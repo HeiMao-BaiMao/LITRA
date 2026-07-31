@@ -166,8 +166,8 @@ async fn handle_action(
             }
         }
         "view-source" => {
-            if let (Some(genre_id), Some(source_id)) = (state.borrow().current_genre_id.clone(), id)
-            {
+            let genre_id = { state.borrow().current_genre_id.clone() };
+            if let (Some(genre_id), Some(source_id)) = (genre_id, id) {
                 let source = sources::load(&genre_id, &source_id).await?;
                 alert(&format!(
                     "{}（{}セグメント）\n\n{}",
@@ -178,8 +178,8 @@ async fn handle_action(
             }
         }
         "delete-source" => {
-            if let (Some(genre_id), Some(source_id)) = (state.borrow().current_genre_id.clone(), id)
-            {
+            let genre_id = { state.borrow().current_genre_id.clone() };
+            if let (Some(genre_id), Some(source_id)) = (genre_id, id) {
                 if confirm("この資料を削除しますか？") {
                     sources::remove(&genre_id, &source_id).await?;
                     refresh_current(document, state).await?;
@@ -193,17 +193,16 @@ async fn handle_action(
             }
         }
         "toggle-knowledge" => {
-            if let (Some(genre_id), Some(id), Some(status)) = (
-                state.borrow().current_genre_id.clone(),
-                id,
-                element.get_attribute("data-status"),
-            ) {
+            let genre_id = { state.borrow().current_genre_id.clone() };
+            let status = element.get_attribute("data-status");
+            if let (Some(genre_id), Some(id), Some(status)) = (genre_id, id, status) {
                 knowledge::set_item_status(&genre_id, &id, &status).await?;
                 refresh_current(document, state).await?;
             }
         }
         "delete-knowledge" => {
-            if let (Some(genre_id), Some(id)) = (state.borrow().current_genre_id.clone(), id) {
+            let genre_id = { state.borrow().current_genre_id.clone() };
+            if let (Some(genre_id), Some(id)) = (genre_id, id) {
                 if confirm("この知識を削除しますか？") {
                     knowledge::remove_item(&genre_id, &id).await?;
                     refresh_current(document, state).await?;
@@ -211,7 +210,8 @@ async fn handle_action(
             }
         }
         "accept-candidate" | "hold-candidate" | "reject-candidate" => {
-            if let (Some(genre_id), Some(id)) = (state.borrow().current_genre_id.clone(), id) {
+            let genre_id = { state.borrow().current_genre_id.clone() };
+            if let (Some(genre_id), Some(id)) = (genre_id, id) {
                 let status = match action {
                     "accept-candidate" => "accepted",
                     "hold-candidate" => "on_hold",
@@ -251,9 +251,14 @@ async fn handle_action(
                         status.set_text_content(Some(&label));
                     }
                 };
-                let count =
-                    analyzer::analyze(&genre_id, &source_id, &genre_name, &mut on_progress, &cancelled)
-                        .await?;
+                let count = analyzer::analyze(
+                    &genre_id,
+                    &source_id,
+                    &genre_name,
+                    &mut on_progress,
+                    &cancelled,
+                )
+                .await?;
                 if let Some(status) = document.get_element_by_id("analysis-status") {
                     status.set_text_content(Some(&format!("分析完了: 知識候補 {count} 件")));
                 }

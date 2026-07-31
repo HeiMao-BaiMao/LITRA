@@ -1,8 +1,4 @@
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-    sync::atomic::Ordering,
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::atomic::Ordering};
 
 use js_sys::Reflect;
 use serde::Serialize;
@@ -12,8 +8,8 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{Document, Element, Event, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
 
 use super::{
-    open_project, refresh_projects, report, select_episode, sync_child, sync_children, State,
-    MAIN_CLOSING,
+    open_project, refresh_projects, report, select_episode, sync_chat, sync_chat_settings,
+    sync_child, sync_children, State, MAIN_CLOSING,
 };
 use crate::{
     data::{project_settings, projects},
@@ -140,13 +136,15 @@ async fn handle_click(
             if let Some(id) = id {
                 if confirm("このプロジェクトを削除しますか？") {
                     projects::remove(&id).await?;
-                    if state
-                        .borrow()
-                        .current_project
-                        .as_ref()
-                        .map(|project| project.id.as_str())
-                        == Some(&id)
-                    {
+                    let is_current_project = {
+                        state
+                            .borrow()
+                            .current_project
+                            .as_ref()
+                            .map(|project| project.id.as_str())
+                            == Some(&id)
+                    };
+                    if is_current_project {
                         *state.borrow_mut() = State {
                             summaries: json!({"summaries":{}}),
                             memos: json!({"memos":{}}),
@@ -169,13 +167,15 @@ async fn handle_click(
                     .unwrap_or_default();
                 if let Some(new_title) = prompt("新しいプロジェクト名", &current_title) {
                     let updated = projects::rename(&id, &new_title).await?;
-                    if state
-                        .borrow()
-                        .current_project
-                        .as_ref()
-                        .map(|p| p.id.as_str())
-                        == Some(&id)
-                    {
+                    let is_current_project = {
+                        state
+                            .borrow()
+                            .current_project
+                            .as_ref()
+                            .map(|p| p.id.as_str())
+                            == Some(&id)
+                    };
+                    if is_current_project {
                         state.borrow_mut().current_project = Some(updated);
                     }
                     refresh_projects(document, state).await?;
@@ -198,7 +198,8 @@ async fn handle_click(
             )
             .unwrap_or_else(|| "新規エピソード".into());
             let episode = projects::create_episode(&project_id, &title).await?;
-            state.borrow_mut().episodes = projects::list_episodes(&project_id).await?;
+            let episodes = projects::list_episodes(&project_id).await?;
+            state.borrow_mut().episodes = episodes;
             select_episode(document, state, episode.id).await?;
         }
         "select-episode" => {
@@ -225,7 +226,8 @@ async fn handle_click(
                     .unwrap_or_default();
                 if let Some(title) = prompt("エピソード名を変更", &old) {
                     projects::update_episode_title(&project_id, &id, &title).await?;
-                    state.borrow_mut().episodes = projects::list_episodes(&project_id).await?;
+                    let episodes = projects::list_episodes(&project_id).await?;
+                    state.borrow_mut().episodes = episodes;
                     super::render::all(document, &state.borrow())?;
                 }
             }
@@ -259,7 +261,8 @@ async fn handle_click(
                     ids.swap(index, target);
                     projects::reorder_episodes(&project_id, &ids).await?;
                     let _ = projects::touch(&project_id).await;
-                    state.borrow_mut().episodes = projects::list_episodes(&project_id).await?;
+                    let episodes = projects::list_episodes(&project_id).await?;
+                    state.borrow_mut().episodes = episodes;
                     super::render::all(document, &state.borrow())?;
                 }
             }
@@ -297,14 +300,12 @@ async fn handle_click(
                         }
                         let relationships = current.relationships.clone();
                         drop(current);
-                        let _ = projects::write_document(
-                            &project_id,
-                            "relationships",
-                            &relationships,
-                        )
-                        .await;
+                        let _ =
+                            projects::write_document(&project_id, "relationships", &relationships)
+                                .await;
                     }
-                    state.borrow_mut().episodes = projects::list_episodes(&project_id).await?;
+                    let episodes = projects::list_episodes(&project_id).await?;
+                    state.borrow_mut().episodes = episodes;
                     let next = state
                         .borrow()
                         .episodes
@@ -414,6 +415,16 @@ async fn handle_click(
         "fetch-models" => super::settings::fetch_models(document, state).await?,
         "initialize-settings" => super::settings::reset(document, state).await?,
         "toggle-advanced-settings" => super::settings::toggle_advanced(document)?,
+        "move-web-search-up" => {
+            if let Some(backend) = id.as_deref() {
+                super::settings::integrations::move_web_search_priority(document, backend, -1)?;
+            }
+        }
+        "move-web-search-down" => {
+            if let Some(backend) = id.as_deref() {
+                super::settings::integrations::move_web_search_priority(document, backend, 1)?;
+            }
+        }
         "choose-import-folder" => {
             if state.borrow().current_project.is_none() {
                 alert("プロジェクトを選択または作成してください。");
@@ -578,10 +589,7 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
     let dbl_state = Rc::clone(&state);
     let dbl_document = document.clone();
     let dblclick = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-        let Some(target) = event
-            .target()
-            .and_then(|t| t.dyn_into::<Element>().ok())
-        else {
+        let Some(target) = event.target().and_then(|t| t.dyn_into::<Element>().ok()) else {
             return;
         };
         if !target.class_list().contains("nav-episode-title") {
@@ -627,14 +635,10 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
             let ep_id = commit_id.clone();
             spawn_local(async move {
                 if !new_title.trim().is_empty() {
-                    if let Some(project_id) = st
-                        .borrow()
-                        .current_project
-                        .as_ref()
-                        .map(|p| p.id.clone())
-                    {
-                        let _ = projects::update_episode_title(&project_id, &ep_id, &new_title)
-                            .await;
+                    let project_id = { st.borrow().current_project.as_ref().map(|p| p.id.clone()) };
+                    if let Some(project_id) = project_id {
+                        let _ =
+                            projects::update_episode_title(&project_id, &ep_id, &new_title).await;
                         if let Ok(episodes) = projects::list_episodes(&project_id).await {
                             st.borrow_mut().episodes = episodes;
                         }
@@ -645,23 +649,27 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
         }) as Box<dyn FnMut(Event)>);
         let keydown_state = Rc::clone(&dbl_state);
         let keydown_document = dbl_document.clone();
-        let keydown = Closure::wrap(Box::new(move |ev: web_sys::KeyboardEvent| {
-            match ev.key().as_str() {
-                "Enter" => {
-                    if let Some(target) = ev.target().and_then(|t| t.dyn_into::<HtmlInputElement>().ok()) {
-                        target.blur().ok();
+        let keydown =
+            Closure::wrap(
+                Box::new(move |ev: web_sys::KeyboardEvent| match ev.key().as_str() {
+                    "Enter" => {
+                        if let Some(target) = ev
+                            .target()
+                            .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
+                        {
+                            target.blur().ok();
+                        }
                     }
-                }
-                "Escape" => {
-                    let st = Rc::clone(&keydown_state);
-                    let doc = keydown_document.clone();
-                    spawn_local(async move {
-                        let _ = super::render::all(&doc, &st.borrow());
-                    });
-                }
-                _ => {}
-            }
-        }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+                    "Escape" => {
+                        let st = Rc::clone(&keydown_state);
+                        let doc = keydown_document.clone();
+                        spawn_local(async move {
+                            let _ = super::render::all(&doc, &st.borrow());
+                        });
+                    }
+                    _ => {}
+                }) as Box<dyn FnMut(web_sys::KeyboardEvent)>,
+            );
         input
             .add_event_listener_with_callback("blur", commit.as_ref().unchecked_ref())
             .ok();
@@ -671,8 +679,7 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
         commit.forget();
         keydown.forget();
     }) as Box<dyn FnMut(web_sys::MouseEvent)>);
-    list
-        .add_event_listener_with_callback("dblclick", dblclick.as_ref().unchecked_ref())?;
+    list.add_event_listener_with_callback("dblclick", dblclick.as_ref().unchecked_ref())?;
     dblclick.forget();
 
     // DnD 並び替え
@@ -682,10 +689,7 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
 
     let dragstart_item = Rc::clone(&drag_item);
     let dragstart = Closure::wrap(Box::new(move |event: web_sys::DragEvent| {
-        let Some(target) = event
-            .target()
-            .and_then(|t| t.dyn_into::<Element>().ok())
-        else {
+        let Some(target) = event.target().and_then(|t| t.dyn_into::<Element>().ok()) else {
             return;
         };
         let item = match target.closest(".nav-episode-item") {
@@ -716,10 +720,7 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
     let drop_item = Rc::clone(&drag_item);
     let drop = Closure::wrap(Box::new(move |event: web_sys::DragEvent| {
         event.prevent_default();
-        let Some(target) = event
-            .target()
-            .and_then(|t| t.dyn_into::<Element>().ok())
-        else {
+        let Some(target) = event.target().and_then(|t| t.dyn_into::<Element>().ok()) else {
             return;
         };
         let target_item = match target.closest(".nav-episode-item") {
@@ -734,8 +735,8 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
         let st = Rc::clone(&drop_state);
         let doc = drop_document.clone();
         spawn_local(async move {
-            let Some(project_id) = st.borrow().current_project.as_ref().map(|p| p.id.clone())
-            else {
+            let project_id = { st.borrow().current_project.as_ref().map(|p| p.id.clone()) };
+            let Some(project_id) = project_id else {
                 return;
             };
             let mut ids: Vec<String> = st
@@ -764,10 +765,7 @@ fn bind_episode_list(document: &Document, state: Rc<RefCell<State>>) -> Result<(
     drop.forget();
 
     let dragend = Closure::wrap(Box::new(move |event: web_sys::DragEvent| {
-        if let Some(target) = event
-            .target()
-            .and_then(|t| t.dyn_into::<Element>().ok())
-        {
+        if let Some(target) = event.target().and_then(|t| t.dyn_into::<Element>().ok()) {
             if let Ok(Some(item)) = target.closest(".nav-episode-item") {
                 item.class_list().remove_1("dragging").ok();
             }
@@ -839,9 +837,9 @@ fn bind_project_modal(document: &Document, state: Rc<RefCell<State>>) -> Result<
 }
 
 fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValue> {
-    let timeout = Rc::new(Cell::new(None::<i32>));
+    let timeouts = Rc::new(RefCell::new(HashMap::<String, i32>::new()));
     let handler_state = Rc::clone(&state);
-    let timeout_state = Rc::clone(&timeout);
+    let timeout_state = Rc::clone(&timeouts);
     let handler = Closure::wrap(Box::new(move |event: Event| {
         let Some(textarea) = event
             .target()
@@ -883,13 +881,17 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
         let Some(window) = web_sys::window() else {
             return;
         };
-        if let Some(id) = timeout_state.take() {
+        if let Some(id) = timeout_state.borrow_mut().remove(&field) {
             window.clear_timeout_with_handle(id);
         }
         let state = Rc::clone(&handler_state);
+        let timeout_key = field.clone();
+        let save_field = field.clone();
+        let pending_timeouts = Rc::clone(&timeout_state);
         let callback = Closure::once_into_js(move || {
+            pending_timeouts.borrow_mut().remove(&timeout_key);
             spawn_local(async move {
-                let result = if field == "editor" {
+                let result = if save_field == "editor" {
                     if let Some(file_name) = file_name {
                         projects::write_episode(&project_id, &file_name, &value).await
                     } else {
@@ -897,7 +899,7 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
                     }
                 } else {
                     let current = state.borrow();
-                    let document = if field == "episode-summary" {
+                    let document = if save_field == "episode-summary" {
                         current.summaries.clone()
                     } else {
                         current.memos.clone()
@@ -905,7 +907,7 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
                     drop(current);
                     projects::write_document(
                         &project_id,
-                        if field == "episode-summary" {
+                        if save_field == "episode-summary" {
                             "summaries"
                         } else {
                             "memos"
@@ -916,15 +918,22 @@ fn bind_inputs(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsV
                 };
                 if let Err(error) = result {
                     report(error);
-                } else if field != "editor" {
-                    sync_children(&state.borrow());
+                } else if save_field != "editor" {
+                    sync_child(
+                        if save_field == "episode-summary" {
+                            "summary"
+                        } else {
+                            "memo"
+                        },
+                        &state.borrow(),
+                    );
                 }
             });
         });
         if let Ok(id) = window
             .set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), 500)
         {
-            timeout_state.set(Some(id));
+            timeout_state.borrow_mut().insert(field, id);
         }
     }) as Box<dyn FnMut(Event)>);
     document.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
@@ -1075,15 +1084,17 @@ fn bind_chat_form(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
             let result = super::ai_actions::chat(&document, &state, content).await;
             // A-3: エラー時はチャット履歴にエラーメッセージを追加（TS版相当）
             if let Err(error) = result {
-                let error_message = error
-                    .as_string()
-                    .unwrap_or_else(|| format!("{error:?}"));
+                let error_message = error.as_string().unwrap_or_else(|| format!("{error:?}"));
                 let mut current = state.borrow_mut();
                 // 空のアシスタントメッセージを除去
                 if let Some(last) = current.chat.last() {
                     if last.role == "assistant"
                         && last.content.trim().is_empty()
-                        && last.thinking.as_deref().map(|t| t.trim().is_empty()).unwrap_or(true)
+                        && last
+                            .thinking
+                            .as_deref()
+                            .map(|t| t.trim().is_empty())
+                            .unwrap_or(true)
                     {
                         current.chat.pop();
                     }
@@ -1242,11 +1253,15 @@ fn bind_selectors(document: &Document, state: Rc<RefCell<State>>) -> Result<(), 
                 .find(|item| item.id == provider)
                 .and_then(|item| item.models.first())
                 .map(|item| item.id.clone());
-            let mut current = state.borrow_mut();
-            current.selected_provider = Some(provider);
-            current.selected_model = model;
-            let provider = current.selected_provider.clone().unwrap_or_default();
-            let model = current.selected_model.clone();
+            let (provider, model) = {
+                let mut current = state.borrow_mut();
+                current.selected_provider = Some(provider);
+                current.selected_model = model;
+                (
+                    current.selected_provider.clone().unwrap_or_default(),
+                    current.selected_model.clone(),
+                )
+            };
             spawn_local(async move {
                 if let Err(error) =
                     super::settings::save_chat_selection(&provider, model.as_deref()).await
@@ -1303,13 +1318,20 @@ pub(super) fn set_summary_parts(
     content: Option<&str>,
     one_liner: Option<&str>,
 ) {
-    let existing = state
-        .summaries
+    set_summary_parts_value(&mut state.summaries, episode_id, content, one_liner);
+}
+
+pub(super) fn set_summary_parts_value(
+    summaries: &mut Value,
+    episode_id: &str,
+    content: Option<&str>,
+    one_liner: Option<&str>,
+) {
+    let existing = summaries
         .get("summaries")
         .and_then(|value| value.get(episode_id));
     let entry = summary_entry(existing, content, one_liner, &now());
-    if let Some(map) = state
-        .summaries
+    if let Some(map) = summaries
         .get_mut("summaries")
         .and_then(|value| value.as_object_mut())
     {
@@ -1438,7 +1460,7 @@ async fn listen_update(
                 if let Err(error) = projects::write_document(&project_id, kind, &value).await {
                     report(error);
                 } else {
-                    let _ = super::render::all(&document, &state.borrow());
+                    let _ = super::render::episode_textareas(&document, &state.borrow());
                 }
             });
         }) as Box<dyn FnMut(JsValue)>),
@@ -1601,8 +1623,7 @@ async fn apply_child(
                         {
                             rels.retain(|rel| {
                                 rel.get("characterAId").and_then(|v| v.as_str()) != Some(id)
-                                    && rel.get("characterBId").and_then(|v| v.as_str())
-                                        != Some(id)
+                                    && rel.get("characterBId").and_then(|v| v.as_str()) != Some(id)
                             });
                         }
                     }
@@ -1699,12 +1720,13 @@ async fn apply_child(
             let title = payload.get("title").and_then(|value| value.as_str());
             let content = payload.get("content").and_then(|value| value.as_str());
             let memo = project_settings::update_memo(&project_id, id, title, content).await?;
-            if let Some(position) = state
-                .borrow()
-                .project_memos
-                .iter()
-                .position(|item| item.get("id").and_then(|value| value.as_str()) == Some(id))
-            {
+            let position =
+                {
+                    state.borrow().project_memos.iter().position(|item| {
+                        item.get("id").and_then(|value| value.as_str()) == Some(id)
+                    })
+                };
+            if let Some(position) = position {
                 state.borrow_mut().project_memos[position] = memo;
             }
         }
@@ -1752,8 +1774,39 @@ async fn apply_child(
             super::settings::save_chat_selection(&provider, model.as_deref()).await?;
         }
     }
-    super::render::all(document, &state.borrow())?;
-    sync_children(&state.borrow());
+    let needs_full_render = matches!(
+        action,
+        ChildAction::CreateCharacter
+            | ChildAction::DeleteCharacter
+            | ChildAction::CreateWorld
+            | ChildAction::DeleteWorld
+            | ChildAction::CreateMemo
+            | ChildAction::DeleteMemo
+    );
+    if needs_full_render {
+        super::render::all(document, &state.borrow())?;
+    } else if matches!(action, ChildAction::SelectView) {
+        super::render::view(document, &state.borrow())?;
+    }
+    match action {
+        ChildAction::CreateCharacter
+        | ChildAction::DeleteCharacter
+        | ChildAction::CreateWorld
+        | ChildAction::DeleteWorld
+        | ChildAction::UpdateCharacter
+        | ChildAction::UpdateWorld
+        | ChildAction::UpdateRelationships
+        | ChildAction::SelectCharacter
+        | ChildAction::SelectWorld
+        | ChildAction::SelectView => sync_child("settings", &state.borrow()),
+        ChildAction::CreateMemo | ChildAction::UpdateMemo | ChildAction::DeleteMemo => {
+            sync_child("project-memos", &state.borrow())
+        }
+        ChildAction::SelectMemo => sync_child("project-memos", &state.borrow()),
+        ChildAction::DirectToggle => sync_chat(&state.borrow()),
+        ChildAction::ChatSettings => sync_chat_settings(&state.borrow()),
+        ChildAction::ChatSend | ChildAction::ChatStop => {}
+    }
     Ok(())
 }
 

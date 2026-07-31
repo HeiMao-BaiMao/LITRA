@@ -90,7 +90,8 @@ fn bind_resizer(document: &Document) -> Result<(), JsValue> {
 }
 
 async fn refresh_list(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
-    state.borrow_mut().genres = repository::list().await?;
+    let genres = repository::list().await?;
+    state.borrow_mut().genres = genres;
     render::all(document, &state.borrow())
 }
 
@@ -128,6 +129,9 @@ async fn refresh_current(document: &Document, state: &Rc<RefCell<State>>) -> Res
 }
 
 fn report_error(error: JsValue) {
+    if crate::runtime::ai::is_cancelled_error(&error) {
+        return;
+    }
     let message = error.as_string().unwrap_or_else(|| format!("{error:?}"));
     if let Some(window) = web_sys::window() {
         let _ = window.alert_with_message(&format!("エラー: {message}"));
