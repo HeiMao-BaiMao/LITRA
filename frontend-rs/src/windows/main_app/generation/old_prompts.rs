@@ -2,6 +2,7 @@
 //! 全TSヘルパー関数をRustに移植し、テンプレート式を正しく展開する。
 
 use regex::Regex;
+use serde_json::Value;
 use std::sync::LazyLock;
 
 // ============================================================
@@ -177,62 +178,126 @@ fn build_author_instruction_section(instruction: Option<&str>, usage: &str) -> S
 //  執筆方針定数
 // ============================================================
 
+// 既定(重装)スキャフォールド: 指示追従力の弱いモデル向け。
+// 1行1規則・短文・×/○の対比例・具体的な禁止列挙で構成する。
+// 例文はモデルが本文へ写す事故があるため、末尾に流用禁止のガードを置く。
 static JAPANESE_FICTION_DIRECTION: &str = "\
 【日本語小説としての生成方針 — 全項目を必ず守る】
-1. 英語から逐語訳したような構文ではなく、日本語として発想された自然な文章にする。
-2. 周辺本文の語彙密度、語調、漢字と仮名の比率、文の長短、句読点、段落の呼吸、比喩の頻度を読み取り、必要な範囲で継承する。
-3. 感情や性格を「悲しかった」「優しい人物だ」のような説明で述べず、動作、知覚、台詞、間で示す。ただし地の文が説明体の作品では、その文体に従う。
-4. 難語や修辞を機械的に増やさない。視点人物、場面、感情、作品の文体に最も適した具体的な名詞と動詞を選ぶ。
-5. 文末表現を機械的に入れ替えない。反復がリズム、強調、人物造形、モチーフとして機能している場合は保持する。
-6. 台詞は、人物ごとの年齢、背景、関係、感情、既存の語彙と口調に合わせる。設定を読者へ伝えるためだけの不自然な説明台詞を作らない。どの語りの型でも、人物の属性上まだ持ち得ない知識や見聞を台詞の前提に置かない。
-7. 正史上の情報不足を理由に、描写まで抽象的または無難にしない。ただし、未確認の過去設定や人物関係を確定事項として作らない。";
+《ことば》
+1. 全文を日本語で書く。英単語、ローマ字、中国語を混ぜない。本文に既に出ている外来語・固有名詞はそのまま使う。
+2. 翻訳調を書かない。
+   × 彼は彼の帽子を取った。 → ○ 彼は帽子を取った。
+   × 彼女は彼女の目を閉じた。 → ○ 彼女は目を閉じた。
+3. 文体は自分の癖ではなく、直前本文の癖で書く: 文の長さ、漢字の量、句読点の打ち方、段落の切り方、文末の形。
+4. 同じ文末が直前本文で意図的に続いているなら、そのまま続けてよい。無理に言い換えない。
+《してはいけないこと》
+5. 直前本文の文を写さない。自分が書いた文を繰り返さない。
+6. 【設定資料】と直前本文に無い過去・経歴・人間関係・正体を、事実として書かない。分からないことは書かず、いま見えるもの・起きることを書く。
+7. 記録されている名前の表記・呼び方・口調・関係を変えない。
+8. 人物の年齢・学年・職業・立場・在籍期間から考えて、まだ知り得ないこと・経験し得ないことを、語りにも台詞にも書かない。
+《描き方》
+9. 「悲しかった」「優しい人だ」と説明で済ませず、動作・知覚・台詞・間で見せる。ただし、地の文がもともと説明する文体の作品なら、その文体に従う。
+10. 台詞は人物ごとに、本文で既に使っている一人称・口調・語尾で書く。設定を説明するためだけの台詞を作らない。
+11. 難しい言葉や比喩を飾りとして足さない。その場面の具体的な名詞と動詞を選ぶ。
+※ この方針の×/○の例文は説明用であり、本文に写さない。";
 
+// "light"(軽装)スキャフォールド: 指示追従力の高いモデル向け。
+// system_prompt.txt が全ロールに載る前提で、重複の再説明をせず
+// 契約と非自明な制約だけを高密度に述べる。過剰指定は無難で従順な文を誘発するため避ける。
 static JAPANESE_FICTION_DIRECTION_LIGHT: &str = "\
 【日本語小説としての生成方針 — 要点】
-1. 英語直訳調ではなく、日本語として発想された自然な文章で書く。周辺本文の語彙、語調、文の長短、句読点、段落の呼吸を必要な範囲で継承する。
-2. 感情や性格を「悲しかった」のような説明で述べず、動作・知覚・台詞・間で示す。ただし地の文が説明体の作品では、その文体に従う。
-3. 台詞と思考は、人物ごとに本文で実際に使われている語彙・口調・一人称のまま書く。本文に無い語り癖、決め台詞風の文、読者向け解説を新しく発明しない。
-4. 正史・【設定資料】・直前本文に無い過去、経歴、関係、正体を、確定した事実として書かない。";
+1. 翻訳調を排し、日本語として発想された文で書く。周辺本文の語彙密度、文の長短、漢字と仮名の比率、句読点と段落の呼吸、比喩の頻度を読み取り、その文体の内側で書く。反復や文末の揃いが意図的な効果として機能している場合は保持し、機械的に言い換えない。
+2. 判定した語りの型を最後まで保つ。型1・型2の地の文は視点人物の知覚と思考だけで構成し、人物の社会的属性(年齢、学年、職業、立場、在籍期間、出身)が許す知識・経験・土地勘の範囲を超えない。
+3. 記録された事実は変えない。未記録の過去・経歴・関係・正体を確定事項として書かない。情報が無い場所ほど、いま起こる知覚と行動を具体的に書く — 事実の不足を描写の抽象化で埋めない。
+4. 感情と性格は原則、動作・知覚・台詞・間で示す。地の文が説明体の作品では、その文体に従う。
+5. 台詞と内語は、各人物が本文で既に見せている語彙・口調・一人称のまま。設定を読者へ運ぶだけの台詞、本文に無い語り癖や読者向け解説を新しく始めない。
+6. 語彙は具体で選ぶ。視点人物・場面・感情に最も適した名詞と動詞を優先し、装飾のための難語・比喩を足さない。";
 
+// 既定(重装)の最終指示: プロンプト末尾(直近位置)で出力契約を反復する。
+// 弱いモデルは長いプロンプトの中間を落とすため、最重要契約を冒頭と末尾の二度言う。
+// 視点規則の詳細は system_prompt.txt と【執筆前の確定】が既に述べているので、
+// ここでは検査項目のチェックリストに徹する。
 static FICTION_OUTPUT_SELF_CHECK: &str = "\
-【最終指示 — 書き出す直前に、この言葉のまま従う】
-判定した語りの型のまま書く。型を変えない。場面の途中で視点人物を変えない。
-型1・型2なら: あなたは視点人物本人。地の文の1文1文は、いま知覚したこと(A)か、いま心の中で思ったこと(B)のどちらか。目の前の相手の表情と声は見えるまま具体的に書いてよい。自分の顔は見えないので、内側の感覚か心の言葉で書く。自分の気持ちは知っているので、推測語を付けず断定で書く。他人の気持ちは見えないので、見えた動作を書き、思ったことは推測の形で書く。いない場所のこと、まだ知らないことは書かない。
-型3(神の視点)なら: 書ける範囲は全てだが、語り手の口調と書き方の癖は提示された本文のまま。新しい語り癖を発明せず、本文が隠している秘密は明かさない。
-型4(客観)なら: 誰の心の中も書かず、見える行動と聞こえる音・声だけを書く。
-どの型でも: 言葉づかいは提示された本文の語り手・人物のまま。人称、一人称の呼び方、時制、文体を変えない。
-【設定資料】がある場合: 登場する人物・地名・用語の表記、呼び方、口調、関係が資料の記録と一致しているか確認する。資料に無い過去・設定を確定事項として書いていないか確認する。人物の属性(年齢、学年、職業、立場、在籍期間)上まだ持ち得ない知識・経験・土地勘を、語りや台詞の前提にしていないか確認する。
-最後にもう一度、メタ認知の視点で完成稿を客観視し、精度と表現の両方が自分の最高水準に達していることを確かめる。
-出力の1文字目から小説本文を書く。前置き、見出し、解説、本文を囲む引用符は書かない。";
+【最終指示 — この確認を全て終えてから出力する】
+出力してよいのは日本語の小説本文だけである。次のものを一切出力しない: 前置き(「以下が続きです」「承知しました」など)、見出し(「【続き】」「本文:」など)、説明、感想、注記、記号や引用符やコードフェンスによる囲み、この指示文の写し。
+出力前に、心の中で確認する(確認の文章は出力しない):
+1. 語りの型・視点人物・一人称・時制は、提示された本文と同じか。
+2. 型1・型2の場合、地の文は全て、視点人物が知覚したこと(A)か思ったこと(B)か。自分の顔を外から見た文、他人の心を断定した文は無いか。
+3. 名前の表記・呼び方・口調・関係は【設定資料】と本文の記録の通りか。資料に無い過去・関係・正体を書いていないか。
+4. 人物の属性(年齢、学年、職業、立場、在籍期間)上、まだ知り得ないことを語りや台詞に書いていないか。
+5. 提示された本文の文の写し、同じ文の繰り返し、書きかけで切れた文は無いか。
+問題を見つけたら、直してから出力する。
+繰り返す: 出力の1文字目から小説本文を書く。本文だけを書く。";
 
 static FICTION_OUTPUT_SELF_CHECK_LIGHT: &str = "\
-【最終指示 — 書き出す直前に確認する】
-判定した語りの型・視点人物・一人称・時制・文体を最後まで変えない。【設定資料】に記録がある人物・地名・用語の表記、呼び方、口調、関係は記録の通りにする。人物の属性(年齢、学年、職業、立場、在籍期間)上まだ持ち得ない知識・経験を、語りや台詞の前提にしていないか確認する。
-最後にもう一度、メタ認知の視点で完成稿を客観視し、精度と表現の両方が自分の最高水準に達していることを確かめてから出力する。
-出力の1文字目から小説本文を書く。前置き、見出し、解説、注記、本文を囲む引用符やコードフェンスを一切付けない。";
+【最終指示 — 出力の直前に確認する】
+語りの型・視点人物・一人称・時制・文体は、判定した通りのまま最後まで維持されている。【設定資料】に記録がある表記・呼称・口調・関係は記録の通り。資料に無い事実を確定させず、属性上持ち得ない知識・経験を語りと台詞の前提にしていない。
+出力は小説本文のみ。1文字目から本文を書き、前置き、見出し、注記、解説、本文を囲む引用符やコードフェンスを一切付けない。";
+
+// 修復(改稿)専用の最終指示。生成用と違い「未指摘部分を変えない」「全文を揃える」を検査する。
+static FICTION_REPAIR_OUTPUT_SELF_CHECK: &str = "\
+【最終指示 — この確認を全て終えてから出力する】
+出力してよいのは修正稿の全文だけである。前置き、見出し、修正箇所の説明、感想、囲みを一切出力しない。
+出力前に、心の中で確認する(確認の文章は出力しない):
+1. 査読の【修正必須】と、含まれる場合は【機械検査による指摘】を全て直したか。
+2. 指摘されていない文は、元のまま残っているか。語彙も語順も変えていないか。
+3. 語りの型・視点人物・一人称・時制・文体は原文と同じか。
+4. 新しい出来事・過去・関係・正体を足していないか。
+5. 変更しなかった文も含めて、全文が最初から最後まで揃っているか。
+繰り返す: 出力の1文字目から修正稿の本文を書く。本文だけを書く。";
 
 static FICTION_REPAIR_OUTPUT_SELF_CHECK_LIGHT: &str = "\
-【最終指示 — 書き出す直前に確認する】
-判定した語りの型・視点人物・一人称・時制・文体を最後まで変えない。【設定資料】に記録がある人物・地名・用語の表記、呼び方、口調、関係は記録の通りにする。人物の属性(年齢、学年、職業、立場、在籍期間)上まだ持ち得ない知識・経験を、語りや台詞の前提にしていないか確認する。
-修正が指摘箇所だけに留まり、未指摘部分の語彙、リズム、含意を変えていないことを確認する。
-出力の1文字目から小説本文を書く。前置き、見出し、解説、注記、本文を囲む引用符やコードフェンスを一切付けない。";
+【最終指示 — 出力の直前に確認する】
+語りの型・視点人物・一人称・時制・文体は原文のまま。変更は指摘箇所とその接続部だけに留まり、未指摘の文の語彙・リズム・含意を変えていない。修正後の文は、資料に無い事実や属性上持ち得ない知識を新しく持ち込んでいない。
+出力は修正稿の全文のみ。1文字目から本文を書き、前置き、見出し、解説、変更箇所の説明を一切付けず、変更しなかった文も省略せず含める。";
 
+// 既定(重装)のメタ認知: 弱いモデルに並行的な自己観察は実行できない
+// (観察過程が出力へ漏れるか、無視されるかの二択になる)ため、
+// 「書く前の確定」と「1文ごとの1問」という逐次手順に分解して同じ効果を得る。
 static METACOGNITION_DIRECTIVE: &str = "\
-【メタ認知 — 書いている自分を観察するもう一人の自分】
-執筆中は常に、場面に没入して書く自分と、その筆を一段高い場所から観察するもう一人の自分(メタ認知の視点)を同時に保つ。書く自分は大胆に、観察する自分は冷徹に。この自己客観視を、出力が完成するまで解かない。
-1. 精度の自己監視: いま書いた文は、視点人物が本当に知覚・思考できることか。正史・【設定資料】・周囲の本文と矛盾していないか。逸脱に気づいた瞬間に、その場で書き直す。
-2. 属性の自己監視: いま書いた語りや台詞は、その人物の社会的属性(年齢、学年、職業、立場、在籍期間、出身)の人間が持ち得る知識・経験・常識の範囲に収まっているか。人物の性格や口調だけで判断せず、属性から一段離れた視点で照合する(例: 入学直後の大学一回生に「ほとんど使っている人を見たことのない」という長期観察を前提とした語りはさせない)。範囲を超えた文は、その場の知覚か出所のある伝聞に直す。
-3. 才能の自己監視: その表現は、どの作品にも置ける無難な文に逃げていないか。手癖の言い回し、紋切り型の比喩、既視感のある処理を自分の筆に検知したら、この場面・この人物でしか成立しない語彙と描写に置き直す。減点されない平均点ではなく、正確さを保ったままの最高到達点を狙う。
-4. 出力直前の通読: 書き上げた文章を初読の読者の目で読み直し、一読で意味が取れるか、感情が動くか、リズムに淀みがないかを確かめる。届いていない箇所は直してから出す。
-5. この観察・自己評価・書き直しの過程を出力に一切含めない。出力には【出力形式】で求められたものだけを書く。";
+【執筆前の確定 — 出力しない】
+書き始める前に、直前本文を読み、次を心の中で確定する。書いている途中で変えない。
+1. 語りの型: 型1(一人称)/型2(三人称一元)/型3(神の視点)/型4(客観)のどれか。
+2. 視点人物。その一人称(僕/俺/私など)と、他の人物の呼び方。
+3. 時制と、文末の癖(直前本文から2つ拾う)。
+4. 場面の状態: 誰がどこにいて、何を持ち、直前に何が起きたか。
+【執筆中の確認 — 型1・型2の場合】
+地の文を1文書くごとに、自分に1問だけ問う:「これは視点人物がいま知覚したこと(A)か、いま思ったこと(B)か」。どちらでもない文は書かずに捨てる。他人の心は、見えた様子を書いてから「〜のかもしれない」「〜ように見えた」の形で書く。
+この確定と確認を出力に書かない。";
+
+// "light" のメタ認知: 強いモデルにだけ効く二重意識(没入する書き手/冷徹な観察者)を要求する。
+static METACOGNITION_DIRECTIVE_LIGHT: &str = "\
+【メタ認知 — 執筆中の自己監視】
+場面に没入して書く自分と、その筆を一段高い場所から観察するもう一人の自分を、出力が完成するまで同時に保つ。書く自分は大胆に、観察する自分は冷徹に。観察者が監視するのは次の3点だけである。
+1. 精度 — この文は、視点人物が本当に知覚・思考できることか。正史・【設定資料】・周囲本文と矛盾しないか。逸脱に気づいた瞬間、その場で書き直す。
+2. 属性 — この語り・台詞は、人物の社会的属性が許す知識・経験の内側か。性格や口調ではなく、属性から一段離れて照合する。
+3. 到達点 — この表現は、どの作品にも置ける無難な文に逃げていないか。手癖、紋切り型、既視感を検知したら、この場面・この人物でしか成立しない語彙と描写に置き直す。正確さを落とさずに、自分の最高到達点を狙う。
+書き上げたら、初読の読者の目で全文を通読する。一読で意味が取れるか、感情が動くか、リズムに淀みが無いか。届いていない箇所を直してから出す。この監視と検討の過程は、出力に一切含めない。";
 
 static SURGICAL_REPAIR_METACOGNITION: &str = "\
+【修正の範囲 — 必ず守る】
+直すのは、査読で指摘された箇所だけである。
+1. 指摘されていない文は1文字も変えない。
+2. うまい表現への書き換えを目的にしない。指摘された問題が消えることだけを目的にする。
+3. 新しい出来事・過去・関係・正体を足さない。
+4. 各置換について「どの指摘を直すものか」を心の中で1つ言う。言えない置換は捨てる。
+この確認を出力に書かない。";
+
+static SURGICAL_REPAIR_METACOGNITION_LIGHT: &str = "\
 【メタ認知 — 最小修正の監視】
-新しい巧さを加えることを目的にしない。査読で指摘された欠陥だけを、最小の変更で確実に解消する。原文の有効な粗さ、癖、間、含意を改善対象と誤認せず、指摘対象外へ変更を広げない。出力前に、各変更が指摘された問題へ直接対応していること、修正後の文が人物の属性上持ち得ない知識・経験を新しく持ち込んでいないことを確認する。この確認過程は出力しない。";
+目的は新しい巧さの追加ではなく、指摘された欠陥を最小の変更で確実に解消することである。原文の意図的な粗さ、癖、間、含意を欠陥と誤認せず、指摘対象の外へ変更を広げない。各置換について、どの指摘に対応するかを一つ言えること。対応を言えない置換は作らない。修正文が新しい事実や属性外の知識を持ち込んでいないことを確かめてから出す。この確認過程は出力しない。";
 
 static FULL_REPAIR_METACOGNITION: &str = "\
+【修正の範囲 — 必ず守る】
+全文を出力するが、書き換えてよいのは査読で指摘された箇所と、その前後のつなぎだけである。
+1. 指摘されていない文は、元の文をそのまま写して残す。言い換えない。削らない。並べ替えない。
+2. 新しい出来事・過去・関係・正体を足さない。
+3. 各変更について「どの指摘を直すものか」を心の中で1つ言う。言えない変更はやめて元に戻す。
+この確認を出力に書かない。";
+
+static FULL_REPAIR_METACOGNITION_LIGHT: &str = "\
 【メタ認知 — 全文出力時の局所編集監視】
-全文を出力するが、編集対象は査読で問題とされた箇所だけである。未指摘部分を再創作せず、原文の有効な粗さ、癖、間、含意を保持する。出力前に、変更箇所が各指摘へ直接対応し、無関係な文へ変更が波及していないこと、修正後の文が人物の属性上持ち得ない知識・経験を新しく持ち込んでいないことを確認する。この確認過程は出力しない。";
+全文を出力するが、編集してよいのは査読が問題とした箇所と、その前後の接続だけである。未指摘の文は再創作せず、原文の語彙・リズム・含意のまま残す。各変更について、どの指摘に対応するかを一つ言えること。修正文が新しい事実や属性外の知識を持ち込んでいないことを確かめてから出す。この確認過程は出力しない。";
 
 fn fiction_direction(scaffold: Option<&str>) -> &'static str {
     match scaffold {
@@ -242,19 +307,21 @@ fn fiction_direction(scaffold: Option<&str>) -> &'static str {
 }
 
 fn output_self_check(scaffold: Option<&str>, operation: &str) -> &'static str {
-    match scaffold {
-        Some("light") => match operation {
-            "full-repair" => FICTION_REPAIR_OUTPUT_SELF_CHECK_LIGHT,
-            _ => FICTION_OUTPUT_SELF_CHECK_LIGHT,
-        },
-        _ => FICTION_OUTPUT_SELF_CHECK,
+    match (scaffold, operation == "full-repair") {
+        (Some("light"), true) => FICTION_REPAIR_OUTPUT_SELF_CHECK_LIGHT,
+        (Some("light"), false) => FICTION_OUTPUT_SELF_CHECK_LIGHT,
+        (_, true) => FICTION_REPAIR_OUTPUT_SELF_CHECK,
+        (_, false) => FICTION_OUTPUT_SELF_CHECK,
     }
 }
 
-fn metacognition_section(operation: &str) -> &'static str {
-    match operation {
-        "surgical-repair" => SURGICAL_REPAIR_METACOGNITION,
-        "full-repair" => FULL_REPAIR_METACOGNITION,
+fn metacognition_section(operation: &str, scaffold: Option<&str>) -> &'static str {
+    match (scaffold, operation) {
+        (Some("light"), "surgical-repair") => SURGICAL_REPAIR_METACOGNITION_LIGHT,
+        (Some("light"), "full-repair") => FULL_REPAIR_METACOGNITION_LIGHT,
+        (Some("light"), _) => METACOGNITION_DIRECTIVE_LIGHT,
+        (_, "surgical-repair") => SURGICAL_REPAIR_METACOGNITION,
+        (_, "full-repair") => FULL_REPAIR_METACOGNITION,
         _ => METACOGNITION_DIRECTIVE,
     }
 }
@@ -267,8 +334,8 @@ pub fn plan(
     context: &str,
     _instruction: &str,
     beat_split: bool,
-    _scene: &str,
-    _voices: &str,
+    scene: &str,
+    voices: &str,
     settings_context: Option<&str>,
     related_scenes: Option<&str>,
     author_instruction: Option<&str>,
@@ -320,6 +387,21 @@ pub fn plan(
         "- 文脈が明らかに終幕へ向かっている場合を除き、物語を唐突に完結させる案を選ばない。\n\n",
     );
 
+    // 前段で作成済みの連続性カードを構想の材料として渡す。
+    // 展開案の整合チェック(手順2)の根拠を、生の直前本文だけに頼らせない。
+    if !scene.trim().is_empty() {
+        s.push_str("【場面の現在状態 — 前段で整理した事実カード】\n");
+        s.push_str("直前本文の末尾時点の状態である。展開案はこの状態と矛盾しない範囲で立てる。カードと直前本文が食い違う場合は直前本文を正とする。\n\n");
+        s.push_str(&format_data_block("scene_state", scene.trim()));
+        s.push_str("\n\n");
+    }
+    if !voices.trim().is_empty() {
+        s.push_str("【人物の話し方カード — 前段で整理した記録】\n");
+        s.push_str("構想中の人物の呼称・関係・口調の扱いを、この記録と一致させる。\n\n");
+        s.push_str(&format_data_block("character_voice_cards", voices.trim()));
+        s.push_str("\n\n");
+    }
+
     let related_section = build_related_scenes_section(related_scenes);
     if !related_section.is_empty() {
         s.push_str(&related_section);
@@ -356,7 +438,7 @@ pub fn draft(
     s.push_str("【手順 — この順番で必ず実行する】\n手順1(出力しない): 直前本文から、語りの型(型1 一人称/型2 三人称一元/型3 神の視点/型4 客観)、視点人物とその呼び方、場面の場所・時刻・同席者・感情・所持品・身体状態、時制、文体、語彙と口調、直前の文が持つ勢いを確定する。【設定資料】がある場合は登場人物・場所・用語・関係・社会的属性を照合し、人物が持ち得る知識・経験の範囲も確定する。\n手順2: 判定した型の規則に従い、末尾の文へ自然につながる続きを書く。型1・型2では視点人物本人の頭の中の言葉として、地の文の各文を知覚(A)か思考(B)に基づいて書く。\n手順3: 最後の【最終指示】に、その言葉のまま従って出力する。\n\n");
     s.push_str(fiction_direction(scaffold));
     s.push_str("\n\n");
-    s.push_str(metacognition_section("create"));
+    s.push_str(metacognition_section("create", scaffold));
     s.push_str("\n\n【必須条件 — 全項目に違反しないこと】\n1. 新しく加える本文は日本語で書き、直前の視点、時制、文体、人物の声、一人称を維持する。\n2. 直前の本文を要約、言い換え、反復しない。\n3. 具体的な台詞、動作、知覚、内面によって場面を前進させる。\n4. 【設定資料】の表記、呼び方、関係を記録通りに使う。\n5. 既知の正史と矛盾する事実や、未確認の過去・設定を確定事項として加えない。\n6. 文脈が終幕へ向かう場合を除き、場面や物語を唐突に完結させない。\n\n【出力形式 — 厳守】\n- 出力の1文字目から小説本文を書く。\n- 前置き、見出し、注記、解説、区切り、本文全体を囲む引用符やコードフェンスを一切付けない。\n- 出力するのは新しく追加する本文だけ。\n\n");
 
     let author_section = build_author_instruction_section(
@@ -570,7 +652,7 @@ pub fn revise(
     );
     s.push_str(fiction_direction(scaffold));
     s.push_str("\n\n");
-    s.push_str(metacognition_section("full-repair"));
+    s.push_str(metacognition_section("full-repair", scaffold));
     s.push_str("\n\n");
     s.push_str("【出力形式 — 厳守】\n");
     s.push_str("- 出力の1文字目から小説本文を書く。\n");
@@ -624,7 +706,7 @@ pub fn targeted_revision(
         .replace("{{fiction_direction}}", fiction_direction(scaffold))
         .replace(
             "{{metacognition}}",
-            metacognition_section("surgical-repair"),
+            metacognition_section("surgical-repair", scaffold),
         )
         .replace("{{extra_sections}}", &extras)
         .replace("{{reference_section}}", &reference_block)
@@ -718,14 +800,62 @@ pub fn candidate_selection(
 }
 
 pub fn parse_selection(output: &str, count: usize) -> Option<usize> {
-    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"【採用】[^\d]*(\d+)").unwrap());
-    let selected = RE
-        .captures(output)?
-        .get(1)?
-        .as_str()
-        .parse::<usize>()
-        .ok()?;
+    let selected = parse_selection_json(output).or_else(|| {
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"(?i)(?:【採用】|採用|selected(?:\s+candidate)?|candidate|案)\D{0,30}(\d+)")
+                .unwrap()
+        });
+        RE.captures(output)
+            .and_then(|captures| captures.get(1))
+            .and_then(|value| value.as_str().parse::<usize>().ok())
+    })?;
     (1..=count).contains(&selected).then_some(selected - 1)
+}
+
+fn parse_selection_json(output: &str) -> Option<usize> {
+    let trimmed = output.trim();
+    let candidate = trimmed
+        .strip_prefix("```")
+        .and_then(|value| value.split_once('\n').map(|(_, body)| body))
+        .and_then(|value| value.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    let json_text = if candidate.starts_with('{') {
+        candidate
+    } else {
+        let start = candidate.find('{')?;
+        let end = candidate.rfind('}')?;
+        candidate.get(start..=end)?
+    };
+    let value: Value = serde_json::from_str(json_text).ok()?;
+    let object = value.as_object()?;
+    [
+        "selected",
+        "selection",
+        "selectedCandidate",
+        "candidate",
+        "choice",
+        "採用",
+        "選択",
+    ]
+    .iter()
+    .find_map(|key| object.get(*key).and_then(selection_value))
+}
+
+fn selection_value(value: &Value) -> Option<usize> {
+    match value {
+        Value::Number(number) => number.as_u64().map(|value| value as usize),
+        Value::String(text) => {
+            let digits = text
+                .chars()
+                .skip_while(|character| !character.is_ascii_digit());
+            let digits = digits
+                .take_while(|character| character.is_ascii_digit())
+                .collect::<String>();
+            (!digits.is_empty()).then(|| digits.parse().ok()).flatten()
+        }
+        _ => None,
+    }
 }
 
 pub fn rewrite(
@@ -747,7 +877,7 @@ pub fn rewrite(
     s.push_str("手順3: 最後の【最終指示】に、その言葉のまま従って出力する。\n\n");
     s.push_str(fiction_direction(scaffold));
     s.push_str("\n\n");
-    s.push_str(metacognition_section("rewrite"));
+    s.push_str(metacognition_section("rewrite", scaffold));
     s.push_str("\n\n");
 
     let instr_section = build_author_instruction_section(instruction, "");
@@ -866,8 +996,9 @@ pub fn summary_episode(text: &str, title: Option<&str>, episode_id: Option<&str>
         )
 }
 
-/// 要約生成のテキストフォールバックを詳細要約と一行要約に分離する。
-/// 旧 TypeScript `parseSummaryOutput` と同じ見出し形式を受け付ける。
+/// 要約生成の応答を詳細要約と一行要約に分離する。
+///
+/// 直接生成経路の JSON 応答と、旧 TypeScript 互換の見出し形式を受け付ける。
 pub fn parse_summary_output(output: &str) -> (Option<String>, Option<String>) {
     let normalized = output.replace("\r\n", "\n");
     let marker = "【一行要約】";
@@ -883,7 +1014,97 @@ pub fn parse_summary_output(output: &str) -> (Option<String>, Option<String>) {
         non_empty(normalized[value_start..].trim())
     });
 
+    if summary.is_some() || one_liner.is_some() {
+        return (summary, one_liner);
+    }
+
+    parse_summary_json(&normalized)
+}
+
+fn parse_summary_json(output: &str) -> (Option<String>, Option<String>) {
+    let value = parse_json_value(output).ok().or_else(|| {
+        let mut offset = output.find('{')?;
+        loop {
+            let candidate = &output[offset..];
+            if let Some(value) = parse_json_prefix(candidate) {
+                if value.is_object() {
+                    return Some(value);
+                }
+            }
+            let next = candidate[1..].find('{')?;
+            offset += next + 1;
+        }
+    });
+    let Some(object) = value.and_then(|value| value.as_object().cloned()) else {
+        return (None, None);
+    };
+
+    let summary = ["content", "summary", "detailedSummary"]
+        .into_iter()
+        .find_map(|key| object.get(key).and_then(serde_json::Value::as_str))
+        .and_then(|value| non_empty(value.trim()));
+    let one_liner = [
+        "oneLiner",
+        "one_liner",
+        "oneLineSummary",
+        "one_line_summary",
+    ]
+    .into_iter()
+    .find_map(|key| object.get(key).and_then(serde_json::Value::as_str))
+    .and_then(|value| non_empty(value.trim()));
+
     (summary, one_liner)
+}
+
+fn parse_json_value(output: &str) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::from_str(output)
+        .or_else(|_| serde_json::from_str(&escape_raw_json_controls(output)))
+}
+
+fn parse_json_prefix(output: &str) -> Option<serde_json::Value> {
+    for candidate in [output.to_owned(), escape_raw_json_controls(output)] {
+        if let Some(Ok(value)) = serde_json::Deserializer::from_str(&candidate)
+            .into_iter::<serde_json::Value>()
+            .next()
+        {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn escape_raw_json_controls(output: &str) -> String {
+    let mut escaped = String::with_capacity(output.len());
+    let mut in_string = false;
+    let mut escaped_character = false;
+    for character in output.chars() {
+        if in_string {
+            if escaped_character {
+                escaped.push(character);
+                escaped_character = false;
+            } else if character == '\\' {
+                escaped.push(character);
+                escaped_character = true;
+            } else if character == '"' {
+                escaped.push(character);
+                in_string = false;
+            } else if character == '\n' {
+                escaped.push_str("\\n");
+            } else if character == '\r' {
+                escaped.push_str("\\r");
+            } else if character == '\t' {
+                escaped.push_str("\\t");
+            } else {
+                escaped.push(character);
+            }
+        } else {
+            if character == '"' {
+                in_string = true;
+            }
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -988,7 +1209,7 @@ pub fn line_edit_revision(
     LINE_EDIT_REVISION_PROMPT
         .replace("{instructionSection}", &instruction_section)
         .replace("{fictionDirectionFor(extras?.promptScaffold)}", fiction_direction(scaffold))
-        .replace("{metacognitionSectionFor(\"surgical-repair\")}", metacognition_section("surgical-repair"))
+        .replace("{metacognitionSectionFor(\"surgical-repair\")}", metacognition_section("surgical-repair", scaffold))
         .replace(
             "{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"surrounding_context\", context)}",
             &format!("{prefix}{}", format_data_block("surrounding_context", context)),
@@ -1064,7 +1285,20 @@ pub fn style_fingerprint_section(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_summary_output, parse_targeted_revision, TargetedReplacement};
+    use super::{
+        parse_selection, parse_summary_output, parse_targeted_revision, TargetedReplacement,
+    };
+
+    #[test]
+    fn parses_selection_from_legacy_and_structured_outputs() {
+        assert_eq!(parse_selection("【採用】案2", 2), Some(1));
+        assert_eq!(parse_selection(r#"{"selectedCandidate":1}"#, 2), Some(0));
+        assert_eq!(
+            parse_selection("結果:\n```json\n{\"choice\":\"candidate_2\"}\n```", 2),
+            Some(1)
+        );
+        assert_eq!(parse_selection("案9", 2), None);
+    }
 
     #[test]
     fn parses_summary_fallback_with_crlf() {
@@ -1082,10 +1316,57 @@ mod tests {
     fn summary_prompt_keeps_toolless_fallback_contract() {
         let prompt = super::summary_episode("本文", Some("第一話"), Some("ep-1"));
         assert!(prompt.contains("Target episodeId: ep-1"));
+        assert!(prompt.contains("\"content\":\"詳細要約\""));
+        assert!(prompt.contains("\"oneLiner\":\"一行要約\""));
         assert!(prompt.contains("【要約】"));
         assert!(prompt.contains("【一行要約】"));
         assert!(!prompt.contains("{{"));
         assert!(prompt.contains("<reference_data name=\"episode_source_text\">\n本文"));
+    }
+
+    #[test]
+    fn parses_tool_compatible_json_summary() {
+        let output = r#"{"episodeId":"ep-1","content":"詳細な出来事。\n二段落目。","oneLiner":"核心の一文。"}"#;
+        assert_eq!(
+            parse_summary_output(output),
+            (
+                Some("詳細な出来事。\n二段落目。".to_string()),
+                Some("核心の一文。".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn parses_fenced_json_summary_with_preamble() {
+        let output = "結果です。\n```json\n{\"content\":\"詳細。\",\"oneLiner\":\"一文。\"}\n```";
+        assert_eq!(
+            parse_summary_output(output),
+            (Some("詳細。".to_string()), Some("一文。".to_string()))
+        );
+    }
+
+    #[test]
+    fn parses_json_summary_with_unescaped_line_breaks_in_content() {
+        let output = "{\"content\":\"一段目。\n二段目。\",\"oneLiner\":\"一文。\"}";
+        assert_eq!(
+            parse_summary_output(output),
+            (
+                Some("一段目。\n二段目。".to_string()),
+                Some("一文。".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn parses_episode_summary_payload_returned_by_deepseek() {
+        let output = "{\"episodeId\":\"ep-1\",\"content\":\"冒頭の出来事。\n\n中盤の出来事。\",\"oneLiner\":\"初仕事を終えた。\"}";
+        assert_eq!(
+            parse_summary_output(output),
+            (
+                Some("冒頭の出来事。\n\n中盤の出来事。".to_string()),
+                Some("初仕事を終えた。".to_string())
+            )
+        );
     }
 
     #[test]

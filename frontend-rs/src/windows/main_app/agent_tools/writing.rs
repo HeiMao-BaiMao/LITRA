@@ -40,8 +40,8 @@ pub async fn execute(
         "continuePassage" => {
             continue_passage(state, project_id, current_episode, &input, on_progress).await
         }
-        "rewritePassage" => rewrite_passage(state, &input).await,
-        "lineEditPassage" => line_edit(state, &input).await,
+        "rewritePassage" => rewrite_passage(state, &input, on_progress).await,
+        "lineEditPassage" => line_edit(state, &input, on_progress).await,
         "checkConsistency" => consistency(state, project_id, current_episode, &input).await,
         "listPassageProposals" => {
             let include_applied = input
@@ -130,85 +130,157 @@ async fn continue_passage(
 async fn rewrite_passage(
     state: &Rc<RefCell<State>>,
     input: &Map<String, Value>,
+    on_progress: &mut dyn FnMut(&str),
 ) -> Result<Value, JsValue> {
     let passage = required(input, "targetText")?;
     let instruction = input
         .get("instruction")
         .and_then(Value::as_str)
         .unwrap_or("意味と事実を保って自然に書き直す");
-    let (settings, context, references) = {
+    let (settings, context, context_found, references) = {
         let current = state.borrow();
         let settings = current.ai_settings.clone();
-        let context = tail(&current.editor_text, 12_000);
+        let (context, context_found) = passage_context(&current.editor_text, passage, 5_000);
         (
             settings.clone(),
             context.clone(),
+            context_found,
             prompt_context::fiction_references(&current, &settings, &context),
         )
     };
-    let generated = generation::rewrite_passage_with_references(
+    let generated = generation::rewrite_passage_with_references_progress(
         &settings,
         &context,
         passage,
         instruction,
         &references,
+        |stage| on_progress(stage),
     )
     .await?;
-    Ok(
-        json!({"rewrittenText":generated.text,"provider":generated.provider,"model":generated.model}),
-    )
+    let rewritten_text = generated.text.trim().to_owned();
+    if rewritten_text.is_empty() {
+        return Ok(json!({
+            "success": false,
+            "message": "書き直し案の生成結果が空でした。",
+            "contextFound": context_found,
+        }));
+    }
+    let generated_model = generated.model;
+    let generated_provider = generated.provider;
+    Ok(json!({
+        "success": true,
+        "message": if context_found {
+            "執筆系モデルによる書き直し案を生成しました(原稿内の前後文脈を参照)。本文はまだ変更していません。"
+        } else {
+            "執筆系モデルによる書き直し案を生成しました(対象文が現在の原稿内で一意に特定できなかったため、前後文脈なし)。本文はまだ変更していません。"
+        },
+        "rewrittenText": rewritten_text,
+        "usedModel": generated_model.clone(),
+        "provider": generated_provider,
+        "model": generated_model,
+        "contextFound": context_found,
+    }))
 }
 
 async fn line_edit(
     state: &Rc<RefCell<State>>,
     input: &Map<String, Value>,
+    on_progress: &mut dyn FnMut(&str),
 ) -> Result<Value, JsValue> {
     let passage = required(input, "passageText")?;
     let instruction = input
         .get("instruction")
         .and_then(Value::as_str)
         .unwrap_or("具体的な修正案を作る");
-    let (settings, context, references) = {
+    let (settings, context, context_found, references) = {
         let current = state.borrow();
         let settings = current.ai_settings.clone();
-        let context = tail(&current.editor_text, 12_000);
+        let (context, context_found) = passage_context(&current.editor_text, passage, 5_000);
         (
             settings.clone(),
             context.clone(),
+            context_found,
             prompt_context::fiction_references(&current, &settings, &context),
         )
     };
+    on_progress("対象本文の前後を確認中");
+    on_progress("判断モデルで査読中");
     let review = ai::generate(
         "judgment",
         super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
         generation::old_prompts::line_edit_review(
             passage,
             &context,
-            settings.get("promptScaffold").and_then(Value::as_str),
-            Some(instruction),
-            Some(&references.settings_context),
-            references.related_scenes.as_deref(),
-        ),
-    )
-    .await?
-    .text;
-    if !super::super::generation::review::requires_revision(&review) {
-        return Ok(json!({"review":review,"proposals":[]}));
-    }
-    let revision = ai::generate(
-        "writing",
-        super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
-        generation::old_prompts::line_edit_revision(
-            passage,
-            &review,
-            &context,
-            settings.get("promptScaffold").and_then(Value::as_str),
+            generation::judgment_scaffold(&settings),
             Some(instruction),
             Some(&references.settings_context),
             references.related_scenes.as_deref(),
         ),
     )
     .await?;
+    if !super::super::generation::review::requires_revision(&review.text) {
+        let review_text = review.text;
+        let judgment_model = review.model;
+        on_progress("査読結果を整理中");
+        return Ok(json!({
+            "success": true,
+            "message": "編集者による査読の結果、修正は不要と判断されました。",
+            "review": review_text,
+            "requiresRevision": false,
+            "proposals": [],
+            "revisions": [],
+            "usedJudgmentModel": judgment_model,
+            "contextFound": context_found,
+        }));
+    }
+    on_progress("執筆モデルで修正案を生成中");
+    let revision_prompt = generation::old_prompts::line_edit_revision(
+        passage,
+        &review.text,
+        &context,
+        generation::scaffold(&settings),
+        Some(instruction),
+        Some(&references.settings_context),
+        references.related_scenes.as_deref(),
+    );
+    let first_revision = ai::generate(
+        "writing",
+        super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+        revision_prompt.clone(),
+    )
+    .await?;
+    let revision = if settings
+        .get("continuationBestOfTwo")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        on_progress("別の修正案を生成中");
+        let second_revision = ai::generate(
+            "writing",
+            super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+            revision_prompt,
+        )
+        .await?;
+        on_progress("修正案を比較中");
+        if generation::review::choose_candidate(
+            &first_revision.text,
+            &second_revision.text,
+            instruction,
+            passage,
+            &context,
+            Some(&references.settings_context),
+            generation::judgment_scaffold(&settings),
+        )
+        .await?
+        {
+            second_revision
+        } else {
+            first_revision
+        }
+    } else {
+        first_revision
+    };
+    on_progress("修正案を整理中");
     let proposals = generation::old_prompts::parse_targeted_revision(&revision.text)
         .unwrap_or_default()
         .into_iter()
@@ -220,7 +292,24 @@ async fn line_edit(
             })
         })
         .collect::<Vec<_>>();
-    Ok(json!({"review":review,"proposals":proposals}))
+    let review_text = review.text;
+    let judgment_model = review.model;
+    let writing_model = revision.model;
+    Ok(json!({
+        "success": true,
+        "message": if context_found {
+            "編集者による査読と修正案を生成しました(原稿内の前後文脈を参照)。本文はまだ変更していません。"
+        } else {
+            "編集者による査読と修正案を生成しました(対象文が現在の原稿内で一意に特定できなかったため、前後文脈なし)。本文はまだ変更していません。"
+        },
+        "review": review_text,
+        "requiresRevision": true,
+        "proposals": proposals,
+        "revisionOutput": revision.text,
+        "usedJudgmentModel": judgment_model,
+        "usedWritingModel": writing_model,
+        "contextFound": context_found,
+    }))
 }
 
 async fn consistency(
@@ -426,6 +515,26 @@ fn tail(text: &str, limit: usize) -> String {
         .rev()
         .collect()
 }
+fn head(text: &str, limit: usize) -> String {
+    text.chars().take(limit).collect()
+}
+fn passage_context(editor_text: &str, passage: &str, side_budget: usize) -> (String, bool) {
+    let Some(first_index) = editor_text.find(passage) else {
+        return ("\n[選択部分]\n".into(), false);
+    };
+    let next_boundary = editor_text[first_index..]
+        .chars()
+        .next()
+        .map(|character| first_index + character.len_utf8())
+        .unwrap_or(first_index + passage.len());
+    if editor_text[next_boundary..].find(passage).is_some() {
+        return ("\n[選択部分]\n".into(), false);
+    }
+    let before = tail(&editor_text[..first_index], side_budget);
+    let after_start = first_index + passage.len();
+    let after = head(&editor_text[after_start..], side_budget);
+    (format!("{before}\n[選択部分]\n{after}"), true)
+}
 fn now() -> String {
     Date::new_0()
         .to_iso_string()
@@ -484,4 +593,28 @@ pub fn definitions() -> Vec<Value> {
             object([("proposalId", string())], &["proposalId"]),
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::passage_context;
+
+    #[test]
+    fn passage_context_uses_unique_selection_and_bounded_sides() {
+        let (context, found) = passage_context("前の文。対象本文。後の文。", "対象本文", 3);
+        assert!(found);
+        assert_eq!(context, "の文。\n[選択部分]\n。後の");
+    }
+
+    #[test]
+    fn passage_context_drops_context_when_selection_is_ambiguous_or_missing() {
+        assert_eq!(
+            passage_context("対象。途中。対象。", "対象", 10),
+            ("\n[選択部分]\n".to_owned(), false)
+        );
+        assert_eq!(
+            passage_context("本文", "存在しない", 10),
+            ("\n[選択部分]\n".to_owned(), false)
+        );
+    }
 }

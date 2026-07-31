@@ -34,7 +34,16 @@ pub async fn continue_story_with_references_progress<F>(
 where
     F: FnMut(&str),
 {
-    continue_story_full(settings, context, instruction, references, &mut on_stage, None, None).await
+    continue_story_full(
+        settings,
+        context,
+        instruction,
+        references,
+        &mut on_stage,
+        None,
+        None,
+    )
+    .await
 }
 
 /// on_chunk 付きの完全版。ドラフト生成中にテキストデルタをリアルタイムで受け取れる。
@@ -50,7 +59,16 @@ pub async fn continue_story_streaming<F>(
 where
     F: FnMut(&str),
 {
-    continue_story_full(settings, context, instruction, references, &mut on_stage, Some(on_chunk), previous_episode_text).await
+    continue_story_full(
+        settings,
+        context,
+        instruction,
+        references,
+        &mut on_stage,
+        Some(on_chunk),
+        previous_episode_text,
+    )
+    .await
 }
 
 async fn continue_story_full<F>(
@@ -197,7 +215,7 @@ where
             context,
             nonempty(&references.settings_context),
             nonempty(&plan),
-            scaffold(settings),
+            judgment_scaffold(settings),
             Some(instruction),
         )
         .await?
@@ -286,7 +304,7 @@ where
                 &selected.text,
                 &revised.text,
                 nonempty(&references.settings_context),
-                scaffold(settings),
+                judgment_scaffold(settings),
             )
             .await?
         {
@@ -296,14 +314,28 @@ where
     Ok(selected)
 }
 
-pub async fn rewrite_passage_with_references(
+/// 書き直しの内部段階を受け取る完全版。ツールカードに現在の処理を表示する。
+pub async fn rewrite_passage_with_references_progress<F>(
     settings: &Value,
     context: &str,
     passage: &str,
     instruction: &str,
     references: &FictionReferences,
-) -> Result<ai::GeneratedText, JsValue> {
-    rewrite_passage_streaming(settings, context, passage, instruction, references, None).await
+    mut on_stage: F,
+) -> Result<ai::GeneratedText, JsValue>
+where
+    F: FnMut(&str),
+{
+    rewrite_passage_streaming_with_progress(
+        settings,
+        context,
+        passage,
+        instruction,
+        references,
+        None,
+        &mut on_stage,
+    )
+    .await
 }
 
 /// on_chunk 付きの書き直し。第一候補の生成中にテキストデルタを受け取れる。
@@ -315,6 +347,32 @@ pub async fn rewrite_passage_streaming(
     references: &FictionReferences,
     on_chunk: Option<ChunkCallback>,
 ) -> Result<ai::GeneratedText, JsValue> {
+    rewrite_passage_streaming_with_progress(
+        settings,
+        context,
+        passage,
+        instruction,
+        references,
+        on_chunk,
+        &mut |_| {},
+    )
+    .await
+}
+
+async fn rewrite_passage_streaming_with_progress<F>(
+    settings: &Value,
+    context: &str,
+    passage: &str,
+    instruction: &str,
+    references: &FictionReferences,
+    on_chunk: Option<ChunkCallback>,
+    on_stage: &mut F,
+) -> Result<ai::GeneratedText, JsValue>
+where
+    F: FnMut(&str),
+{
+    on_stage("設定資料を確認中");
+    on_stage("書き直し案を生成中");
     let first = rewrite_candidate(
         context,
         passage,
@@ -325,6 +383,7 @@ pub async fn rewrite_passage_streaming(
     )
     .await?;
     let mut selected = if enabled(settings, "continuationBestOfTwo") {
+        on_stage("別の書き直し案を生成中");
         let second = rewrite_candidate(
             context,
             passage,
@@ -334,6 +393,7 @@ pub async fn rewrite_passage_streaming(
             None,
         )
         .await?;
+        on_stage("書き直し案を比較中");
         if review::choose_candidate(
             &first.text,
             &second.text,
@@ -341,7 +401,7 @@ pub async fn rewrite_passage_streaming(
             passage,
             context,
             nonempty(&references.settings_context),
-            scaffold(settings),
+            judgment_scaffold(settings),
         )
         .await?
         {
@@ -353,6 +413,7 @@ pub async fn rewrite_passage_streaming(
         first
     };
     if enabled(settings, "continuationReviewEnabled") {
+        on_stage("書き直し案を査読中");
         let findings = review::inspect(
             context,
             &selected.text,
@@ -365,6 +426,7 @@ pub async fn rewrite_passage_streaming(
         if !review::requires_revision(&findings) {
             return Ok(selected);
         }
+        on_stage("査読結果から改稿中");
         let revised = revise_with_review(
             context,
             &selected.text,
@@ -379,19 +441,21 @@ pub async fn rewrite_passage_streaming(
         if revised.text == selected.text {
             return Ok(selected);
         }
+        on_stage("改稿候補を比較中");
         if !revised.text.trim().is_empty()
             && review::prefer_revision(
                 context,
                 &selected.text,
                 &revised.text,
                 nonempty(&references.settings_context),
-                scaffold(settings),
+                judgment_scaffold(settings),
             )
             .await?
         {
             selected = revised;
         }
     }
+    on_stage("書き直し結果を整形中");
     Ok(selected)
 }
 
@@ -545,15 +609,10 @@ async fn rewrite_candidate(
 }
 
 async fn optional_judgment(system: &str, prompt: String) -> String {
-    let _ = system;
-    ai::generate(
-        "judgment",
-        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
-        prompt,
-    )
-    .await
-    .map(|result| result.text)
-    .unwrap_or_default()
+    ai::generate("judgment", system.to_owned(), prompt)
+        .await
+        .map(|result| result.text)
+        .unwrap_or_default()
 }
 
 fn enabled(settings: &Value, key: &str) -> bool {
@@ -564,10 +623,26 @@ fn nonempty(value: &str) -> Option<&str> {
     (!value.trim().is_empty()).then_some(value)
 }
 
-fn scaffold(settings: &Value) -> Option<&str> {
+/// 執筆系プロンプトの scaffold("light" 等)を設定から解決する。
+/// 設定画面の執筆詳細(writingOverrides.promptScaffold)を優先し、
+/// 旧形式のトップレベル promptScaffold へフォールバックする。
+pub(crate) fn scaffold(settings: &Value) -> Option<&str> {
     settings
-        .get("promptScaffold")
+        .get("writingOverrides")
+        .and_then(|overrides| overrides.get("promptScaffold"))
         .and_then(Value::as_str)
+        .or_else(|| settings.get("promptScaffold").and_then(Value::as_str))
+        .filter(|value| !value.trim().is_empty())
+}
+
+/// 判断系タスク(候補比較・査読基準)のプロンプトに使う scaffold。
+/// judgmentOverrides.promptScaffold を優先し、トップレベルへフォールバックする。
+pub(crate) fn judgment_scaffold(settings: &Value) -> Option<&str> {
+    settings
+        .get("judgmentOverrides")
+        .and_then(|overrides| overrides.get("promptScaffold"))
+        .and_then(Value::as_str)
+        .or_else(|| settings.get("promptScaffold").and_then(Value::as_str))
         .filter(|value| !value.trim().is_empty())
 }
 
@@ -621,7 +696,55 @@ mod tests {
         assert!(prompt.contains("ビート1/2「扉を開ける」"));
         assert!(prompt.contains("【LITRA工程】continuation-draft/v2"));
         assert!(prompt.contains("【最終指示"));
-        assert!(prompt.contains("【メタ認知"));
+        assert!(prompt.contains("【執筆前の確定"));
+    }
+
+    #[test]
+    fn plan_includes_continuity_cards_when_available() {
+        let prompt = prompts::plan(
+            "本文",
+            "続ける",
+            false,
+            "場所: 書斎",
+            "主人公: 私、常体",
+            None,
+            None,
+        );
+        assert!(prompt.contains("<reference_data name=\"scene_state\">\n場所: 書斎"));
+        assert!(prompt.contains("<reference_data name=\"character_voice_cards\">"));
+    }
+
+    #[test]
+    fn scaffold_resolves_overrides_and_switches_tiers() {
+        assert_eq!(
+            scaffold(&json!({"writingOverrides":{"promptScaffold":"light"}})),
+            Some("light")
+        );
+        assert_eq!(scaffold(&json!({"promptScaffold":"light"})), Some("light"));
+        assert_eq!(scaffold(&json!({})), None);
+        assert_eq!(
+            judgment_scaffold(&json!({"judgmentOverrides":{"promptScaffold":"light"}})),
+            Some("light")
+        );
+        let heavy = prompts::draft("本文", "", "", "", "", None, None, None, None, None);
+        assert!(heavy.contains("【執筆前の確定"));
+        assert!(!heavy.contains("【メタ認知"));
+        let light = prompts::draft(
+            "本文",
+            "",
+            "",
+            "",
+            "",
+            None,
+            None,
+            Some("light"),
+            None,
+            None,
+        );
+        assert!(light.contains("【メタ認知 — 執筆中の自己監視】"));
+        assert!(light.contains("【日本語小説としての生成方針 — 要点】"));
+        let heavy_revise = prompts::revise("本文", "草稿", "査読", false, None, None, None, "");
+        assert!(heavy_revise.contains("修正稿の全文だけである"));
     }
 
     #[test]
@@ -641,11 +764,8 @@ mod tests {
         assert!(review.contains("4観点で1文ずつ点検"));
         assert!(!review.contains("{instructionSection}"));
         assert!(!review.contains("formatPromptDataBlock"));
-        let tool_need = old_prompts::tool_call_need(
-            "保存して",
-            Some("保存します"),
-            &["saveMemo".to_string()],
-        );
+        let tool_need =
+            old_prompts::tool_call_need("保存して", Some("保存します"), &["saveMemo".to_string()]);
         assert!(tool_need.contains("- saveMemo"));
         assert!(tool_need.contains("needsTools=true"));
         assert!(!tool_need.contains("availableToolNames.length"));
