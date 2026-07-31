@@ -48,6 +48,7 @@ pub async fn mount(
 
     {
         let textarea = textarea.clone();
+        let document = document.clone();
         let episode_id = Rc::clone(&episode_id);
         tauri::listen(
             sync_event,
@@ -60,8 +61,15 @@ pub async fn mount(
                     .and_then(|value| value.as_string())
                     .unwrap_or_default();
                 let enabled = id.is_some();
+                let episode_changed = episode_id.borrow().as_ref() != id.as_ref();
                 *episode_id.borrow_mut() = id;
-                textarea.set_value(&content);
+                let active = document
+                    .active_element()
+                    .map(|element| element.id() == textarea.id())
+                    .unwrap_or(false);
+                if episode_changed || !active {
+                    textarea.set_value(&content);
+                }
                 textarea.set_disabled(!enabled);
                 textarea.set_placeholder(if enabled {
                     enabled_placeholder

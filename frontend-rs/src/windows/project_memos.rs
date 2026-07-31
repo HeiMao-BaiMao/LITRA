@@ -78,13 +78,19 @@ async fn mount_editor(document: &Document) -> Result<(), JsValue> {
                     state.memos = payload.memos;
                     state.current_memo_id = payload.current_memo_id;
                 }
-                let _ = render(&document, &state.borrow());
+                let editing = document
+                    .active_element()
+                    .and_then(|element| element.closest("#memos-editor-detail").ok().flatten())
+                    .is_some();
+                if !editing {
+                    let _ = render(&document, &state.borrow());
+                }
             }) as Box<dyn FnMut(JsValue)>),
         )
         .await?;
     }
 
-    bind_clicks(&container, Rc::clone(&state))?;
+    bind_clicks(document, &container, Rc::clone(&state))?;
     bind_inputs(&container, Rc::clone(&state), update_timeout)?;
     tauri::emit("project-memos-ready", &Object::new());
     Ok(())
@@ -176,7 +182,12 @@ fn render(document: &Document, state: &ProjectMemosState) -> Result<(), JsValue>
     Ok(())
 }
 
-fn bind_clicks(container: &Element, state: Rc<RefCell<ProjectMemosState>>) -> Result<(), JsValue> {
+fn bind_clicks(
+    document: &Document,
+    container: &Element,
+    state: Rc<RefCell<ProjectMemosState>>,
+) -> Result<(), JsValue> {
+    let document = document.clone();
     let on_click = Closure::wrap(Box::new(move |event: Event| {
         let Some(target) = event
             .target()
@@ -206,6 +217,8 @@ fn bind_clicks(container: &Element, state: Rc<RefCell<ProjectMemosState>>) -> Re
             }
             "select" => {
                 if let Some(id) = target.get_attribute("data-id") {
+                    state.borrow_mut().current_memo_id = Some(id.clone());
+                    let _ = render(&document, &state.borrow());
                     emit_string("project-memos-select", "id", &id);
                 }
             }
