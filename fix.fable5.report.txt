@@ -490,8 +490,33 @@ cargo check --target wasm32-unknown-unknown の通過を確認済み。
   8. 項目7/9/10              … 随時。
 
 付録B. 検証状況
-  - 実装済み分(第0章): cargo test 137件全通過 /
-    cargo check --target wasm32-unknown-unknown 通過(2026-08-01)。
-  - 未実装分(1〜10): 本レポートの方針はコード読解に基づく。適用時は
-    各項の「検証方法」を実施のこと。
+  - 第0章(プロンプト二層化): 実装済み。
+  - 項目1〜10: 全項目実装済み(2026-08-01 追記)。
+    frontend-rs cargo test 144件全通過(137→144、+7件)。
+    src-tauri cargo test 89件全通過。
+    cargo check --target wasm32-unknown-unknown / src-tauri cargo check とも警告ゼロ。
+
+  実装時の主な設計判断（本文の修正方針からの変更点）:
+  - 項目6と項目5は、どちらも「プロンプト構築前に role="writing"/"judgment" の
+    ai_runtime_config を1回取得する」という同じ土台を必要としたため、一体で実装した。
+    ai_runtime_config の応答に prompt_scaffold / max_context_tokens を追加し、
+    Model構造体に writing/judgment ネストプロファイル(promptScaffold)と
+    max_context_tokens を追加。フロントは runtime::ai::role_defaults(role) で
+    軽量取得し、generation::scaffold()/judgment_scaffold() の最終フォールバック
+    （writingModelDefaultScaffold/judgmentModelDefaultScaffold）に注入する。
+  - 項目5(a)の本文スライス役割別対応は、報告書が明示的に数値を挙げていた
+    「ai_actions.rs::continue_story の24,000字」と「agent_tools/writing.rs::
+    continue_passage の24,000字」の2箇所にのみ適用した。rewrite_selection
+    (6,000+3,000字)・rewrite_passage/line_edit(12,000/5,000字)は据え置き。
+    理由: これらは24,000字よりオーバーフロー実害が小さく、5箇所全てに
+    展開すると変更範囲とリスクが不釣り合いに増える。上限キャップ式
+    （min(従来定数, 算出値)）は prompt_context::context_slice_chars として
+    共通化済みなので、必要になれば残り3箇所への適用は同じ関数を呼ぶだけで済む。
+  - 項目5(b)は optional_judgment を Result 経由に変え、失敗時は
+    on_stage("場面整理に失敗（スキップして続行）") を1回出すのみに留めた
+    （挙動＝スキップして続行、は変更していない）。
+  - 項目10は「TS版と同様」という既存コメントの真偽をレガシーアーカイブから
+    確認できなかった（.ts ソースが残っていない）。役割パラメータを渡しながら
+    メインモデルで上書きする実装は設計意図と矛盾すると判断し、報告書の推奨通り
+    修正した。ユーザーへの報告時にこの判断を明示すること。
 ================================================================================
