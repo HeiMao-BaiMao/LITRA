@@ -1,5 +1,8 @@
+use std::sync::OnceLock;
+
 use reqwest::{header, Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::ai::auth::store;
@@ -7,6 +10,8 @@ use crate::ai::auth::store;
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const EXPIRY_SKEW_MS: u64 = 30_000;
+
+static REFRESH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,7 +40,16 @@ pub async fn apply_request(
             "Codex にログインしていません。設定画面からログインしてください。".to_string()
         })?;
     if credential.expires < now_ms().saturating_add(EXPIRY_SKEW_MS) {
-        credential = refresh(client, credential).await?;
+        let _guard = REFRESH_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        if let Some(latest) = store::read_json::<CodexCredential>("codex").await? {
+            if latest.expires >= now_ms().saturating_add(EXPIRY_SKEW_MS) {
+                credential = latest;
+            } else {
+                credential = refresh(client, latest).await?;
+            }
+        } else {
+            credential = refresh(client, credential).await?;
+        }
     }
     let mut builder = builder
         .header(
