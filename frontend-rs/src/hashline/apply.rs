@@ -10,7 +10,8 @@
 use std::collections::BTreeMap;
 
 use crate::hashline::messages::{
-    ambiguous_boundary_echo_message, boundary_echo_one_sided_warning, boundary_echo_two_sided_warning,
+    ambiguous_boundary_echo_message, boundary_echo_one_sided_warning,
+    boundary_echo_two_sided_warning,
 };
 use crate::hashline::types::{ApplyResult, Cursor, Edit, InsertMode};
 
@@ -53,7 +54,14 @@ fn edit_anchor_line(edit: &Edit) -> Option<u32> {
             cursor: Cursor::AfterAnchor { anchor },
             ..
         } => Some(anchor.line),
-        Edit::Insert { cursor: Cursor::Bof, .. } | Edit::Insert { cursor: Cursor::Eof, .. } => None,
+        Edit::Insert {
+            cursor: Cursor::Bof,
+            ..
+        }
+        | Edit::Insert {
+            cursor: Cursor::Eof,
+            ..
+        } => None,
     }
 }
 
@@ -91,7 +99,8 @@ fn insert_at_end(file_lines: &mut Vec<String>, lines: &[String]) -> Option<u32> 
         file_lines.splice(0..1, lines.iter().cloned());
         return Some(1);
     }
-    let has_trailing_newline = !file_lines.is_empty() && file_lines[file_lines.len() - 1].is_empty();
+    let has_trailing_newline =
+        !file_lines.is_empty() && file_lines[file_lines.len() - 1].is_empty();
     let insert_index = if has_trailing_newline {
         file_lines.len() - 1
     } else {
@@ -144,8 +153,7 @@ fn find_replacement_group(edits: &[Edit], start: usize) -> Option<ReplacementGro
                 line_num: ln,
                 text,
                 ..
-            } if *ln == line_num && anchor.line == anchor_line =>
-            {
+            } if *ln == line_num && anchor.line == anchor_line => {
                 insert_indices.push(i);
                 payload.push(text.clone());
                 i += 1;
@@ -162,8 +170,7 @@ fn find_replacement_group(edits: &[Edit], start: usize) -> Option<ReplacementGro
                 anchor,
                 line_num: ln,
                 ..
-            } if *ln == line_num && anchor.line == expected_line =>
-            {
+            } if *ln == line_num && anchor.line == expected_line => {
                 delete_indices.push(i);
                 expected_line += 1;
                 i += 1;
@@ -194,7 +201,10 @@ fn has_non_whitespace(text: &str) -> bool {
 }
 
 /// ペイロード先頭が範囲直上の残存行と一致する最大行数（TS: `countDuplicateLeadingBoundaryLines`）。
-fn count_duplicate_leading_boundary_lines(group: &ReplacementGroup, file_lines: &[String]) -> usize {
+fn count_duplicate_leading_boundary_lines(
+    group: &ReplacementGroup,
+    file_lines: &[String],
+) -> usize {
     let payload = &group.payload;
     let start_line = group.start_line as usize;
     let max = payload.len().min(start_line - 1);
@@ -220,7 +230,10 @@ fn count_duplicate_leading_boundary_lines(group: &ReplacementGroup, file_lines: 
 }
 
 /// ペイロード末尾が範囲直下の残存行と一致する最大行数（TS: `countDuplicateTrailingBoundaryLines`）。
-fn count_duplicate_trailing_boundary_lines(group: &ReplacementGroup, file_lines: &[String]) -> usize {
+fn count_duplicate_trailing_boundary_lines(
+    group: &ReplacementGroup,
+    file_lines: &[String],
+) -> usize {
     let payload = &group.payload;
     let end_line = group.end_line as usize;
     let max = payload.len().min(file_lines.len() - end_line);
@@ -269,7 +282,10 @@ fn find_boundary_echo(group: &ReplacementGroup, file_lines: &[String]) -> Option
 ///
 /// 先頭 XOR 末尾のどちらか一方だけが範囲外残存行を復唱している場合のみ発火する。
 /// 返り値は `(side, count)`（`side` は `"leading"` または `"trailing"`）。
-fn find_one_sided_boundary_echo(group: &ReplacementGroup, file_lines: &[String]) -> Option<(&'static str, usize)> {
+fn find_one_sided_boundary_echo(
+    group: &ReplacementGroup,
+    file_lines: &[String],
+) -> Option<(&'static str, usize)> {
     let leading = count_duplicate_leading_boundary_lines(group, file_lines);
     let trailing = count_duplicate_trailing_boundary_lines(group, file_lines);
     if (leading > 0) == (trailing > 0) {
@@ -303,8 +319,16 @@ fn repair_replacement_boundaries(
             i += 1;
             continue;
         };
-        let inserts: Vec<Edit> = group.insert_indices.iter().map(|&idx| edits[idx].clone()).collect();
-        let deletes: Vec<Edit> = group.delete_indices.iter().map(|&idx| edits[idx].clone()).collect();
+        let inserts: Vec<Edit> = group
+            .insert_indices
+            .iter()
+            .map(|&idx| edits[idx].clone())
+            .collect();
+        let deletes: Vec<Edit> = group
+            .delete_indices
+            .iter()
+            .map(|&idx| edits[idx].clone())
+            .collect();
         i = group.delete_indices[group.delete_indices.len() - 1] + 1;
 
         // (A) 両側境界echo: 先頭から `leading` 行、末尾から `trailing` 行を落とす。削除はすべて維持。
@@ -312,7 +336,11 @@ fn repair_replacement_boundaries(
             let kept_end = inserts.len() - trailing;
             out.extend(inserts[leading..kept_end].iter().cloned());
             out.extend(deletes);
-            warnings.push(boundary_echo_two_sided_warning(group.start_line, leading, trailing));
+            warnings.push(boundary_echo_two_sided_warning(
+                group.start_line,
+                leading,
+                trailing,
+            ));
             continue;
         }
 
@@ -334,7 +362,11 @@ fn repair_replacement_boundaries(
             };
             out.extend(trimmed.iter().cloned());
             out.extend(deletes);
-            warnings.push(boundary_echo_one_sided_warning(group.start_line, count, side));
+            warnings.push(boundary_echo_one_sided_warning(
+                group.start_line,
+                count,
+                side,
+            ));
             continue;
         }
 
@@ -369,8 +401,16 @@ pub fn apply_edits(text: &str, edits: &[Edit]) -> Result<ApplyResult, String> {
     let mut anchor_edits: Vec<(usize, Edit)> = Vec::new();
     for (idx, edit) in repaired.into_iter().enumerate() {
         match edit {
-            Edit::Insert { cursor: Cursor::Bof, text, .. } => bof_lines.push(text),
-            Edit::Insert { cursor: Cursor::Eof, text, .. } => eof_lines.push(text),
+            Edit::Insert {
+                cursor: Cursor::Bof,
+                text,
+                ..
+            } => bof_lines.push(text),
+            Edit::Insert {
+                cursor: Cursor::Eof,
+                text,
+                ..
+            } => eof_lines.push(text),
             other => anchor_edits.push((idx, other)),
         }
     }
@@ -461,7 +501,13 @@ mod tests {
     use super::apply_edits;
     use crate::hashline::types::{Anchor, Cursor, Edit, InsertMode};
 
-    fn ins_before(line: u32, text: &str, line_num: u32, index: u32, mode: Option<InsertMode>) -> Edit {
+    fn ins_before(
+        line: u32,
+        text: &str,
+        line_num: u32,
+        index: u32,
+        mode: Option<InsertMode>,
+    ) -> Edit {
         Edit::Insert {
             cursor: Cursor::BeforeAnchor {
                 anchor: Anchor::new(line),

@@ -39,8 +39,7 @@ fn migrate_legacy_layout() -> Result<Option<String>, String> {
         fs::read_to_string(&legacy).map_err(|e| format!("Failed to read legacy layout: {e}"))?;
     let target = layout_path()?;
     crate::storage::ensure_parent_dir(&target)?;
-    fs::write(&target, &content)
-        .map_err(|e| format!("Failed to write migrated layout: {e}"))?;
+    fs::write(&target, &content).map_err(|e| format!("Failed to write migrated layout: {e}"))?;
     fs::remove_file(&legacy).map_err(|e| format!("Failed to remove legacy layout: {e}"))?;
     Ok(Some(content))
 }

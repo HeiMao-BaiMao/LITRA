@@ -37,7 +37,6 @@ pub struct WebDavSyncConfig {
     pub remote_folder: String,
 }
 
-
 #[derive(Debug)]
 enum SyncJob {
     Put { path: String, content: String },
@@ -238,7 +237,10 @@ async fn run_job(job: SyncJob) -> Result<(), String> {
                 .await
                 .map_err(|e| format!("DELETE {remote_relative} failed: {e}"))?;
             if !response.status().is_success() && response.status().as_u16() != 404 {
-                return Err(format!("DELETE {remote_relative} failed: {}", response.status()));
+                return Err(format!(
+                    "DELETE {remote_relative} failed: {}",
+                    response.status()
+                ));
             }
         }
     }
@@ -259,7 +261,10 @@ async fn put_remote_file(local_relative: &str, content: String) -> Result<(), St
         .await
         .map_err(|e| format!("PUT {remote_relative} failed: {e}"))?;
     if !response.status().is_success() {
-        return Err(format!("PUT {remote_relative} failed: {}", response.status()));
+        return Err(format!(
+            "PUT {remote_relative} failed: {}",
+            response.status()
+        ));
     }
     Ok(())
 }
@@ -313,10 +318,7 @@ fn local_to_remote_relative(path: &str) -> Result<String, String> {
     } else {
         &parts[..]
     };
-    let mut remote_parts: Vec<&str> = remote_folder
-        .split('/')
-        .filter(|p| !p.is_empty())
-        .collect();
+    let mut remote_parts: Vec<&str> = remote_folder.split('/').filter(|p| !p.is_empty()).collect();
     remote_parts.extend_from_slice(rest);
     Ok(remote_parts.join("/"))
 }
@@ -725,8 +727,11 @@ fn parse_propfind_response(xml: &str) -> Result<Vec<RemoteEntry>, String> {
             }
             Event::Text(e) => {
                 if in_response && in_href {
-                    let decoded = e.decode().map_err(|err| format!("XML decode failed: {err}"))?;
-                    let text = unescape(&decoded).map_err(|err| format!("XML unescape failed: {err}"))?;
+                    let decoded = e
+                        .decode()
+                        .map_err(|err| format!("XML decode failed: {err}"))?;
+                    let text =
+                        unescape(&decoded).map_err(|err| format!("XML unescape failed: {err}"))?;
                     current_href.push_str(&text);
                 }
             }
@@ -829,11 +834,19 @@ fn resolve_target_name(
         "projects" => crate::storage::project_dir(id)
             .ok()
             .and_then(|dir| crate::storage::read_json_if_valid(&dir.join("project.json")))
-            .and_then(|json| json.get("title").and_then(|v| v.as_str()).map(|s| s.to_string())),
+            .and_then(|json| {
+                json.get("title")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            }),
         "genres" => crate::storage::genre_dir(id)
             .ok()
             .and_then(|dir| crate::storage::read_json_if_valid(&dir.join("genre.json")))
-            .and_then(|json| json.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())),
+            .and_then(|json| {
+                json.get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            }),
         _ => None,
     };
     cache.insert(cache_key, name.clone());
@@ -902,15 +915,7 @@ pub async fn pull_webdav_all(app: AppHandle) -> Result<SyncSummary, String> {
         }
     };
 
-    emit_progress(
-        &app,
-        "pull",
-        0,
-        0,
-        "WebDavから同期中...",
-        None,
-        true,
-    );
+    emit_progress(&app, "pull", 0, 0, "WebDavから同期中...", None, true);
 
     // Pull フェーズ
     let mut name_cache = std::collections::HashMap::new();
@@ -1069,8 +1074,7 @@ async fn pull_directory(
             // 直接 std::fs::write を使い、storage::write_text や enqueue_put_path は使わない。
             if let Err(e) = fs::write(&child_local, content.as_bytes()) {
                 summary.files_failed += 1;
-                summary
-                    .record_error(format!("fs::write {}: {}", child_local.display(), e));
+                summary.record_error(format!("fs::write {}: {}", child_local.display(), e));
                 continue;
             }
 
@@ -1126,11 +1130,7 @@ fn delete_local_extras(
         if !remote_files.contains(&rel) {
             if let Err(e) = fs::remove_file(&file) {
                 summary.files_failed += 1;
-                summary.record_error(format!(
-                    "remove_file {}: {}",
-                    file.display(),
-                    e
-                ));
+                summary.record_error(format!("remove_file {}: {}", file.display(), e));
             }
         }
     }
@@ -1366,10 +1366,7 @@ mod tests {
             normalize_href_path("https://example.com/litra/projects"),
             "/litra/projects"
         );
-        assert_eq!(
-            normalize_href_path("/litra/foo%20bar"),
-            "/litra/foo bar"
-        );
+        assert_eq!(normalize_href_path("/litra/foo%20bar"), "/litra/foo bar");
     }
 
     #[test]

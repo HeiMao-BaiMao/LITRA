@@ -224,24 +224,74 @@ fn segment_schema() -> Value {
         "confidence":{"type":"number","minimum":0,"maximum":1},
         "evidenceExcerpts":{"type":"array","items":{"type":"string"},"maxItems":3}
     },"required":["name","purpose","prerequisites","progression","expectedEffect","avoid","confidence","evidenceExcerpts"],"additionalProperties":false});
-    let array_fields = ["proseFeatures","rhythmFeatures","dialogueFeatures","descriptionFeatures","interiorityFeatures","pacingFeatures","informationDisclosureFeatures","emotionalEffectFeatures","narrativeFunctions","characterFunctions","worldbuildingFunctions","genreSignals","nonGenreSignals","workSpecificFeatures","possibleFailureModes","generationGuidance"];
+    let array_fields = [
+        "proseFeatures",
+        "rhythmFeatures",
+        "dialogueFeatures",
+        "descriptionFeatures",
+        "interiorityFeatures",
+        "pacingFeatures",
+        "informationDisclosureFeatures",
+        "emotionalEffectFeatures",
+        "narrativeFunctions",
+        "characterFunctions",
+        "worldbuildingFunctions",
+        "genreSignals",
+        "nonGenreSignals",
+        "workSpecificFeatures",
+        "possibleFailureModes",
+        "generationGuidance",
+    ];
     let mut properties = serde_json::Map::new();
     properties.insert("summary".into(), serde_json::json!({"type":"string"}));
-    properties.insert("pointOfView".into(), serde_json::json!({"type":"array","items":{"type":"string"}}));
-    properties.insert("narratorCharacteristics".into(), serde_json::json!({"type":"array","items":{"type":"string"}}));
-    for key in array_fields { properties.insert(key.into(), feature_array.clone()); }
-    properties.insert("scenePatterns".into(), serde_json::json!({"type":"array","items":scene}));
-    properties.insert("overallConfidence".into(), serde_json::json!({"type":"number","minimum":0,"maximum":1}));
-    let mut required = vec!["summary","pointOfView","narratorCharacteristics","scenePatterns","overallConfidence"];
+    properties.insert(
+        "pointOfView".into(),
+        serde_json::json!({"type":"array","items":{"type":"string"}}),
+    );
+    properties.insert(
+        "narratorCharacteristics".into(),
+        serde_json::json!({"type":"array","items":{"type":"string"}}),
+    );
+    for key in array_fields {
+        properties.insert(key.into(), feature_array.clone());
+    }
+    properties.insert(
+        "scenePatterns".into(),
+        serde_json::json!({"type":"array","items":scene}),
+    );
+    properties.insert(
+        "overallConfidence".into(),
+        serde_json::json!({"type":"number","minimum":0,"maximum":1}),
+    );
+    let mut required = vec![
+        "summary",
+        "pointOfView",
+        "narratorCharacteristics",
+        "scenePatterns",
+        "overallConfidence",
+    ];
     required.extend(array_fields);
     serde_json::json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
 
 fn synthesis_schema() -> Value {
-    let arrays = ["contributionToGenre","deviationsFromGenre","workSpecificElements","readerExpectations","structuralPatterns","stylisticPatterns","failureRisks"];
+    let arrays = [
+        "contributionToGenre",
+        "deviationsFromGenre",
+        "workSpecificElements",
+        "readerExpectations",
+        "structuralPatterns",
+        "stylisticPatterns",
+        "failureRisks",
+    ];
     let mut properties = serde_json::Map::new();
     properties.insert("sourceSummary".into(), serde_json::json!({"type":"string"}));
-    for key in arrays { properties.insert(key.into(), serde_json::json!({"type":"array","items":{"type":"string"}})); }
+    for key in arrays {
+        properties.insert(
+            key.into(),
+            serde_json::json!({"type":"array","items":{"type":"string"}}),
+        );
+    }
     let mut required = vec!["sourceSummary"];
     required.extend(arrays);
     serde_json::json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})

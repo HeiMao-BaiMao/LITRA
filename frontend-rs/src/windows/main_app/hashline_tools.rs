@@ -44,7 +44,8 @@ fn normalize_and_record(
     let tag = compute_file_hash(&normalized);
     let total = normalized.split('\n').count();
     STORE.with(|cell| {
-        cell.borrow_mut().record(episode_id, &normalized, seen_lines);
+        cell.borrow_mut()
+            .record(episode_id, &normalized, seen_lines);
     });
     (normalized, tag, total)
 }
@@ -91,7 +92,8 @@ pub async fn ground_episode_lines(
     }
     let seen: Vec<u32> = (start..=end).collect();
     STORE.with(|cell| {
-        cell.borrow_mut().record(episode_id, &normalized, Some(&seen));
+        cell.borrow_mut()
+            .record(episode_id, &normalized, Some(&seen));
     });
 
     let numbered = format_range(&normalized, &tag, episode_id, start, end);
@@ -185,7 +187,8 @@ pub async fn ground_find_episode_lines(
     }
 
     STORE.with(|cell| {
-        cell.borrow_mut().record(episode_id, &normalized, Some(&seen));
+        cell.borrow_mut()
+            .record(episode_id, &normalized, Some(&seen));
     });
 
     Ok(json!({
@@ -207,7 +210,9 @@ pub async fn apply_hashline_edit(
 ) -> Result<Value, JsValue> {
     let patch = Patch::parse(input).map_err(|e| JsValue::from_str(&e))?;
     if patch.sections.is_empty() {
-        return Err(JsValue::from_str("Patch input did not produce any sections."));
+        return Err(JsValue::from_str(
+            "Patch input did not produce any sections.",
+        ));
     }
 
     let mut applied: Vec<Value> = Vec::new();
@@ -258,9 +263,16 @@ pub async fn apply_hashline_edit(
         let ctx_end = (changed_line as u32 + 10).min(new_total);
         let seen: Vec<u32> = (ctx_start..=ctx_end).collect();
         STORE.with(|cell| {
-            cell.borrow_mut().record(&episode_id, &outcome.after, Some(&seen));
+            cell.borrow_mut()
+                .record(&episode_id, &outcome.after, Some(&seen));
         });
-        let numbered = format_range(&outcome.after, &outcome.file_hash, &episode_id, ctx_start, ctx_end);
+        let numbered = format_range(
+            &outcome.after,
+            &outcome.file_hash,
+            &episode_id,
+            ctx_start,
+            ctx_end,
+        );
 
         applied.push(json!({
             "episodeId": episode_id,

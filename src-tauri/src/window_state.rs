@@ -74,7 +74,11 @@ pub fn save_window_bounds(
 
 #[tauri::command]
 pub fn load_window_detached(app: AppHandle, label: String) -> Result<bool, String> {
-    Ok(read_state(&app).detached.get(&label).copied().unwrap_or(false))
+    Ok(read_state(&app)
+        .detached
+        .get(&label)
+        .copied()
+        .unwrap_or(false))
 }
 
 #[tauri::command]

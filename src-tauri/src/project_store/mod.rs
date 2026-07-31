@@ -110,8 +110,7 @@ pub fn project_rename(project_id: String, new_title: String) -> Result<Project, 
     let path = project_dir(&project_id)?.join("project.json");
     let text = fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-    let mut project: Project =
-        serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    let mut project: Project = serde_json::from_str(&text).map_err(|error| error.to_string())?;
     project.title = new_title;
     project.updated_at = Utc::now().to_rfc3339();
     write_json(
@@ -127,8 +126,7 @@ pub fn project_touch(project_id: String) -> Result<Project, String> {
     let path = project_dir(&project_id)?.join("project.json");
     let text = fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-    let mut project: Project =
-        serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    let mut project: Project = serde_json::from_str(&text).map_err(|error| error.to_string())?;
     project.updated_at = Utc::now().to_rfc3339();
     write_json(
         &path,
@@ -232,18 +230,12 @@ pub fn project_move_episode_to_index(
 }
 
 #[tauri::command]
-pub fn project_move_episode_up(
-    project_id: String,
-    episode_id: String,
-) -> Result<(), String> {
+pub fn project_move_episode_up(project_id: String, episode_id: String) -> Result<(), String> {
     episodes::move_up(&project_id, &episode_id)
 }
 
 #[tauri::command]
-pub fn project_move_episode_down(
-    project_id: String,
-    episode_id: String,
-) -> Result<(), String> {
+pub fn project_move_episode_down(project_id: String, episode_id: String) -> Result<(), String> {
     episodes::move_down(&project_id, &episode_id)
 }
 

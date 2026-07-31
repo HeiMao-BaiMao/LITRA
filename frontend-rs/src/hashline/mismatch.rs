@@ -7,7 +7,9 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use crate::hashline::format::{format_numbered_line, HL_FILE_HASH_SEP, HL_FILE_PREFIX, HL_FILE_SUFFIX};
+use crate::hashline::format::{
+    format_numbered_line, HL_FILE_HASH_SEP, HL_FILE_PREFIX, HL_FILE_SUFFIX,
+};
 use crate::hashline::messages::MISMATCH_CONTEXT;
 
 /// hashline セクションのスナップショットタグがライブファイル内容と一致しない
@@ -102,7 +104,11 @@ impl MismatchError {
                 rows.push("...".to_string());
             }
             previous = i64::from(line_num);
-            let marker = if anchor_set.contains(&line_num) { "*" } else { " " };
+            let marker = if anchor_set.contains(&line_num) {
+                "*"
+            } else {
+                " "
+            };
             let text = self
                 .file_lines
                 .get((line_num - 1) as usize)
@@ -172,7 +178,13 @@ mod tests {
             Some("src/foo.ts".to_string()),
             "ABCD".to_string(),
             "1234".to_string(),
-            vec!["l1".into(), "l2".into(), "l3".into(), "l4".into(), "l5".into()],
+            vec![
+                "l1".into(),
+                "l2".into(),
+                "l3".into(),
+                "l4".into(),
+                "l5".into(),
+            ],
             vec![3],
             true,
         );
@@ -234,7 +246,10 @@ mod tests {
 
     #[test]
     fn compress_ranges_format() {
-        assert_eq!(compress_ranges(&[1, 2, 3, 4, 7, 10, 11, 12]), "1-4, 7, 10-12");
+        assert_eq!(
+            compress_ranges(&[1, 2, 3, 4, 7, 10, 11, 12]),
+            "1-4, 7, 10-12"
+        );
         assert_eq!(compress_ranges(&[]), "");
         assert_eq!(compress_ranges(&[5]), "5");
         assert_eq!(compress_ranges(&[3, 1, 2]), "1-3");

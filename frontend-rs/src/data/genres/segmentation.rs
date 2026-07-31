@@ -50,10 +50,9 @@ fn find_split_positions(text: &str) -> Vec<usize> {
     let heading_re = Regex::new(r"(?m)^(#{1,6}\s+.+)$").unwrap();
     let chapter_re =
         Regex::new(r"(?m)^(第[一二三四五六七八九十百千万億0-9０-９]+[話章節].*)$").unwrap();
-    let scene_break_re = Regex::new(
-        r"(?m)^(={3,}|\*{3,}|-{3,}|・{3,}|…{3,}|\.{3,}|‥{3,}|\[\s*\]|◆|◇|■|□|※)\s*$",
-    )
-    .unwrap();
+    let scene_break_re =
+        Regex::new(r"(?m)^(={3,}|\*{3,}|-{3,}|・{3,}|…{3,}|\.{3,}|‥{3,}|\[\s*\]|◆|◇|■|□|※)\s*$")
+            .unwrap();
 
     let mut positions = std::collections::BTreeSet::new();
     positions.insert(0usize);
@@ -235,9 +234,10 @@ fn merge_small_segments(segments: Vec<SourceSegment>, min_chars: usize) -> Vec<S
 
 /// Extract a heading string from the first line of a segment's content.
 fn extract_heading(content: &str) -> String {
-    let re =
-        Regex::new(r"(?m)^(?:#{1,6}\s+|第[一二三四五六七八九十百千万億0-9０-９]+[話章節]\s*)?(.+)$")
-            .unwrap();
+    let re = Regex::new(
+        r"(?m)^(?:#{1,6}\s+|第[一二三四五六七八九十百千万億0-9０-９]+[話章節]\s*)?(.+)$",
+    )
+    .unwrap();
     re.captures(content)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().chars().take(80).collect::<String>())

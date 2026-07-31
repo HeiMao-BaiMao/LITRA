@@ -36,7 +36,14 @@ pub fn detect_novel_text(content: &str) -> bool {
         || trimmed.contains('\u{201C}') // "
         || trimmed.contains('\u{2018}'); // '
     let has_fiction_markers = [
-        "章", "話", "幕", "場面", "登場人物", "あらすじ", "プロローグ", "エピローグ",
+        "章",
+        "話",
+        "幕",
+        "場面",
+        "登場人物",
+        "あらすじ",
+        "プロローグ",
+        "エピローグ",
     ]
     .iter()
     .any(|marker| trimmed.contains(marker));
@@ -72,9 +79,7 @@ pub async fn save(
     content: &str,
 ) -> Result<Attachment, JsValue> {
     let attachment_id = tauri::random_uuid();
-    let relative_path = format!(
-        "chats/attachments/{thread_id}/{message_id}/{attachment_id}.md"
-    );
+    let relative_path = format!("chats/attachments/{thread_id}/{message_id}/{attachment_id}.md");
     genre_store::write_text(genre_id, &relative_path, content).await?;
 
     Ok(Attachment {
@@ -92,9 +97,7 @@ pub async fn load(
     message_id: &str,
     attachment_id: &str,
 ) -> Result<Option<String>, JsValue> {
-    let relative_path = format!(
-        "chats/attachments/{thread_id}/{message_id}/{attachment_id}.md"
-    );
+    let relative_path = format!("chats/attachments/{thread_id}/{message_id}/{attachment_id}.md");
     genre_store::read_text(genre_id, &relative_path).await
 }
 

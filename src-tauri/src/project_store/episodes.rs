@@ -119,7 +119,11 @@ pub fn reorder(project_id: &str, ordered_ids: Vec<String>) -> Result<(), String>
 
 /// 単一エピソードを `target_index` の位置へ移動する。
 /// 旧TS `moveEpisodeToIndex` の移植。
-pub fn move_to_index(project_id: &str, episode_id: &str, target_index: usize) -> Result<(), String> {
+pub fn move_to_index(
+    project_id: &str,
+    episode_id: &str,
+    target_index: usize,
+) -> Result<(), String> {
     let mut list = load_list(project_id)?;
     let pos = list
         .episodes
@@ -188,11 +192,14 @@ pub fn migrate_from_manuscript(project_id: &str) -> Result<usize, String> {
             .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ' ' | '　'))
             .take(60)
             .collect();
-        let file_name = format!("{}.md", if safe_title.is_empty() {
-            id.clone()
-        } else {
-            safe_title.replace(' ', "_")
-        });
+        let file_name = format!(
+            "{}.md",
+            if safe_title.is_empty() {
+                id.clone()
+            } else {
+                safe_title.replace(' ', "_")
+            }
+        );
         let episode = Episode {
             id: id.clone(),
             title: title.clone(),
@@ -201,8 +208,7 @@ pub fn migrate_from_manuscript(project_id: &str) -> Result<usize, String> {
         };
         let path = project_episodes_dir(project_id)?.join(&file_name);
         crate::storage::ensure_parent_dir(&path)?;
-        std::fs::write(&path, body)
-            .map_err(|e| format!("Failed to write episode: {e}"))?;
+        std::fs::write(&path, body).map_err(|e| format!("Failed to write episode: {e}"))?;
         list.episodes.push(episode);
     }
     save_list(project_id, &list)?;

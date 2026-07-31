@@ -128,9 +128,7 @@ pub fn rebuild_genre_search_index(genre_id: String) -> Result<GenreRebuildResult
         // ソースの latestAnalysisRunId から最新の分析を参照する
         let run_id = source["latestAnalysisRunId"].as_str();
         if let Some(run_id) = run_id {
-            let analysis_path = base
-                .join("analyses")
-                .join(format!("{}.json", run_id));
+            let analysis_path = base.join("analyses").join(format!("{}.json", run_id));
             if analysis_path.exists() {
                 if let Ok(analysis) = read_json(&analysis_path) {
                     let summary = analysis["synthesis"]["sourceSummary"]

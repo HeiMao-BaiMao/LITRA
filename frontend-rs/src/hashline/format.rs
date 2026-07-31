@@ -78,7 +78,10 @@ pub fn compute_file_hash(text: &str) -> String {
 // ── フォーマッタ ────────────────────────────────────────────────────
 /// 具体的な置換ハークヘッダ: `SWAP {start}.={end}:`。
 pub fn format_replace_header(start: u32, end: u32) -> String {
-    format!("{} {}{}{}{}", HL_REPLACE_KEYWORD, start, HL_RANGE_SEP, end, HL_HEADER_COLON)
+    format!(
+        "{} {}{}{}{}",
+        HL_REPLACE_KEYWORD, start, HL_RANGE_SEP, end, HL_HEADER_COLON
+    )
 }
 
 /// 具体的な削除ハークヘッダ。start==end なら `DEL {start}`、否则 `DEL {start}.={end}`。
@@ -94,19 +97,34 @@ pub fn format_delete_header(start: u32, end: u32) -> String {
 pub fn format_insert_header(cursor: &Cursor) -> String {
     match cursor {
         Cursor::BeforeAnchor { anchor } => {
-            format!("{}.{} {}{}", HL_INSERT_KEYWORD, HL_INSERT_BEFORE, anchor.line, HL_HEADER_COLON)
+            format!(
+                "{}.{} {}{}",
+                HL_INSERT_KEYWORD, HL_INSERT_BEFORE, anchor.line, HL_HEADER_COLON
+            )
         }
         Cursor::AfterAnchor { anchor } => {
-            format!("{}.{} {}{}", HL_INSERT_KEYWORD, HL_INSERT_AFTER, anchor.line, HL_HEADER_COLON)
+            format!(
+                "{}.{} {}{}",
+                HL_INSERT_KEYWORD, HL_INSERT_AFTER, anchor.line, HL_HEADER_COLON
+            )
         }
-        Cursor::Bof => format!("{}.{}{}", HL_INSERT_KEYWORD, HL_INSERT_HEAD, HL_HEADER_COLON),
-        Cursor::Eof => format!("{}.{}{}", HL_INSERT_KEYWORD, HL_INSERT_TAIL, HL_HEADER_COLON),
+        Cursor::Bof => format!(
+            "{}.{}{}",
+            HL_INSERT_KEYWORD, HL_INSERT_HEAD, HL_HEADER_COLON
+        ),
+        Cursor::Eof => format!(
+            "{}.{}{}",
+            HL_INSERT_KEYWORD, HL_INSERT_TAIL, HL_HEADER_COLON
+        ),
     }
 }
 
 /// ファイルパスとスナップショットタグのセクションヘッダ: `[{path}#{hash}]`。
 pub fn format_hashline_header(file_path: &str, file_hash: &str) -> String {
-    format!("{}{}{}{}{}", HL_FILE_PREFIX, file_path, HL_FILE_HASH_SEP, file_hash, HL_FILE_SUFFIX)
+    format!(
+        "{}{}{}{}{}",
+        HL_FILE_PREFIX, file_path, HL_FILE_HASH_SEP, file_hash, HL_FILE_SUFFIX
+    )
 }
 
 /// 1行を `LINE:TEXT` 形式にする。

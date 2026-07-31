@@ -391,7 +391,9 @@ fn try_parse_header(line: &str) -> Option<ParsedHeader> {
     let mut path_end = body_end;
     let mut file_hash: Option<String> = None;
     let trailing_hash_start = body_end as isize - HL_FILE_HASH_LENGTH as isize - 1;
-    if trailing_hash_start >= prefix_len as isize && chars[trailing_hash_start as usize] == CHAR_HASH {
+    if trailing_hash_start >= prefix_len as isize
+        && chars[trailing_hash_start as usize] == CHAR_HASH
+    {
         let ths = trailing_hash_start as usize;
         let mut all_hex = true;
         for probe in (ths + 1)..body_end {
@@ -585,10 +587,7 @@ mod tests {
     #[test]
     fn classify_rejects_malformed_tag() {
         // 3桁タグは不正 → ヘッダにならず Raw へ。
-        assert!(matches!(
-            classify_line("[foo#1A2]", 1),
-            Token::Raw { .. }
-        ));
+        assert!(matches!(classify_line("[foo#1A2]", 1), Token::Raw { .. }));
     }
 
     #[test]

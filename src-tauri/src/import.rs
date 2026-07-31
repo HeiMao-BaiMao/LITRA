@@ -330,12 +330,9 @@ fn append_unique_text(existing: &str, addition: &str) -> String {
     if addition.is_empty() {
         return existing.to_string();
     }
-    if existing
-        .split(['、', ',', '\n'])
-        .any(|part| {
-            compact_character_identity_key(part) == compact_character_identity_key(addition)
-        })
-    {
+    if existing.split(['、', ',', '\n']).any(|part| {
+        compact_character_identity_key(part) == compact_character_identity_key(addition)
+    }) {
         return existing.to_string();
     }
     if existing.trim().is_empty() {

@@ -122,41 +122,36 @@ pub fn create_vertical_resizer(
         let container_clone = container.clone();
         let state_clone = state.clone();
         let property = property_name.clone();
-        let on_pointer_down =
-            Closure::wrap(Box::new(move |event: PointerEvent| {
-                if event.button() != 0 {
-                    return;
-                }
-                event.prevent_default();
-                state_clone.borrow_mut().start_x = event.client_x() as f64;
-                let style_value = container_clone
-                    .style()
-                    .get_property_value(&property)
-                    .unwrap_or_default();
-                let mut start_ratio = parse_ratio(&style_value);
-                if start_ratio == 0.0 {
-                    if let Some(window) = web_sys::window() {
-                        if let Ok(Some(computed)) =
-                            window.get_computed_style(&container_clone)
-                        {
-                            start_ratio = parse_ratio(
-                                &computed
-                                    .get_property_value(&property)
-                                    .unwrap_or_default(),
-                            );
-                        }
+        let on_pointer_down = Closure::wrap(Box::new(move |event: PointerEvent| {
+            if event.button() != 0 {
+                return;
+            }
+            event.prevent_default();
+            state_clone.borrow_mut().start_x = event.client_x() as f64;
+            let style_value = container_clone
+                .style()
+                .get_property_value(&property)
+                .unwrap_or_default();
+            let mut start_ratio = parse_ratio(&style_value);
+            if start_ratio == 0.0 {
+                if let Some(window) = web_sys::window() {
+                    if let Ok(Some(computed)) = window.get_computed_style(&container_clone) {
+                        start_ratio = parse_ratio(
+                            &computed.get_property_value(&property).unwrap_or_default(),
+                        );
                     }
                 }
-                state_clone.borrow_mut().start_ratio = start_ratio;
-                state_clone.borrow_mut().dragging = true;
-                let _ = resizer_clone.set_pointer_capture(event.pointer_id());
-                let _ = resizer_clone.class_list().add_1("resizer-dragging");
-                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                    if let Some(body) = document.body() {
-                        let _ = body.style().set_property("user-select", "none");
-                    }
+            }
+            state_clone.borrow_mut().start_ratio = start_ratio;
+            state_clone.borrow_mut().dragging = true;
+            let _ = resizer_clone.set_pointer_capture(event.pointer_id());
+            let _ = resizer_clone.class_list().add_1("resizer-dragging");
+            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                if let Some(body) = document.body() {
+                    let _ = body.style().set_property("user-select", "none");
                 }
-            }) as Box<dyn FnMut(PointerEvent)>);
+            }
+        }) as Box<dyn FnMut(PointerEvent)>);
         resizer.add_event_listener_with_callback(
             "pointerdown",
             on_pointer_down.as_ref().unchecked_ref(),
@@ -169,30 +164,25 @@ pub fn create_vertical_resizer(
         let container_clone = container.clone();
         let state_clone = state.clone();
         let property = property_name.clone();
-        let on_pointer_move =
-            Closure::wrap(Box::new(move |event: PointerEvent| {
-                if !state_clone.borrow().dragging {
-                    return;
-                }
-                let client_width = container_clone.client_width() as f64;
-                if client_width <= 0.0 {
-                    return;
-                }
-                let delta_x = event.client_x() as f64
-                    - state_clone.borrow().start_x;
-                let delta_ratio = delta_x / client_width;
-                let new_ratio = match position {
-                    ResizerPosition::Right => {
-                        state_clone.borrow().start_ratio - delta_ratio
-                    }
-                    _ => state_clone.borrow().start_ratio + delta_ratio,
-                };
-                let clamped = clamp_ratio(new_ratio, min_ratio, max_ratio);
-                let _ = container_clone.style().set_property(
-                    &property,
-                    &format!("{:.2}%", clamped * 100.0),
-                );
-            }) as Box<dyn FnMut(PointerEvent)>);
+        let on_pointer_move = Closure::wrap(Box::new(move |event: PointerEvent| {
+            if !state_clone.borrow().dragging {
+                return;
+            }
+            let client_width = container_clone.client_width() as f64;
+            if client_width <= 0.0 {
+                return;
+            }
+            let delta_x = event.client_x() as f64 - state_clone.borrow().start_x;
+            let delta_ratio = delta_x / client_width;
+            let new_ratio = match position {
+                ResizerPosition::Right => state_clone.borrow().start_ratio - delta_ratio,
+                _ => state_clone.borrow().start_ratio + delta_ratio,
+            };
+            let clamped = clamp_ratio(new_ratio, min_ratio, max_ratio);
+            let _ = container_clone
+                .style()
+                .set_property(&property, &format!("{:.2}%", clamped * 100.0));
+        }) as Box<dyn FnMut(PointerEvent)>);
         resizer.add_event_listener_with_callback(
             "pointermove",
             on_pointer_move.as_ref().unchecked_ref(),
@@ -207,33 +197,31 @@ pub fn create_vertical_resizer(
         let container_clone = container.clone();
         let property = property_name.clone();
         let save_key_clone = save_key.clone();
-        let on_pointer_end =
-            Closure::wrap(Box::new(move |event: PointerEvent| {
-                if !state_clone.borrow().dragging {
-                    return;
+        let on_pointer_end = Closure::wrap(Box::new(move |event: PointerEvent| {
+            let was_dragging = { state_clone.borrow().dragging };
+            if !was_dragging {
+                return;
+            }
+            state_clone.borrow_mut().dragging = false;
+            let _ = resizer_clone.release_pointer_capture(event.pointer_id());
+            let _ = resizer_clone.class_list().remove_1("resizer-dragging");
+            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                if let Some(body) = document.body() {
+                    let _ = body.style().remove_property("user-select");
                 }
-                state_clone.borrow_mut().dragging = false;
-                let _ = resizer_clone.release_pointer_capture(event.pointer_id());
-                let _ = resizer_clone
-                    .class_list()
-                    .remove_1("resizer-dragging");
-                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                    if let Some(body) = document.body() {
-                        let _ = body.style().remove_property("user-select");
-                    }
-                }
-                let current = container_clone
-                    .style()
-                    .get_property_value(&property)
-                    .unwrap_or_default();
-                let ratio = parse_ratio(&current);
-                if ratio > 0.0 {
-                    let key = save_key_clone.clone();
-                    wasm_bindgen_futures::spawn_local(async move {
-                        layout_store::save_panel_ratio(&key, ratio).await;
-                    });
-                }
-            }) as Box<dyn FnMut(PointerEvent)>);
+            }
+            let current = container_clone
+                .style()
+                .get_property_value(&property)
+                .unwrap_or_default();
+            let ratio = parse_ratio(&current);
+            if ratio > 0.0 {
+                let key = save_key_clone.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    layout_store::save_panel_ratio(&key, ratio).await;
+                });
+            }
+        }) as Box<dyn FnMut(PointerEvent)>);
         for event_name in &["pointerup", "pointercancel"] {
             resizer.add_event_listener_with_callback(
                 event_name,

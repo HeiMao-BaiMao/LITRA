@@ -283,7 +283,8 @@ impl Executor {
             }
             Token::Raw { line_num, text } => {
                 if self.pending.is_none() && is_skippable_comment_line(&text) {
-                    self.skippable_comments.push(PendingComment { line_num, text });
+                    self.skippable_comments
+                        .push(PendingComment { line_num, text });
                     return Ok(());
                 }
                 self.consume_pending_skippable_comments()?;
@@ -621,7 +622,12 @@ mod tests {
         let out = parse_patch(diff).unwrap();
         let inserts = insert_texts(&out);
         assert_eq!(inserts.len(), 2);
-        assert_eq!(inserts[0].0, Cursor::BeforeAnchor { anchor: Anchor::new(2) });
+        assert_eq!(
+            inserts[0].0,
+            Cursor::BeforeAnchor {
+                anchor: Anchor::new(2)
+            }
+        );
         assert_eq!(inserts[0].1, "new one");
         assert_eq!(inserts[0].2, Some(InsertMode::Replacement));
         assert_eq!(inserts[1].1, "new two");
@@ -650,7 +656,12 @@ mod tests {
         let out = parse_patch(diff).unwrap();
         let inserts = insert_texts(&out);
         assert_eq!(inserts.len(), 1);
-        assert_eq!(inserts[0].0, Cursor::AfterAnchor { anchor: Anchor::new(4) });
+        assert_eq!(
+            inserts[0].0,
+            Cursor::AfterAnchor {
+                anchor: Anchor::new(4)
+            }
+        );
         assert_eq!(inserts[0].1, "inserted");
         assert_eq!(inserts[0].2, None);
         assert!(delete_lines(&out).is_empty());
@@ -659,15 +670,9 @@ mod tests {
     #[test]
     fn parse_ins_head_and_tail() {
         let head = parse_patch("INS.HEAD:\n+top").unwrap();
-        assert_eq!(
-            insert_texts(&head)[0].0,
-            Cursor::Bof
-        );
+        assert_eq!(insert_texts(&head)[0].0, Cursor::Bof);
         let tail = parse_patch("INS.TAIL:\n+bottom").unwrap();
-        assert_eq!(
-            insert_texts(&tail)[0].0,
-            Cursor::Eof
-        );
+        assert_eq!(insert_texts(&tail)[0].0, Cursor::Eof);
     }
 
     #[test]

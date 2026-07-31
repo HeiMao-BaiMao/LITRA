@@ -57,7 +57,10 @@ impl PatchSection {
             match edit {
                 Edit::Delete { .. } => return Ok(true),
                 Edit::Insert { cursor, .. } => {
-                    if matches!(cursor, Cursor::BeforeAnchor { .. } | Cursor::AfterAnchor { .. }) {
+                    if matches!(
+                        cursor,
+                        Cursor::BeforeAnchor { .. } | Cursor::AfterAnchor { .. }
+                    ) {
                         return Ok(true);
                     }
                 }
@@ -124,7 +127,9 @@ fn parse_hashline_header_line(line: &str) -> Result<Option<(String, Option<Strin
     // トークナイザのヘッダ解析を1行だけ走らせる
     let tokens = tokenizer::tokenize_all(trimmed);
     match tokens.first() {
-        Some(tokenizer::Token::Header { path, file_hash, .. }) => {
+        Some(tokenizer::Token::Header {
+            path, file_hash, ..
+        }) => {
             if path.is_empty() {
                 Err("Input header \"[]\" is empty; provide a file path.".to_string())
             } else {
@@ -145,7 +150,9 @@ fn split_raw_sections(input: &str) -> Result<Vec<PatchSection>, String> {
     let mut start = 0;
     for line in &lines {
         let trimmed = line.trim_end().trim_start_matches('\u{FEFF}');
-        if trimmed.trim().is_empty() || trimmed.trim() == crate::hashline::messages::BEGIN_PATCH_MARKER {
+        if trimmed.trim().is_empty()
+            || trimmed.trim() == crate::hashline::messages::BEGIN_PATCH_MARKER
+        {
             start += 1;
         } else {
             break;
@@ -198,7 +205,12 @@ fn split_raw_sections(input: &str) -> Result<Vec<PatchSection>, String> {
         }
         if trimmed.starts_with('[') {
             if let Some((path, hash)) = parse_hashline_header_line(trimmed)? {
-                flush(&mut sections, &mut current_path, &mut current_hash, &mut current_body);
+                flush(
+                    &mut sections,
+                    &mut current_path,
+                    &mut current_hash,
+                    &mut current_body,
+                );
                 current_path = Some(path);
                 current_hash = hash;
                 continue;
@@ -206,7 +218,12 @@ fn split_raw_sections(input: &str) -> Result<Vec<PatchSection>, String> {
         }
         current_body.push(line.to_string());
     }
-    flush(&mut sections, &mut current_path, &mut current_hash, &mut current_body);
+    flush(
+        &mut sections,
+        &mut current_path,
+        &mut current_hash,
+        &mut current_body,
+    );
 
     Ok(sections)
 }

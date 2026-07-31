@@ -13,7 +13,9 @@ use crate::hashline::messages::{
     self, HEADTAIL_DRIFT_WARNING, SEEN_LINE_REVEAL_CAP, SEEN_LINE_REVEAL_MAX_COLUMNS,
 };
 use crate::hashline::mismatch::{compress_ranges, MismatchError};
-use crate::hashline::normalize::{detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom};
+use crate::hashline::normalize::{
+    detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom,
+};
 use crate::hashline::recovery::{Recovery, RecoveryArgs};
 use crate::hashline::snapshots::{InMemorySnapshotStore, Snapshot};
 use crate::hashline::types::ApplyResult;
@@ -105,8 +107,7 @@ impl<'a> Patcher<'a> {
         let line_ending = detect_line_ending(&bom.text);
         let normalized = normalize_to_lf(&bom.text);
 
-        let apply_result =
-            self.apply_with_recovery(section, &normalized, exists, &edits)?;
+        let apply_result = self.apply_with_recovery(section, &normalized, exists, &edits)?;
 
         let mut warnings = parse_warnings;
         warnings.extend(apply_result.warnings.iter().cloned());
@@ -155,9 +156,7 @@ impl<'a> Patcher<'a> {
 
         // ライブ内容に一致するスナップショット（seen-line 来歴の取得元）
         let matched_snapshot: Option<Snapshot> = if live_matches {
-            self.store
-                .by_content(&section.path, normalized)
-                .cloned()
+            self.store.by_content(&section.path, normalized).cloned()
         } else {
             None
         };

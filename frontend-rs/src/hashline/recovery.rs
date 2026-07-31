@@ -86,7 +86,14 @@ fn collect_anchor_lines(edits: &[Edit]) -> Vec<u32> {
                 cursor: Cursor::AfterAnchor { anchor },
                 ..
             } => lines.push(anchor.line),
-            Edit::Insert { cursor: Cursor::Bof, .. } | Edit::Insert { cursor: Cursor::Eof, .. } => {}
+            Edit::Insert {
+                cursor: Cursor::Bof,
+                ..
+            }
+            | Edit::Insert {
+                cursor: Cursor::Eof,
+                ..
+            } => {}
         }
     }
     lines
@@ -160,7 +167,11 @@ fn compute_anchor_neighbors(
         } else {
             None
         };
-        let after = if end + 1 <= line_count { Some(end + 1) } else { None };
+        let after = if end + 1 <= line_count {
+            Some(end + 1)
+        } else {
+            None
+        };
         for k in i..=j {
             neighbors.insert(sorted[k], AnchorNeighbors { before, after });
         }
@@ -423,7 +434,10 @@ mod tests {
         assert_eq!(result.text, "line1\nINSERTED\nline3");
         assert_eq!(result.first_changed_line, Some(3));
         // オフセット +1（≠0）なのでリマップ警告。
-        assert_eq!(result.warnings.first().map(String::as_str), Some(RECOVERY_LINE_REMAP_WARNING));
+        assert_eq!(
+            result.warnings.first().map(String::as_str),
+            Some(RECOVERY_LINE_REMAP_WARNING)
+        );
     }
 
     #[test]

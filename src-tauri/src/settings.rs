@@ -323,9 +323,7 @@ pub fn delete_world_entry(req: DeleteWorldEntryRequest) -> Result<Value, String>
 /// 設定・パネル比率・ウィンドウ状態・全プロバイダの API キー・
 /// WebDAV パスワードを全て削除する。
 #[tauri::command]
-pub async fn reset_all_settings(
-    app: AppHandle,
-) -> Result<Value, String> {
+pub async fn reset_all_settings(app: AppHandle) -> Result<Value, String> {
     use tauri::Manager;
 
     // 1. 設定本体を空に初期化
