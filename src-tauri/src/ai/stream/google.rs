@@ -14,6 +14,17 @@ pub fn parse(
         .and_then(Value::as_array)
     {
         for part in parts {
+            if part.get("toolCall").is_some()
+                || part.get("toolResponse").is_some()
+                || part.get("functionCall").is_some()
+                || part.get("thought").and_then(Value::as_bool) == Some(true)
+                || part.get("thoughtSignature").is_some()
+            {
+                send(
+                    channel,
+                    AiStreamEvent::GoogleToolContext { part: part.clone() },
+                )?;
+            }
             if let Some(function_call) = part.get("functionCall") {
                 let name = function_call
                     .get("name")

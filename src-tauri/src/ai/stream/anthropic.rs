@@ -11,9 +11,28 @@ pub fn parse(
     state: &mut StreamState,
 ) -> Result<(), String> {
     match event_name.or_else(|| value.get("type").and_then(Value::as_str)) {
-        Some("content_block_start")
-            if value.pointer("/content_block/type").and_then(Value::as_str) == Some("tool_use") =>
-        {
+        Some("content_block_start") => {
+            let key = value
+                .get("index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .to_string();
+            let content_block = value.get("content_block").cloned().unwrap_or(Value::Null);
+            let block_type = content_block.get("type").and_then(Value::as_str);
+            if block_type == Some("thinking") {
+                state.start_thinking(key, &content_block);
+                return Ok(());
+            }
+            if matches!(
+                block_type,
+                Some("server_tool_use" | "web_search_tool_result")
+            ) {
+                state.start_server_block(key, content_block);
+                return Ok(());
+            }
+            if block_type != Some("tool_use") {
+                return Ok(());
+            }
             let key = value
                 .get("index")
                 .and_then(Value::as_u64)
@@ -44,12 +63,42 @@ pub fn parse(
         }
         Some("content_block_delta") => {
             let kind = value.pointer("/delta/type").and_then(Value::as_str);
+            let key = value
+                .get("index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .to_string();
+            if kind == Some("thinking_delta") {
+                let delta = value
+                    .pointer("/delta/thinking")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                state.append_thinking(&key, delta);
+                if !delta.is_empty() {
+                    send(
+                        channel,
+                        AiStreamEvent::ReasoningDelta {
+                            delta: delta.into(),
+                        },
+                    )?;
+                }
+                return Ok(());
+            }
+            if kind == Some("signature_delta") {
+                if let Some(signature) = value.pointer("/delta/signature").and_then(Value::as_str) {
+                    state.set_thinking_signature(&key, signature);
+                }
+                return Ok(());
+            }
             if kind == Some("input_json_delta") {
-                let key = value
-                    .get("index")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0)
-                    .to_string();
+                if state.is_server_block(&key) {
+                    let delta = value
+                        .pointer("/delta/partial_json")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    state.append_server_input(&key, delta);
+                    return Ok(());
+                }
                 let delta = value
                     .pointer("/delta/partial_json")
                     .and_then(Value::as_str)
@@ -68,7 +117,6 @@ pub fn parse(
             }
             let delta = value
                 .pointer("/delta/text")
-                .or_else(|| value.pointer("/delta/thinking"))
                 .and_then(Value::as_str);
             if let Some(delta) = delta.filter(|delta| !delta.is_empty()) {
                 let event = if kind == Some("thinking_delta") {
@@ -89,6 +137,14 @@ pub fn parse(
                 .and_then(Value::as_u64)
                 .unwrap_or(0)
                 .to_string();
+            if let Some(block) = state.finish_thinking(&key) {
+                send(channel, AiStreamEvent::AnthropicThinking { block })?;
+                return Ok(());
+            }
+            if let Some(block) = state.finish_server_block(&key) {
+                send(channel, AiStreamEvent::AnthropicToolContext { block })?;
+                return Ok(());
+            }
             if let Some(call) = state.finish(&key, None) {
                 send(
                     channel,

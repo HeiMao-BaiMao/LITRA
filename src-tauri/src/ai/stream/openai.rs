@@ -40,6 +40,35 @@ pub fn parse_responses(
             }
             Ok(())
         }
+        Some("response.output_item.done")
+            if value.pointer("/item/type").and_then(Value::as_str) == Some("reasoning") =>
+        {
+            let Some(item) = value.get("item") else {
+                return Ok(());
+            };
+            if item
+                .get("encrypted_content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| !content.is_empty())
+            {
+                send(
+                    channel,
+                    AiStreamEvent::ResponsesReasoning { item: item.clone() },
+                )?;
+            }
+            Ok(())
+        }
+        Some("response.output_item.done")
+            if value.pointer("/item/type").and_then(Value::as_str) == Some("web_search_call") =>
+        {
+            if let Some(item) = value.get("item") {
+                send(
+                    channel,
+                    AiStreamEvent::ResponsesToolContext { item: item.clone() },
+                )?;
+            }
+            Ok(())
+        }
         Some("response.function_call_arguments.delta") => {
             let key = value
                 .get("item_id")

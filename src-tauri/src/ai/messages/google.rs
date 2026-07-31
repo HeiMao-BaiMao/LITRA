@@ -18,14 +18,24 @@ pub fn convert(messages: &[AiInputMessage]) -> Vec<Value> {
             .into_iter()
             .map(|text| json!({ "text": text }))
             .collect::<Vec<_>>();
-        for part in tool_parts(&message.content, "tool-call") {
-            parts.push(json!({
-                "functionCall": {
-                    "id": part.get("toolCallId"),
-                    "name": part.get("toolName"),
-                    "args": part.get("input").cloned().unwrap_or_else(|| json!({})),
-                },
-            }));
+        for part in tool_parts(&message.content, "google-server-part") {
+            if let Some(server_part) = part.get("part") {
+                parts.push(server_part.clone());
+            }
+        }
+        let has_raw_function_call = tool_parts(&message.content, "google-server-part")
+            .filter_map(|part| part.get("part"))
+            .any(|part| part.get("functionCall").is_some());
+        if !has_raw_function_call {
+            for part in tool_parts(&message.content, "tool-call") {
+                parts.push(json!({
+                    "functionCall": {
+                        "id": part.get("toolCallId"),
+                        "name": part.get("toolName"),
+                        "args": part.get("input").cloned().unwrap_or_else(|| json!({})),
+                    },
+                }));
+            }
         }
         for part in tool_parts(&message.content, "tool-result") {
             parts.push(json!({
