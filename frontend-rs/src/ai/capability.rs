@@ -141,24 +141,32 @@ pub fn get_model_capability(
     // フォールバック: プロバイダとモデル名から推論
     match provider {
         "anthropic" => {
-            if model_id == "claude-fable-5" {
+            if model_id == "claude-fable-5" || model_id == "claude-mythos-5" {
                 Some(ReasoningCapability {
                     kind: "anthropic-adaptive".into(),
                     supported_efforts: vec![
-                        "low".into(), "medium".into(), "high".into(),
-                        "xhigh".into(), "max".into(),
+                        "low".into(),
+                        "medium".into(),
+                        "high".into(),
+                        "xhigh".into(),
+                        "max".into(),
                     ],
                     display: Some("summarized".into()),
                     ..Default::default()
                 })
-            } else if model_id.starts_with("claude-opus-4-7")
+            } else if model_id.starts_with("claude-opus-5")
+                || model_id.starts_with("claude-sonnet-5")
+                || model_id.starts_with("claude-opus-4-7")
                 || model_id.starts_with("claude-opus-4-8")
             {
                 Some(ReasoningCapability {
                     kind: "anthropic-adaptive".into(),
                     supported_efforts: vec![
-                        "low".into(), "medium".into(), "high".into(),
-                        "xhigh".into(), "max".into(),
+                        "low".into(),
+                        "medium".into(),
+                        "high".into(),
+                        "xhigh".into(),
+                        "max".into(),
                     ],
                     display: Some("summarized".into()),
                     can_disable: true,
@@ -193,7 +201,10 @@ pub fn get_model_capability(
                 Some(ReasoningCapability {
                     kind: "google".into(),
                     supported_efforts: vec![
-                        "minimal".into(), "low".into(), "medium".into(), "high".into(),
+                        "minimal".into(),
+                        "low".into(),
+                        "medium".into(),
+                        "high".into(),
                     ],
                     ..Default::default()
                 })
@@ -201,30 +212,51 @@ pub fn get_model_capability(
                 None
             }
         }
-        "openai" | "codex" => Some(ReasoningCapability {
+        "openai" => Some(ReasoningCapability {
             kind: "openai".into(),
             supported_efforts: vec![
-                "none".into(), "low".into(), "medium".into(),
-                "high".into(), "xhigh".into(),
+                "none".into(),
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
             ],
             ..Default::default()
         }),
+        "codex" => {
+            let model = model_id.to_ascii_lowercase();
+            let mut supported_efforts =
+                vec!["low".into(), "medium".into(), "high".into(), "xhigh".into()];
+            if model.starts_with("gpt-5.6") {
+                supported_efforts.push("max".into());
+            }
+            Some(ReasoningCapability {
+                kind: "openai".into(),
+                supported_efforts,
+                ..Default::default()
+            })
+        }
         "github-copilot" => {
-            if model_id.starts_with("claude-fable-5") {
+            if model_id.starts_with("claude-fable-5") || model_id.starts_with("claude-mythos-5") {
                 Some(ReasoningCapability {
                     kind: "anthropic-adaptive".into(),
                     supported_efforts: vec!["low".into(), "medium".into(), "high".into()],
                     display: Some("summarized".into()),
                     ..Default::default()
                 })
-            } else if model_id.starts_with("claude-opus-4-7")
+            } else if model_id.starts_with("claude-opus-5")
+                || model_id.starts_with("claude-sonnet-5")
+                || model_id.starts_with("claude-opus-4-7")
                 || model_id.starts_with("claude-opus-4-8")
             {
                 Some(ReasoningCapability {
                     kind: "anthropic-adaptive".into(),
                     supported_efforts: vec![
-                        "low".into(), "medium".into(), "high".into(),
-                        "xhigh".into(), "max".into(),
+                        "low".into(),
+                        "medium".into(),
+                        "high".into(),
+                        "xhigh".into(),
+                        "max".into(),
                     ],
                     display: Some("summarized".into()),
                     can_disable: true,
@@ -237,12 +269,28 @@ pub fn get_model_capability(
                     supports_budget: true,
                     ..Default::default()
                 })
+            } else if model_id.starts_with("gpt-5.6") {
+                Some(ReasoningCapability {
+                    kind: "openai".into(),
+                    supported_efforts: vec![
+                        "none".into(),
+                        "low".into(),
+                        "medium".into(),
+                        "high".into(),
+                        "xhigh".into(),
+                        "max".into(),
+                    ],
+                    ..Default::default()
+                })
             } else if model_id.starts_with("gpt-5") {
                 Some(ReasoningCapability {
                     kind: "openai".into(),
                     supported_efforts: vec![
-                        "none".into(), "low".into(), "medium".into(),
-                        "high".into(), "xhigh".into(),
+                        "none".into(),
+                        "low".into(),
+                        "medium".into(),
+                        "high".into(),
+                        "xhigh".into(),
                     ],
                     ..Default::default()
                 })
@@ -325,9 +373,7 @@ pub fn should_hide_controls(cap: Option<&ReasoningCapability>) -> bool {
 /// Gemini 3 系かどうかを判定する。
 pub fn is_gemini3_model(model: &str) -> bool {
     let model = model.trim().to_lowercase();
-    model.starts_with("gemini-3.")
-        || model.starts_with("gemini-3-")
-        || model == "gemini-3"
+    model.starts_with("gemini-3.") || model.starts_with("gemini-3-") || model == "gemini-3"
 }
 
 impl Default for ReasoningCapability {
@@ -344,9 +390,11 @@ impl Default for ReasoningCapability {
         }
     }
 }
-
 /// `resolve_forced_tool_choice` — モデルごとに tool_choice を "required" / "auto" / None に決定する。
 /// TypeScript `resolveForcedToolChoice` の移植。
+///
+/// ツール呼び出しを強制したい局面（verifyToolCallNeed 後のリトライ等）で使う。
+/// thinking が有効なモデルでは "required"(/"any") が thinking と衝突するため "auto" に下げる。
 pub fn resolve_forced_tool_choice(
     provider: &str,
     model_id: &str,
@@ -357,13 +405,39 @@ pub fn resolve_forced_tool_choice(
     }
     if provider == "deepseek" {
         let thinking = deepseek_thinking_enabled.unwrap_or(true);
-        return if thinking { Some("auto".into()) } else { Some("required".into()) };
+        return if thinking {
+            Some("auto".into())
+        } else {
+            Some("required".into())
+        };
     }
     if provider == "google" && is_gemini3_model(model_id) {
         return Some("required".into());
     }
-    // OpenAI / Anthropic / Codex / Copilot: tool_choice はサーバ側に任せる
-    None
+    // Anthropic Messages 系（直接 / Copilot 経由 Claude）:
+    // thinking が有効なモデルでは tool_choice "any"(=required) が thinking と
+    // 非両立のため "auto" に下げる。thinking が無効なモデルは "required" で強制する。
+    let is_anthropic_messages = provider == "anthropic"
+        || (provider == "github-copilot" && model_id.starts_with("claude-"));
+    if is_anthropic_messages {
+        let model_lower = model_id.to_lowercase();
+        // Fable 5 / Mythos: 常時 thinking → "auto"
+        if model_lower.contains("fable") || model_lower.contains("mythos") {
+            return Some("auto".into());
+        }
+        // Opus/Sonnet 5 and Opus 4.7/4.8: adaptive thinking が既定で有効 → "auto"
+        if model_lower.starts_with("claude-opus-5")
+            || model_lower.starts_with("claude-sonnet-5")
+            || model_lower.starts_with("claude-opus-4-7")
+            || model_lower.starts_with("claude-opus-4-8")
+        {
+            return Some("auto".into());
+        }
+        // その他の Claude: budget thinking は無効の可能性があるため "required" で強制
+        return Some("required".into());
+    }
+    // OpenAI / Codex: "required" で強制
+    Some("required".into())
 }
 
 #[cfg(test)]
@@ -389,6 +463,12 @@ mod tests {
         assert!(cap.is_some());
         let cap = cap.unwrap();
         assert!(cap.can_disable);
+
+        for model in ["claude-opus-5", "claude-sonnet-5"] {
+            let cap = get_model_capability("anthropic", model, None).unwrap();
+            assert_eq!(cap.kind, "anthropic-adaptive");
+            assert!(cap.can_disable);
+        }
     }
 
     #[test]
@@ -398,6 +478,16 @@ mod tests {
         let cap = cap.unwrap();
         assert_eq!(cap.kind, "openai");
         assert!(!cap.supported_efforts.contains(&"minimal".to_string()));
+    }
+
+    #[test]
+    fn codex_capability_matches_model_effort_ladder() {
+        let cap = get_model_capability("codex", "gpt-5.6-sol", None).unwrap();
+        assert!(cap.supported_efforts.contains(&"max".to_string()));
+        assert!(!cap.supported_efforts.contains(&"none".to_string()));
+
+        let cap = get_model_capability("codex", "gpt-5.5", None).unwrap();
+        assert!(!cap.supported_efforts.contains(&"max".to_string()));
     }
 
     #[test]

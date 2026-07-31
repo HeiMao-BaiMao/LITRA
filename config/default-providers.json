@@ -193,6 +193,77 @@
           }
         },
         {
+          "id": "claude-opus-5",
+          "label": "Claude Opus 5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-adaptive",
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "display": "summarized",
+            "canDisable": true
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "claude-mythos-5",
+          "label": "Claude Mythos 5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-adaptive",
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "display": "summarized"
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "claude-sonnet-5",
+          "label": "Claude Sonnet 5",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-adaptive",
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "display": "summarized",
+            "canDisable": true
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
           "id": "claude-opus-4-8",
           "label": "Claude Opus 4.8",
           "temperature": 1.0,
@@ -240,6 +311,15 @@
           "label": "Claude Haiku 4.5",
           "temperature": 1.0,
           "maxTokens": 8192,
+          "maxContextTokens": 200000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false
+        },
+        {
+          "id": "claude-haiku-4-5",
+          "label": "Claude Haiku 4.5",
+          "temperature": 1.0,
+          "maxTokens": 64000,
           "maxContextTokens": 200000,
           "topP": 1.0,
           "anthropicThinkingEnabled": false
@@ -324,10 +404,29 @@
       "connections": [
         { "id": "generate-content", "apiType": "google-generate-content", "baseUrl": "https://generativelanguage.googleapis.com/v1beta" }
       ],
-      "defaultModel": "gemini-3.5-flash",
+      "defaultModel": "gemini-3.6-flash",
       "requiresApiKey": true,
       "modelSelection": "fixed",
       "models": [
+        {
+          "id": "gemini-3.6-flash",
+          "label": "Gemini 3.6 Flash",
+          "maxTokens": 65536,
+          "maxContextTokens": 1048576,
+          "googleThinkingLevel": "high",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
         {
           "id": "gemini-3.5-flash",
           "label": "Gemini 3.5 Flash",
@@ -345,6 +444,22 @@
           },
           "writing": {
             "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gemini-3.5-flash-lite",
+          "label": "Gemini 3.5 Flash-Lite",
+          "maxTokens": 65536,
+          "maxContextTokens": 1048576,
+          "googleThinkingLevel": "high",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
           }
         },
         {
@@ -404,7 +519,15 @@
           "maxTokens": 32768,
           "maxContextTokens": 262144,
           "topP": 0.95,
-          "topK": 64
+          "topK": 64,
+          "googleThinkingLevel": "high",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": [
+              "minimal",
+              "high"
+            ]
+          }
         },
         {
           "id": "gemma-4-31b-it",
@@ -413,7 +536,15 @@
           "maxTokens": 32768,
           "maxContextTokens": 262144,
           "topP": 0.95,
-          "topK": 64
+          "topK": 64,
+          "googleThinkingLevel": "high",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": [
+              "minimal",
+              "high"
+            ]
+          }
         }
       ]
     },
@@ -549,98 +680,69 @@
       "connections": [
         { "id": "responses", "apiType": "openai-responses", "baseUrl": "https://chatgpt.com/backend-api/codex" }
       ],
-      "defaultModel": "gpt-5.6-sol",
-      "requiresApiKey": false,
-      "modelSelection": "fixed",
-      "models": [
-        {
-          "id": "gpt-5.6-sol",
-          "label": "GPT-5.6 Sol",
-          "temperature": 1.0,
-          "maxTokens": 128000,
-          "maxContextTokens": 1048576,
-          "topP": 1.0,
-          "frequencyPenalty": 0,
-          "presencePenalty": 0,
-          "openaiReasoningEffort": "medium",
-          "reasoningCapability": {
-            "kind": "openai",
-            "supportedEfforts": [
-              "none",
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ]
-          },
-          "writing": {
-            "promptScaffold": "light"
-          }
-        },
-        {
-          "id": "gpt-5.6-terra",
-          "label": "GPT-5.6 Terra",
-          "temperature": 1.0,
-          "maxTokens": 128000,
-          "maxContextTokens": 1048576,
-          "topP": 1.0,
-          "frequencyPenalty": 0,
-          "presencePenalty": 0,
-          "openaiReasoningEffort": "medium",
-          "reasoningCapability": {
-            "kind": "openai",
-            "supportedEfforts": [
-              "none",
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ]
-          },
-          "writing": {
-            "promptScaffold": "light"
-          }
-        },
-        {
-          "id": "gpt-5.6-luna",
-          "label": "GPT-5.6 Luna",
-          "temperature": 1.0,
-          "maxTokens": 128000,
-          "maxContextTokens": 1048576,
-          "topP": 1.0,
-          "frequencyPenalty": 0,
-          "presencePenalty": 0,
-          "openaiReasoningEffort": "medium",
-          "reasoningCapability": {
-            "kind": "openai",
-            "supportedEfforts": [
-              "none",
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ]
-          },
-          "writing": {
-            "promptScaffold": "light"
-          }
-        },
-        {
-          "id": "gpt-5.5",
+    "defaultModel": "gpt-5.5",
+    "requiresApiKey": false,
+    "modelSelection": "fixed",
+    "models": [
+      {
+        "id": "gpt-5.6-sol",
+        "label": "GPT-5.6 Sol",
+        "maxTokens": 128000,
+        "maxContextTokens": 372000,
+        "openaiReasoningEffort": "medium",
+        "reasoningCapability": {
+          "kind": "openai",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "label": "GPT-5.6 Terra",
+        "maxTokens": 128000,
+        "maxContextTokens": 372000,
+        "openaiReasoningEffort": "medium",
+        "reasoningCapability": {
+          "kind": "openai",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "label": "GPT-5.6 Luna",
+        "maxTokens": 128000,
+        "maxContextTokens": 372000,
+        "openaiReasoningEffort": "medium",
+        "reasoningCapability": {
+          "kind": "openai",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      },
+      {
+        "id": "gpt-5.5",
           "label": "GPT-5.5",
-          "temperature": 1.0,
           "maxTokens": 128000,
-          "maxContextTokens": 400000,
-          "topP": 1.0,
-          "frequencyPenalty": 0,
-          "presencePenalty": 0,
+          "maxContextTokens": 272000,
           "reasoningCapability": {
             "kind": "openai",
             "supportedEfforts": [
-              "none",
               "low",
               "medium",
               "high",
@@ -651,16 +753,11 @@
         {
           "id": "gpt-5.4",
           "label": "GPT-5.4",
-          "temperature": 1.0,
           "maxTokens": 128000,
-          "maxContextTokens": 1048576,
-          "topP": 1.0,
-          "frequencyPenalty": 0,
-          "presencePenalty": 0,
+          "maxContextTokens": 272000,
           "reasoningCapability": {
             "kind": "openai",
             "supportedEfforts": [
-              "none",
               "low",
               "medium",
               "high",
@@ -671,30 +768,35 @@
         {
           "id": "gpt-5.4-mini",
           "label": "GPT-5.4 Mini",
-          "temperature": 1.0,
           "maxTokens": 128000,
-          "maxContextTokens": 400000,
-          "topP": 1.0,
-          "frequencyPenalty": 0,
-          "presencePenalty": 0,
-          "openaiReasoningEffort": "none",
+          "maxContextTokens": 272000,
+          "openaiReasoningEffort": "medium",
           "reasoningCapability": {
             "kind": "openai",
             "supportedEfforts": [
-              "none"
+              "low",
+              "medium",
+              "high",
+              "xhigh"
             ]
           }
         },
-        {
-          "id": "gpt-5.3-codex-spark",
-          "label": "GPT-5.3 Codex Spark",
-          "temperature": 1.0,
-          "maxTokens": 128000,
-          "maxContextTokens": 400000,
-          "topP": 1.0,
-          "frequencyPenalty": 0,
-          "presencePenalty": 0
+      {
+        "id": "gpt-5.3-codex-spark",
+        "label": "GPT-5.3 Codex Spark",
+        "maxTokens": 128000,
+        "maxContextTokens": 128000,
+        "openaiReasoningEffort": "medium",
+        "reasoningCapability": {
+          "kind": "openai",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
         }
+      }
       ]
     },
     {
@@ -708,7 +810,7 @@
         { "id": "chat", "apiType": "openai-chat", "baseUrl": "https://api.githubcopilot.com" },
         { "id": "messages", "apiType": "anthropic-messages", "baseUrl": "https://api.githubcopilot.com/v1" }
       ],
-      "defaultModel": "gpt-5.6-sol",
+      "defaultModel": "gpt-5.5",
       "requiresApiKey": false,
       "modelSelection": "fetch",
       "models": [
@@ -892,6 +994,26 @@
           "writing": {
             "promptScaffold": "light"
           }
+        },
+        {
+          "id": "claude-sonnet-5",
+          "label": "Claude Sonnet 5",
+          "connection": "messages",
+          "temperature": 1.0,
+          "maxTokens": 128000,
+          "maxContextTokens": 1000000,
+          "topP": 1.0,
+          "anthropicThinkingEnabled": false,
+          "reasoningCapability": {
+            "kind": "anthropic-adaptive",
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "display": "summarized",
+            "canDisable": true
+          }
         }
       ]
     },
@@ -903,6 +1025,7 @@
       "defaultConnection": "chat",
       "connections": [
         { "id": "chat", "apiType": "openai-chat", "baseUrl": "https://opencode.ai/zen/go/v1" },
+        { "id": "responses", "apiType": "openai-responses", "baseUrl": "https://opencode.ai/zen/go/v1" },
         { "id": "messages", "apiType": "anthropic-messages", "baseUrl": "https://opencode.ai/zen/go/v1" }
       ],
       "defaultModel": "deepseek-v4-flash",
@@ -913,11 +1036,12 @@
           "id": "deepseek-v4-flash",
           "label": "DeepSeek V4 Flash",
           "temperature": 0.3,
-          "maxTokens": 32000,
+          "maxTokens": 384000,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
+          "deepseekReasoningEffort": "high",
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": [
@@ -931,11 +1055,12 @@
           "id": "deepseek-v4-pro",
           "label": "DeepSeek V4 Pro",
           "temperature": 0.25,
-          "maxTokens": 32000,
+          "maxTokens": 384000,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
+          "deepseekReasoningEffort": "high",
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": [
@@ -949,11 +1074,84 @@
           }
         },
         {
+          "id": "glm-5",
+          "label": "GLM-5",
+          "maxTokens": 32768,
+          "maxContextTokens": 202752
+        },
+        {
+          "id": "glm-5.1",
+          "label": "GLM-5.1",
+          "maxTokens": 32768,
+          "maxContextTokens": 202752
+        },
+        {
+          "id": "grok-4.5",
+          "label": "Grok 4.5",
+          "connection": "responses",
+          "maxTokens": 500000,
+          "maxContextTokens": 500000
+        },
+        {
+          "id": "hy3",
+          "label": "Hy3",
+          "maxTokens": 64000,
+          "maxContextTokens": 256000
+        },
+        {
+          "id": "kimi-k2.5",
+          "label": "Kimi K2.5",
+          "maxTokens": 65536,
+          "maxContextTokens": 262144
+        },
+        {
+          "id": "kimi-k2.6",
+          "label": "Kimi K2.6",
+          "maxTokens": 65536,
+          "maxContextTokens": 262144
+        },
+        {
+          "id": "kimi-k2.7-code",
+          "label": "Kimi K2.7 Code",
+          "maxTokens": 262144,
+          "maxContextTokens": 262144
+        },
+        {
+          "id": "kimi-k3",
+          "label": "Kimi K3",
+          "maxTokens": 131072,
+          "maxContextTokens": 1048576
+        },
+        {
+          "id": "mimo-v2-omni",
+          "label": "MiMo-V2-Omni",
+          "maxTokens": 128000,
+          "maxContextTokens": 262144
+        },
+        {
+          "id": "mimo-v2-pro",
+          "label": "MiMo-V2-Pro",
+          "maxTokens": 128000,
+          "maxContextTokens": 1048576
+        },
+        {
+          "id": "minimax-m2.5",
+          "label": "MiniMax M2.5",
+          "connection": "messages",
+          "maxTokens": 65536,
+          "maxContextTokens": 204800
+        },
+        {
+          "id": "minimax-m2.7",
+          "label": "MiniMax M2.7",
+          "maxTokens": 131072,
+          "maxContextTokens": 204800
+        },
+        {
           "id": "minimax-m3",
           "label": "MiniMax M3",
-          "connection": "messages",
           "temperature": 0.3,
-          "maxTokens": 32000,
+          "maxTokens": 131072,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
@@ -966,7 +1164,7 @@
           "id": "glm-5.2",
           "label": "GLM-5.2",
           "temperature": 0.2,
-          "maxTokens": 32000,
+          "maxTokens": 131072,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
@@ -976,7 +1174,7 @@
           "id": "mimo-v2.5",
           "label": "MiMo-V2.5",
           "temperature": 0.35,
-          "maxTokens": 32000,
+          "maxTokens": 128000,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
@@ -986,18 +1184,23 @@
           "id": "mimo-v2.5-pro",
           "label": "MiMo-V2.5-Pro",
           "temperature": 0.3,
-          "maxTokens": 32000,
+          "maxTokens": 128000,
           "maxContextTokens": 1048576,
           "topP": 0.95,
           "frequencyPenalty": 0,
           "presencePenalty": 0
         },
         {
+          "id": "qwen3.5-plus",
+          "label": "Qwen3.5 Plus",
+          "maxTokens": 65536,
+          "maxContextTokens": 262144
+        },
+        {
           "id": "qwen3.6-plus",
           "label": "Qwen3.6 Plus",
-          "connection": "messages",
           "temperature": 0.7,
-          "maxTokens": 32000,
+          "maxTokens": 65536,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
@@ -1008,7 +1211,7 @@
           "label": "Qwen3.7 Plus",
           "connection": "messages",
           "temperature": 0.7,
-          "maxTokens": 32000,
+          "maxTokens": 65536,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
@@ -1019,7 +1222,7 @@
           "label": "Qwen3.7 Max",
           "connection": "messages",
           "temperature": 0.7,
-          "maxTokens": 32000,
+          "maxTokens": 65536,
           "maxContextTokens": 1000000,
           "topP": 0.95,
           "frequencyPenalty": 0,
