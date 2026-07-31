@@ -219,11 +219,15 @@ pub fn mentioned_character_names(state: &State, context: &str) -> Vec<String> {
         .filter_map(|character| {
             let mut last = None;
             for key in ["name", "reading", "alias"] {
+                // name（主名称）は「蓮」「葵」のような一字名を許可する。
+                // reading/alias は「、」「,」改行で分割した断片が助詞1字等で
+                // 誤爆しやすいため、従来通り2文字以上に限定する。
+                let min_chars = if key == "name" { 1 } else { 2 };
                 for candidate in text(character, key)
                     .unwrap_or_default()
                     .split(['\n', ',', '、'])
                     .map(str::trim)
-                    .filter(|candidate| candidate.chars().count() >= 2)
+                    .filter(|candidate| candidate.chars().count() >= min_chars)
                 {
                     if let Some(index) = tail.rfind(candidate) {
                         last = Some(last.map_or(index, |current: usize| current.max(index)));
@@ -489,6 +493,16 @@ mod tests {
         assert_eq!(
             mentioned_character_names(&state, "美咲が来た。春香が振り返った。"),
             vec!["春香", "美咲"]
+        );
+    }
+
+    #[test]
+    fn mentioned_names_include_single_character_names() {
+        let mut state = State::default();
+        state.characters = vec![serde_json::json!({"id":"1","name":"蓮"})];
+        assert_eq!(
+            mentioned_character_names(&state, "蓮が振り返った。"),
+            vec!["蓮"]
         );
     }
 
