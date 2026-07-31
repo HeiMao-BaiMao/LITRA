@@ -8,6 +8,7 @@ use std::{
 
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::ipc::Channel;
 
 use crate::ai::auth::store;
@@ -37,6 +38,7 @@ struct DeviceCodeResponse {
     user_code: String,
     verification_uri: String,
     interval: Option<u64>,
+    expires_in: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +46,7 @@ struct TokenResponse {
     access_token: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
+    interval: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +54,7 @@ struct TokenResponse {
 struct CopilotCredential {
     token: String,
     enterprise_url: Option<String>,
+    api_endpoint: Option<String>,
 }
 
 #[tauri::command]
@@ -60,10 +64,14 @@ pub async fn start_copilot_device_auth(
     cancel: tauri::State<'_, CopilotOAuthCancelFlag>,
 ) -> Result<(), String> {
     cancel.0.store(false, Ordering::SeqCst);
-    let domain = enterprise_url
+    let enterprise_url = enterprise_url
         .as_deref()
         .map(normalize_domain)
-        .unwrap_or_else(|| "github.com".into());
+        .filter(|value| !value.is_empty());
+    let domain = match enterprise_url.as_deref() {
+        Some("github.com" | "www.github.com" | "api.github.com") | None => "github.com",
+        Some(domain) => domain,
+    };
     let client = Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
@@ -89,12 +97,18 @@ pub async fn start_copilot_device_auth(
         .map_err(|error| format!("Copilot user code の通知に失敗しました: {error}"))?;
 
     let started = Instant::now();
+    let flow_timeout = Duration::from_secs(
+        device
+            .expires_in
+            .unwrap_or(FLOW_TIMEOUT.as_secs())
+            .min(FLOW_TIMEOUT.as_secs()),
+    );
     let mut interval = device.interval.unwrap_or(5);
     loop {
         if cancel.0.load(Ordering::SeqCst) {
             return Err("ログインがキャンセルされました。".into());
         }
-        if started.elapsed() >= FLOW_TIMEOUT {
+        if started.elapsed() >= flow_timeout {
             return Err("Copilot 認証がタイムアウトしました。".into());
         }
         tokio::time::sleep(Duration::from_secs(interval + 3)).await;
@@ -114,11 +128,16 @@ pub async fn start_copilot_device_auth(
             .await
             .map_err(|error| format!("Copilot token の解析に失敗しました: {error}"))?;
         if let Some(access_token) = token.access_token {
+            if access_token.trim().is_empty() {
+                return Err("Copilot OAuth から空の token が返されました。".into());
+            }
+            let api_endpoint = discover_api_endpoint(&client, &access_token).await;
             store::write_json(
                 "github-copilot",
                 &CopilotCredential {
                     token: access_token,
-                    enterprise_url,
+                    enterprise_url: enterprise_url.clone(),
+                    api_endpoint,
                 },
             )
             .await?;
@@ -126,7 +145,13 @@ pub async fn start_copilot_device_auth(
         }
         match token.error.as_deref() {
             Some("authorization_pending") => {}
-            Some("slow_down") => interval = (interval + 5).min(30),
+            Some("slow_down") => {
+                interval = token
+                    .interval
+                    .filter(|value| *value > 0)
+                    .unwrap_or(interval.saturating_add(5))
+                    .min(30)
+            }
             Some("access_denied") => return Err("認証が拒否されました。".into()),
             Some("expired_token") => return Err("認証コードの有効期限が切れました。".into()),
             Some(error) => {
@@ -148,12 +173,36 @@ pub async fn cancel_copilot_device_auth(
 }
 
 fn normalize_domain(value: &str) -> String {
+    let trimmed = value.trim();
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_owned()
+    } else {
+        format!("https://{trimmed}")
+    };
+    reqwest::Url::parse(&candidate)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .unwrap_or_else(|| trimmed.trim_end_matches('/').to_owned())
+}
+
+async fn discover_api_endpoint(client: &Client, token: &str) -> Option<String> {
+    let value: Value = client
+        .get("https://api.github.com/copilot_internal/user")
+        .header(header::ACCEPT, "application/json")
+        .header(header::AUTHORIZATION, format!("token {token}"))
+        .header(header::USER_AGENT, "litra/1.0")
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json()
+        .await
+        .ok()?;
     value
-        .trim()
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/')
-        .to_owned()
+        .pointer("/endpoints/api")
+        .and_then(Value::as_str)
+        .and_then(crate::ai::models::normalize_copilot_api_endpoint)
 }
 
 #[cfg(test)]

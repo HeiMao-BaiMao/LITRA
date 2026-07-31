@@ -233,7 +233,20 @@ pub fn ai_runtime_config(
         .filter(|value| !value.is_empty())
         .filter(|value| *value != provider.default_base_url.as_str())
         .map(str::to_owned);
-    let raw_base_url = configured_base.unwrap_or_else(|| {
+    let oauth_base = if provider_id == "github-copilot" {
+        super::auth::store::read_json_sync::<Value>("github-copilot")?.and_then(|value| {
+            string(&value, "apiEndpoint")
+                .and_then(super::models::normalize_copilot_api_endpoint)
+                .or_else(|| {
+                    string(&value, "enterpriseUrl")
+                        .map(|url| super::models::copilot_base_url(Some(url)))
+                })
+        })
+    } else {
+        None
+    };
+    let configured_base = configured_base.or(oauth_base);
+    let initial_raw_base_url = configured_base.clone().unwrap_or_else(|| {
         connection
             .map(|item| item.base_url.clone())
             .unwrap_or_else(|| {
@@ -246,6 +259,37 @@ pub fn ai_runtime_config(
                 }
             })
     });
+    let cached_copilot_model = (provider_id == "github-copilot")
+        .then(|| {
+            super::models::cached_copilot_model(&app_data_dir, &initial_raw_base_url, &model_id)
+        })
+        .flatten();
+    let dynamic_connection_id = if provider_id == "github-copilot" {
+        cached_copilot_model
+            .as_ref()
+            .and_then(|item| item.endpoint.as_deref())
+            .map(str::to_owned)
+            .or_else(|| copilot_fallback_connection(&model_id).map(str::to_owned))
+    } else {
+        None
+    };
+    let dynamic_connection = dynamic_connection_id.as_deref().and_then(|id| {
+        provider
+            .connections
+            .iter()
+            .find(|item| item.id == id)
+            .or_else(|| {
+                fallback.and_then(|item| item.connections.iter().find(|item| item.id == id))
+            })
+    });
+    let raw_base_url = if configured_base.is_none() {
+        dynamic_connection
+            .map(|item| item.base_url.clone())
+            .unwrap_or(initial_raw_base_url)
+    } else {
+        initial_raw_base_url
+    };
+    let connection = dynamic_connection.or(connection);
     // Connection safety: replace stale cross-provider official URLs.
     let base_url = resolve_provider_base_url(provider_id, &raw_base_url);
     let api_key = crate::secrets::get_secret(&format!("apikey:{provider_id}"))?.unwrap_or_default();
@@ -259,9 +303,18 @@ pub fn ai_runtime_config(
         .get("maxTokens")
         .and_then(Value::as_u64)
         .or_else(|| model.and_then(|item| item.max_tokens))
+        .or_else(|| {
+            cached_copilot_model
+                .as_ref()
+                .and_then(|item| item.max_output_tokens)
+        })
         .unwrap_or(8192);
-    if provider_id == "opencode" {
-        if let Some(cap) = model.and_then(|item| item.max_tokens) {
+    if matches!(provider_id, "opencode" | "github-copilot") {
+        if let Some(cap) = model.and_then(|item| item.max_tokens).or_else(|| {
+            cached_copilot_model
+                .as_ref()
+                .and_then(|item| item.max_output_tokens)
+        }) {
             max_output_tokens = max_output_tokens.min(cap);
         }
     }
@@ -298,6 +351,13 @@ pub fn ai_runtime_config(
                         .clone()
                         .or(item.deepseek_reasoning_effort.clone())
                 })
+            })
+            .or_else(|| {
+                cached_copilot_model.as_ref().and_then(|item| {
+                    item.reasoning_effort
+                        .as_deref()
+                        .and_then(preferred_copilot_reasoning_effort)
+                })
             }),
         thinking_enabled: role_overrides
             .and_then(|value| value.get("deepseekThinkingEnabled"))
@@ -314,7 +374,12 @@ pub fn ai_runtime_config(
                         .and_then(Value::as_bool)
                 }
             })
-            .or_else(|| model.and_then(|item| item.anthropic_thinking_enabled)),
+            .or_else(|| model.and_then(|item| item.anthropic_thinking_enabled))
+            .or_else(|| {
+                cached_copilot_model
+                    .as_ref()
+                    .and_then(|item| (item.adaptive_thinking == Some(true)).then_some(true))
+            }),
         thinking_budget: settings
             .get("anthropicThinkingBudget")
             .and_then(Value::as_u64)
@@ -326,6 +391,25 @@ pub fn ai_runtime_config(
             .map(str::to_owned)
             .or_else(|| model.and_then(|item| item.google_thinking_level.clone())),
     })
+}
+
+fn copilot_fallback_connection(model_id: &str) -> Option<&'static str> {
+    let model = model_id.to_ascii_lowercase();
+    if model.starts_with("claude-") || model.contains("anthropic") {
+        Some("messages")
+    } else if model.starts_with("gpt-") || model.contains("codex") {
+        Some("responses")
+    } else {
+        Some("chat")
+    }
+}
+
+fn preferred_copilot_reasoning_effort(efforts: &[String]) -> Option<String> {
+    ["medium", "high", "low", "xhigh", "max", "none"]
+        .iter()
+        .find(|candidate| efforts.iter().any(|effort| effort == **candidate))
+        .map(|effort| (*effort).to_owned())
+        .or_else(|| efforts.first().cloned())
 }
 
 #[derive(Serialize)]
@@ -352,6 +436,10 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
     )
     .and_then(|value| serde_json::from_value::<ProviderDocument>(value).ok())
     .unwrap_or_default();
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     let mut result = Vec::new();
     for default in &defaults.providers {
         let custom = configured
@@ -365,6 +453,43 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
                     models[position] = model.clone();
                 } else {
                     models.push(model.clone());
+                }
+            }
+        }
+        if default.id == "github-copilot" {
+            let base_url = super::auth::store::read_json_sync::<Value>("github-copilot")
+                .ok()
+                .flatten()
+                .and_then(|value| {
+                    string(&value, "apiEndpoint")
+                        .and_then(super::models::normalize_copilot_api_endpoint)
+                        .or_else(|| {
+                            string(&value, "enterpriseUrl")
+                                .map(|url| super::models::copilot_base_url(Some(url)))
+                        })
+                })
+                .unwrap_or_else(|| default.default_base_url.clone());
+            let cached_models = super::models::cached_copilot_models(&app_data_dir, &base_url);
+            if super::models::has_cached_copilot_models(&app_data_dir, &base_url) {
+                models.clear();
+            }
+            for cached in cached_models
+                .into_iter()
+                .filter(|cached| cached.model_picker_enabled == Some(true))
+            {
+                if let Some(position) = models.iter().position(|item| item.id == cached.id) {
+                    if cached.endpoint.is_some() {
+                        models[position].connection = cached.endpoint;
+                    }
+                    if cached.max_output_tokens.is_some() {
+                        models[position].max_tokens = cached.max_output_tokens;
+                    }
+                } else {
+                    let mut model = Model::default();
+                    model.id = cached.id;
+                    model.connection = cached.endpoint;
+                    model.max_tokens = cached.max_output_tokens;
+                    models.push(model);
                 }
             }
         }
@@ -663,5 +788,18 @@ mod tests {
         assert!(has_host("https://api.deepseek.com/v1", "api.deepseek.com"));
         assert!(!has_host("https://api.deepseek.com/v1", "opencode.ai"));
         assert!(has_host("https://opencode.ai:443/zen", "opencode.ai"));
+    }
+
+    #[test]
+    fn copilot_reasoning_defaults_prefer_a_stable_effort() {
+        assert_eq!(
+            preferred_copilot_reasoning_effort(&["high".into(), "medium".into()]),
+            Some("medium".into())
+        );
+        assert_eq!(
+            preferred_copilot_reasoning_effort(&["none".into()]),
+            Some("none".into())
+        );
+        assert_eq!(preferred_copilot_reasoning_effort(&[]), None);
     }
 }

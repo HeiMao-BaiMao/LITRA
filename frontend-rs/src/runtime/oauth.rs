@@ -10,14 +10,14 @@ export async function cancelCodexOAuth() {
   return window.__TAURI__.core.invoke("cancel_codex_browser_auth");
 }
 
-export async function startCopilotOAuth(onCode) {
+export async function startCopilotOAuth(onCode, enterpriseUrl) {
   const channel = new window.__TAURI__.core.Channel();
   channel.onmessage = async (event) => {
     onCode(event.userCode, event.verificationUri);
     await window.__TAURI__.opener.openUrl(event.verificationUri);
   };
   return window.__TAURI__.core.invoke("start_copilot_device_auth", {
-    enterpriseUrl: null,
+    enterpriseUrl: enterpriseUrl || null,
     onEvent: channel,
   });
 }
@@ -34,14 +34,15 @@ extern "C" {
     pub async fn cancel_codex() -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch, js_name = startCopilotOAuth)]
-    async fn start_copilot_js(on_code: &Function) -> Result<JsValue, JsValue>;
+    async fn start_copilot_js(on_code: &Function, enterprise_url: &str)
+        -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch, js_name = cancelCopilotOAuth)]
     pub async fn cancel_copilot() -> Result<JsValue, JsValue>;
 }
 
-pub async fn start_copilot(on_code: &Function) -> Result<(), JsValue> {
-    start_copilot_js(on_code).await.map(|_| ())
+pub async fn start_copilot(on_code: &Function, enterprise_url: &str) -> Result<(), JsValue> {
+    start_copilot_js(on_code, enterprise_url).await.map(|_| ())
 }
 
 pub fn as_function(value: &JsValue) -> &Function {
