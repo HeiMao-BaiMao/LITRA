@@ -5,8 +5,9 @@ use serde_json::{json, Map, Value};
 use wasm_bindgen::JsValue;
 use web_sys::Document;
 
-use super::{sync_chat, ChatMessage, ChatTransportMetadata, State};
+use super::{ChatMessage, ChatTransportMetadata, State};
 use crate::{
+    ai::capability,
     data::projects,
     runtime::{ai, invoke},
 };
@@ -27,7 +28,26 @@ pub async fn run(
     mut messages: Vec<Value>,
     direct_creative_edit: bool,
 ) -> Result<ai::GeneratedText, JsValue> {
-    let definitions = definitions();
+    let mut definitions = definitions();
+    if direct_creative_edit {
+        // npm版 createAiTools({ directCreativeEdit: true }) と同様、
+        // 通常の提案・多段執筆ツールを公開せず、hashline編集だけを許可する。
+        definitions.retain(|definition| {
+            !matches!(
+                definition["name"].as_str(),
+                Some("continuePassage" | "rewritePassage" | "lineEditPassage")
+            )
+        });
+    }
+    if current_episode_id(state).is_none() {
+        // npm版はエピソードが開かれていない間は本文編集ツールを登録しない。
+        definitions.retain(|definition| {
+            !matches!(
+                definition["name"].as_str(),
+                Some("editEpisode" | "editEpisodeBatch")
+            )
+        });
+    }
     let tool_names = definitions
         .iter()
         .filter_map(|d| d["name"].as_str().map(str::to_owned))
@@ -59,6 +79,19 @@ pub async fn run(
             current.selected_model.clone(),
         )
     };
+    let search_priority = state
+        .borrow()
+        .ai_settings
+        .get("webSearchPriority")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let Some(project_id) = project_id else {
         let prompt = messages
             .iter()
@@ -80,13 +113,21 @@ pub async fn run(
             exclude_from_context: false,
             id: None,
             created_at: None,
-            transport: Some(chat_transport(&generated.provider, &generated.model, generated.finish_reason.as_deref())),
+            transport: Some(chat_transport(
+                &generated.provider,
+                &generated.model,
+                generated.finish_reason.as_deref(),
+            )),
         });
         render_progress(document, state);
         return Ok(generated);
     };
     // 直前のラウンドで同じツール+同じ引数での呼び出しを検出し、ループ暴走を防ぐ
     let mut recent_calls: Vec<(String, String)> = Vec::new();
+    // verifyToolCallNeed 後のリトライでツール呼び出しを強制するための tool_choice
+    let mut forced_tool_choice: Option<String> = None;
+    // ツール結果を受け取ったモデルが空応答を返した場合の最終回答リトライは1回だけ行う。
+    let mut tool_result_continuations = 0usize;
     for _ in 0..MAX_TOOL_ROUNDS {
         let progress_index = {
             let mut current = state.borrow_mut();
@@ -102,6 +143,10 @@ pub async fn run(
             current.chat.len() - 1
         };
         render_progress(document, state);
+        {
+            let current = state.borrow();
+            super::sync_chat(&current);
+        }
         let progress_document = document.clone();
         let progress_state = Rc::clone(state);
         let turn_result = ai::agent_turn_observed(
@@ -111,6 +156,8 @@ pub async fn run(
             definitions.clone(),
             provider.as_deref(),
             model.as_deref(),
+            search_priority.clone(),
+            forced_tool_choice.clone(),
             move |update| {
                 if let Some(message) = progress_state.borrow_mut().chat.get_mut(progress_index) {
                     match update {
@@ -134,12 +181,53 @@ pub async fn run(
             }
         };
         if turn.tool_calls.is_empty() {
+            let has_tool_result = messages.iter().any(|message| {
+                message.get("role").and_then(Value::as_str) == Some("tool")
+            });
+            if turn.text.trim().is_empty()
+                && has_tool_result
+                && tool_result_continuations == 0
+            {
+                tool_result_continuations += 1;
+                if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
+                    message.content = "（ツール結果を確認し、最終回答を生成中…）".into();
+                    message.transport = Some(chat_transport(
+                        &turn.provider,
+                        &turn.model,
+                        turn.finish_reason.as_deref(),
+                    ));
+                }
+                render_progress(document, state);
+                // TS版 streamChatWithAutoContinuation の allowTools=false 相当。
+                forced_tool_choice = Some("none".into());
+                continue;
+            }
             if verify_tool_call_need(&messages, &turn.text, &tool_names).await {
                 if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
-                    message.transport = Some(chat_transport(&turn.provider, &turn.model, turn.finish_reason.as_deref()));
+                    message.transport = Some(chat_transport(
+                        &turn.provider,
+                        &turn.model,
+                        turn.finish_reason.as_deref(),
+                    ));
                 }
-                messages.push(json!({"role":"assistant","content":turn.text}));
+                let mut assistant_parts = Vec::new();
+                if !turn.text.trim().is_empty() {
+                    assistant_parts.push(json!({"type":"text","text":turn.text}));
+                }
+                append_native_tool_context(&mut assistant_parts, &turn);
+                push_responses_assistant(
+                    &mut messages,
+                    json!(assistant_parts),
+                    turn.responses_reasoning.as_ref(),
+                    &turn.responses_tool_items,
+                );
                 messages.push(json!({"role":"user","content":"まだ必要なツールを呼び出していないようです。先にツールを呼び出してから、必要であれば説明を続けてください。"}));
+                // TS resolveForcedToolChoice 相当: thinking モデルでは "auto"、それ以外は "required"
+                forced_tool_choice = capability::resolve_forced_tool_choice(
+                    &turn.provider,
+                    &turn.model,
+                    turn.thinking_enabled,
+                );
                 continue;
             }
             if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
@@ -150,7 +238,11 @@ pub async fn run(
                         "（応答がありませんでした）".into()
                     };
                 }
-                message.transport = Some(chat_transport(&turn.provider, &turn.model, turn.finish_reason.as_deref()));
+                message.transport = Some(chat_transport(
+                    &turn.provider,
+                    &turn.model,
+                    turn.finish_reason.as_deref(),
+                ));
             }
             render_progress(document, state);
             return Ok(ai::GeneratedText {
@@ -161,7 +253,11 @@ pub async fn run(
             });
         }
         if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
-            message.transport = Some(chat_transport(&turn.provider, &turn.model, turn.finish_reason.as_deref()));
+            message.transport = Some(chat_transport(
+                &turn.provider,
+                &turn.model,
+                turn.finish_reason.as_deref(),
+            ));
         }
         remove_empty_progress(state, progress_index);
         render_progress(document, state);
@@ -176,7 +272,8 @@ pub async fn run(
             if duplicate_count >= MAX_DUPLICATE_CALLS {
                 state.borrow_mut().chat.push(ChatMessage {
                     role: "assistant".into(),
-                    content: "（ツール実行後にモデルが停止しました。追加の指示を送ってください。）".into(),
+                    content: "（ツール実行後にモデルが停止しました。追加の指示を送ってください。）"
+                        .into(),
                     thinking: None,
                     exclude_from_context: false,
                     id: None,
@@ -205,6 +302,7 @@ pub async fn run(
         if !turn.text.trim().is_empty() {
             assistant_parts.push(json!({"type":"text","text":turn.text}));
         }
+        append_native_tool_context(&mut assistant_parts, &turn);
         for call in &turn.tool_calls {
             assistant_parts.push(json!({
                 "type":"tool-call",
@@ -213,9 +311,21 @@ pub async fn run(
                 "input":call.input,
             }));
         }
-        messages.push(json!({"role":"assistant","content":assistant_parts}));
+        push_responses_assistant(
+            &mut messages,
+            json!(assistant_parts),
+            turn.responses_reasoning.as_ref(),
+            &turn.responses_tool_items,
+        );
         let mut results = Vec::new();
         for call in turn.tool_calls {
+            web_sys::console::log_1(
+                &format!(
+                    "[litra-tool] start callId={} name={} provider={} model={}",
+                    call.id, call.name, turn.provider, turn.model
+                )
+                .into(),
+            );
             upsert_tool_card(
                 state,
                 &call.id,
@@ -228,6 +338,13 @@ pub async fn run(
             );
             render_progress(document, state);
             let mut report_tool_progress = |stage: &str| {
+                web_sys::console::log_1(
+                    &format!(
+                        "[litra-tool] progress callId={} name={} stage={stage}",
+                        call.id, call.name
+                    )
+                    .into(),
+                );
                 let status = format!("実行中（{stage}）");
                 upsert_tool_card(
                     state,
@@ -251,9 +368,42 @@ pub async fn run(
             )
             .await;
             let (status, output) = match execution {
-                Ok(output) if output.get("error").is_none() => ("成功", output),
-                Ok(output) => ("失敗", output),
-                Err(error) => ("失敗", json!({"error":js_error(&error)})),
+                Ok(output) if output.get("error").is_none() => {
+                    web_sys::console::log_1(
+                        &format!(
+                            "[litra-tool] finish callId={} name={} status=success",
+                            call.id, call.name
+                        )
+                        .into(),
+                    );
+                    ("成功", output)
+                }
+                Ok(output) => {
+                    let message = output
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("ツールがエラー結果を返しました。");
+                    web_sys::console::error_1(
+                        &format!(
+                            "[litra-tool] finish callId={} name={} status=error message={message}",
+                            call.id, call.name
+                        )
+                        .into(),
+                    );
+                    ("失敗", output)
+                }
+                Err(error) => {
+                    web_sys::console::error_1(
+                        &format!(
+                            "[litra-tool] finish callId={} name={} status=error message={}",
+                            call.id,
+                            call.name,
+                            js_error(&error)
+                        )
+                        .into(),
+                    );
+                    ("失敗", json!({"error":js_error(&error)}))
+                }
             };
             upsert_tool_card(
                 state,
@@ -274,6 +424,8 @@ pub async fn run(
             }));
         }
         messages.push(json!({"role":"tool","content":results}));
+        // 強制tool_choiceは「ツールが必要」と判定した1回の再試行だけに適用する。
+        forced_tool_choice = None;
     }
     // ツールループが最大ラウンド数に達した場合のフォールバックメッセージ
     state.borrow_mut().chat.push(ChatMessage {
@@ -289,6 +441,55 @@ pub async fn run(
     Err(JsValue::from_str(
         "AI tool loop exceeded the maximum number of rounds",
     ))
+}
+
+fn current_episode_id(state: &Rc<RefCell<State>>) -> Option<String> {
+    state.borrow().current_episode_id.clone()
+}
+
+fn push_responses_assistant(
+    messages: &mut Vec<Value>,
+    content: Value,
+    reasoning_item: Option<&Value>,
+    responses_tool_items: &[Value],
+) {
+    let mut message = json!({"role":"assistant","content":content});
+    let mut response_items = Vec::new();
+    if let Some(item) = reasoning_item {
+        response_items.push(item.clone());
+    }
+    response_items.extend(responses_tool_items.iter().cloned());
+    if !response_items.is_empty() {
+        message["responsesItems"] = Value::Array(response_items);
+    }
+    messages.push(message);
+}
+
+fn append_native_tool_context(parts: &mut Vec<Value>, turn: &ai::AgentTurn) {
+    if !turn.reasoning.trim().is_empty() {
+        parts.push(json!({
+            "type": "reasoning",
+            "text": turn.reasoning,
+        }));
+    }
+    for block in &turn.anthropic_thinking {
+        parts.push(json!({
+            "type": "anthropic-thinking-block",
+            "block": block,
+        }));
+    }
+    for block in &turn.anthropic_tool_context {
+        parts.push(json!({
+            "type": "anthropic-server-block",
+            "block": block,
+        }));
+    }
+    for part in &turn.google_tool_context {
+        parts.push(json!({
+            "type": "google-server-part",
+            "part": part,
+        }));
+    }
 }
 
 #[derive(Deserialize)]
@@ -317,9 +518,7 @@ async fn verify_tool_call_need(messages: &[Value], response: &str, tool_names: &
 }
 
 fn render_progress(document: &Document, state: &Rc<RefCell<State>>) {
-    let current = state.borrow();
-    let _ = super::render::chat(document, &current);
-    sync_chat(&current);
+    super::render::schedule_chat(document, state);
 }
 
 fn remove_empty_progress(state: &Rc<RefCell<State>>, index: usize) {
@@ -337,7 +536,11 @@ fn remove_empty_progress(state: &Rc<RefCell<State>>, index: usize) {
     }
 }
 
-fn chat_transport(provider: &str, model: &str, finish_reason: Option<&str>) -> ChatTransportMetadata {
+fn chat_transport(
+    provider: &str,
+    model: &str,
+    finish_reason: Option<&str>,
+) -> ChatTransportMetadata {
     ChatTransportMetadata {
         provider: Some(provider.into()),
         model: Some(model.into()),
@@ -458,9 +661,7 @@ fn summarize_tool_input(name: &str, input: &Value) -> Vec<String> {
                 .lines()
                 .filter(|l| {
                     let t = l.trim_start();
-                    t.starts_with("SWAP")
-                        || t.starts_with("DEL")
-                        || t.starts_with("INS")
+                    t.starts_with("SWAP") || t.starts_with("DEL") || t.starts_with("INS")
                 })
                 .count();
             let mut chips = Vec::new();
@@ -471,6 +672,12 @@ fn summarize_tool_input(name: &str, input: &Value) -> Vec<String> {
                 chips.push(format!("{ops}操作"));
             }
             chips
+        }
+        "editEpisodeBatch" => {
+            obj.get("edits")
+                .and_then(Value::as_array)
+                .map(|edits| vec![format!("{}範囲", edits.len())])
+                .unwrap_or_default()
         }
         "searchEpisodes" | "findEpisodeLines" => {
             let query = obj.get("query").and_then(Value::as_str).unwrap_or("");
@@ -519,17 +726,11 @@ fn summarize_tool_input(name: &str, input: &Value) -> Vec<String> {
             chips
         }
         "retrieveEpisode" => {
-            let id = obj
-                .get("episodeId")
-                .and_then(Value::as_str)
-                .unwrap_or("?");
+            let id = obj.get("episodeId").and_then(Value::as_str).unwrap_or("?");
             vec![format!("episodeId: {id}")]
         }
         "saveEpisodeSummary" | "saveEpisodeOneLiner" | "saveEpisodeSummaryAndOneLiner" => {
-            let id = obj
-                .get("episodeId")
-                .and_then(Value::as_str)
-                .unwrap_or("?");
+            let id = obj.get("episodeId").and_then(Value::as_str).unwrap_or("?");
             vec![format!("episodeId: {id}")]
         }
         "webSearch" => {
@@ -565,7 +766,11 @@ fn summarize_tool_output(name: &str, output: &Value) -> Vec<String> {
     };
     let mut chips = Vec::new();
     if let Some(success) = obj.get("success").and_then(Value::as_bool) {
-        chips.push(if success { "成功".into() } else { "失敗".into() });
+        chips.push(if success {
+            "成功".into()
+        } else {
+            "失敗".into()
+        });
     }
     if let Some(msg) = obj.get("message").and_then(Value::as_str) {
         if !msg.is_empty() {
@@ -637,6 +842,14 @@ fn now() -> String {
         .unwrap_or_default()
 }
 
+fn edit_line_range_summary(item: &Value) -> Value {
+    json!({
+        "startLine": item.get("startLine").cloned().unwrap_or(Value::Null),
+        "endLine": item.get("endLine").cloned().unwrap_or(Value::Null),
+        "replacementLineCount": item.get("replacementLineCount").cloned().unwrap_or(Value::Null),
+    })
+}
+
 /// ツール入力の episodeId を解決する。空または未指定なら現在のエピソードにフォールバック。
 fn resolve_episode_id(
     input: &serde_json::Map<String, Value>,
@@ -689,24 +902,39 @@ async fn execute(
             let content = input.get("content").cloned().unwrap_or(Value::Null);
             let one_liner = input.get("oneLiner").cloned().unwrap_or(Value::Null);
             invoke::invoke::<_, ()>(
-                "save_episode_summary",
-                &json!({"req":{"projectId":project_id,"episodeId":episode_id.clone(),"content":content}}),
+                "save_episode_summary_and_one_liner",
+                &json!({"req":{"projectId":project_id,"episodeId":episode_id,"content":content,"oneLiner":one_liner}}),
             )
             .await?;
-            invoke::invoke::<_, ()>(
-                "save_episode_one_liner",
-                &json!({"req":{"projectId":project_id,"episodeId":episode_id,"oneLiner":one_liner}}),
+            let search_index_updated = invoke::invoke::<_, Value>(
+                "rebuild_search_index",
+                &json!({"projectId":project_id}),
             )
-            .await?;
-            json!({"success":true})
+            .await
+            .is_ok();
+            json!({
+                "success": true,
+                "message": "要約と一行要約を保存しました。",
+                "searchIndexUpdated": search_index_updated,
+            })
         }
         "getEpisodeLines" => {
             let episode_id = resolve_episode_id(&input, current_episode)?;
-            let start = input.get("startLine").and_then(Value::as_u64).map(|v| v as u32);
-            let end = input.get("endLine").and_then(Value::as_u64).map(|v| v as u32);
+            let start = input
+                .get("startLine")
+                .and_then(Value::as_u64)
+                .map(|v| v as u32);
+            let end = input
+                .get("endLine")
+                .and_then(Value::as_u64)
+                .map(|v| v as u32);
             let episodes = state.borrow().episodes.clone();
             super::hashline_tools::ground_episode_lines(
-                project_id, &episode_id, &episodes, start, end,
+                project_id,
+                &episode_id,
+                &episodes,
+                start,
+                end,
             )
             .await?
         }
@@ -717,12 +945,24 @@ async fn execute(
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            let context = input.get("contextLines").and_then(Value::as_u64).map(|v| v as u32);
-            let max = input.get("maxMatches").and_then(Value::as_u64).map(|v| v as usize);
+            let context = input
+                .get("contextLines")
+                .and_then(Value::as_u64)
+                .map(|v| v as u32);
+            let max = input
+                .get("maxMatches")
+                .and_then(Value::as_u64)
+                .map(|v| v as usize);
             let case_sensitive = input.get("caseSensitive").and_then(Value::as_bool);
             let episodes = state.borrow().episodes.clone();
             super::hashline_tools::ground_find_episode_lines(
-                project_id, &episode_id, &episodes, &query, context, max, case_sensitive,
+                project_id,
+                &episode_id,
+                &episodes,
+                &query,
+                context,
+                max,
+                case_sensitive,
             )
             .await?
         }
@@ -740,9 +980,13 @@ async fn execute(
                 .unwrap_or("")
                 .to_string();
             let episodes = state.borrow().episodes.clone();
-            let result =
-                super::hashline_tools::apply_hashline_edit(project_id, &episodes, &patch_input, &reason)
-                    .await?;
+            let result = super::hashline_tools::apply_hashline_edit(
+                project_id,
+                &episodes,
+                &patch_input,
+                &reason,
+            )
+            .await?;
             // 現在のエピソードが編集されていればエディタ本文を再読み込み
             let edited_id = result
                 .get("episodeId")
@@ -761,13 +1005,110 @@ async fn execute(
                     }
                 }
             }
-            let _: Value =
-                invoke::invoke("rebuild_search_index", &json!({"projectId":project_id}))
-                    .await
-                    .unwrap_or(Value::Null);
+            let _: Value = invoke::invoke("rebuild_search_index", &json!({"projectId":project_id}))
+                .await
+                .unwrap_or(Value::Null);
             result
         }
+        "editEpisodeBatch" => {
+            let episode_id = resolve_episode_id(&input, current_episode)?;
+            let edits = input
+                .get("edits")
+                .and_then(Value::as_array)
+                .filter(|edits| !edits.is_empty())
+                .ok_or_else(|| {
+                    JsValue::from_str("editEpisodeBatch requires a non-empty 'edits' array")
+                })?
+                .clone();
+            let result: Value = invoke::invoke(
+                "edit_episode_text_batch",
+                &json!({
+                    "req": {
+                        "projectId": project_id,
+                        "episodeId": episode_id,
+                        "edits": edits,
+                    }
+                }),
+            )
+            .await?;
+            let success = result
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if success {
+                if let Some(new_text) = result.get("newText").and_then(Value::as_str) {
+                    if current_episode == Some(episode_id.as_str()) {
+                        state.borrow_mut().editor_text = new_text.to_owned();
+                    }
+                }
+            }
+            let search_index_updated = if success {
+                invoke::invoke::<_, Value>(
+                    "rebuild_search_index",
+                    &json!({"projectId":project_id}),
+                )
+                .await
+                .is_ok()
+            } else {
+                false
+            };
+            let edit_results = result
+                .get("editResults")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let edited_line_ranges = edit_results
+                .iter()
+                .filter(|item| item.get("success").and_then(Value::as_bool) == Some(true))
+                .map(edit_line_range_summary)
+                .collect::<Vec<_>>();
+            let failed_line_ranges = edit_results
+                .iter()
+                .filter(|item| item.get("success").and_then(Value::as_bool) != Some(true))
+                .map(|item| {
+                    let mut range = edit_line_range_summary(item);
+                    if let Some(object) = range.as_object_mut() {
+                        if let Some(message) = item.get("message") {
+                            object.insert("message".into(), message.clone());
+                        }
+                    }
+                    range
+                })
+                .collect::<Vec<_>>();
+            let message = result
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("一括編集の結果を取得できませんでした。");
+            let mut output = result.as_object().cloned().unwrap_or_default();
+            output.insert(
+                "editedLineRanges".into(),
+                Value::Array(edited_line_ranges.clone()),
+            );
+            output.insert(
+                "failedLineRanges".into(),
+                Value::Array(failed_line_ranges),
+            );
+            output.insert(
+                "editSummary".into(),
+                Value::String(if success {
+                    format!("{}件の編集を一括適用しました。", edited_line_ranges.len())
+                } else {
+                    message.to_owned()
+                }),
+            );
+            output.insert(
+                "searchIndexUpdated".into(),
+                Value::Bool(search_index_updated),
+            );
+            Value::Object(output)
+        }
         command => {
+            if command == "retrieveEpisode" {
+                // npm版の公開契約は `type`。バックエンドの永続化契約へ変換してから渡す。
+                if let Some(content_type) = input.remove("type") {
+                    input.insert("contentType".into(), content_type);
+                }
+            }
             input.insert("projectId".into(), Value::String(project_id.into()));
             let command = match command {
                 "retrieveEpisode" => "retrieve_episode_content",
@@ -784,9 +1125,16 @@ async fn execute(
         name,
         "saveEpisodeSummary" | "saveEpisodeOneLiner" | "saveEpisodeSummaryAndOneLiner"
     ) {
-        state.borrow_mut().summaries = projects::read_document(project_id, "summaries")
+        let summaries = projects::read_document(project_id, "summaries")
             .await?
             .unwrap_or_else(|| json!({"summaries":{}}));
+        state.borrow_mut().summaries = summaries;
+    }
+    if name == "saveEpisodeSummary" {
+        return Ok(json!({"success":true,"message":"要約を保存しました。"}));
+    }
+    if name == "saveEpisodeOneLiner" {
+        return Ok(json!({"success":true,"message":"一行要約を保存しました。"}));
     }
     Ok(value)
 }
@@ -801,15 +1149,15 @@ fn definitions() -> Vec<Value> {
         tool(
             "retrieveEpisode",
             "Retrieves an episode summary or full manuscript text.",
-            object([
-                ("episodeId", string()),
-                ("contentType", enum_string(&["summary", "fullText"])),
-            ]),
+            object_with_required(
+                [("episodeId", string()), ("type", enum_string(&["summary", "fullText"]))],
+                &["episodeId", "type"],
+            ),
         ),
         tool(
             "searchEpisodes",
             "Searches project episodes and summaries.",
-            object([("query", string()), ("limit", integer())]),
+            object_with_required([("query", string()), ("limit", integer())], &["query"]),
         ),
         tool(
             "rebuildSearchIndex",
@@ -819,22 +1167,28 @@ fn definitions() -> Vec<Value> {
         tool(
             "getEpisodeLines",
             "Reads episode text as hashline-numbered lines: a `[episodeId#TAG]` header plus `LINE:TEXT` rows. Copy the header (including #TAG) and line numbers verbatim to anchor an editEpisode.",
-            object([
-                ("episodeId", string()),
-                ("startLine", integer()),
-                ("endLine", integer()),
-            ]),
+            object_with_required(
+                [
+                    ("episodeId", string()),
+                    ("startLine", integer()),
+                    ("endLine", integer()),
+                ],
+                &["episodeId"],
+            ),
         ),
         tool(
             "findEpisodeLines",
             "Searches an episode and returns matching lines with context as hashline-numbered output (`[episodeId#TAG]` header + `LINE:TEXT` rows).",
-            object([
-                ("episodeId", string()),
-                ("query", string()),
-                ("contextLines", integer()),
-                ("maxMatches", integer()),
-                ("caseSensitive", boolean()),
-            ]),
+            object_with_required(
+                [
+                    ("episodeId", string()),
+                    ("query", string()),
+                    ("contextLines", integer()),
+                    ("maxMatches", integer()),
+                    ("caseSensitive", boolean()),
+                ],
+                &["episodeId", "query"],
+            ),
         ),
         tool(
             "editEpisode",
@@ -845,9 +1199,14 @@ fn definitions() -> Vec<Value> {
             ]),
         ),
         tool(
+            "editEpisodeBatch",
+            "同じ編集前本文に対する複数の非連続範囲を一括置換します。1-based行番号、expectedText、replacementText、reasonを各範囲に指定し、範囲は重複させません。複数箇所を編集する場合に使います。",
+            batch_edit_schema(),
+        ),
+        tool(
             "getEditLog",
             "Reads recent manuscript edit history and reasons.",
-            object([("episodeId", string()), ("limit", integer())]),
+            object_with_required([("episodeId", string()), ("limit", integer())], &[]),
         ),
         tool(
             "saveEpisodeSummary",
@@ -870,16 +1229,29 @@ fn definitions() -> Vec<Value> {
         ),
         tool(
             "webSearch",
-            "Searches the web for current factual information.",
-            object([("query", string()), ("numResults", integer())]),
+            "Fallback Exa web search for current factual information when the provider's native search is unavailable.",
+            object_with_required(
+                [
+                    ("query", string()),
+                    ("numResults", integer()),
+                    ("livecrawl", enum_string(&["fallback", "preferred"])),
+                    ("type", enum_string(&["auto", "fast", "deep"])),
+                    ("contextMaxCharacters", integer()),
+                ],
+                &["query"],
+            ),
         ),
         tool(
             "webFetch",
             "Fetches readable content from a URL.",
-            object([
-                ("url", string()),
-                ("format", enum_string(&["text", "markdown", "html"])),
-            ]),
+            object_with_required(
+                [
+                    ("url", string()),
+                    ("format", enum_string(&["text", "markdown", "html"])),
+                    ("timeout", integer()),
+                ],
+                &["url"],
+            ),
         ),
     ];
     definitions.extend(project::definitions());
@@ -892,15 +1264,45 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({"name":name,"description":description,"inputSchema":input_schema})
 }
 fn object<const N: usize>(properties: [(&str, Value); N]) -> Value {
-    let required = properties
-        .iter()
-        .map(|(key, _)| Value::String((*key).into()))
-        .collect::<Vec<_>>();
+    let required = properties.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+    object_with_required(properties, &required)
+}
+fn object_with_required<const N: usize>(
+    properties: [(&str, Value); N],
+    required: &[&str],
+) -> Value {
     let properties = properties
         .into_iter()
         .map(|(key, value)| (key.into(), value))
         .collect::<Map<String, Value>>();
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
+}
+fn batch_edit_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "episodeId": {"type": "string"},
+            "edits": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "startLine": {"type": "integer", "minimum": 1},
+                        "endLine": {"type": "integer", "minimum": 1},
+                        "expectedText": {"type": "string"},
+                        "replacementText": {"type": "string"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["startLine", "endLine", "expectedText", "replacementText", "reason"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["edits"],
+        "additionalProperties": false
+    })
 }
 fn string() -> Value {
     json!({"type":"string"})
@@ -932,7 +1334,8 @@ fn build_tool_guidance(tool_names: &[&str], direct_creative_edit: bool) -> Strin
     // EPISODE TEXT EDITING
     let has_episode_tools = available.contains("findEpisodeLines")
         || available.contains("getEpisodeLines")
-        || available.contains("editEpisode");
+        || available.contains("editEpisode")
+        || available.contains("editEpisodeBatch");
     if has_episode_tools {
         s.push_str(r#"
 
@@ -949,10 +1352,11 @@ EPISODE TEXT EDITING (hashline) - follow in this order:
 5. RANGES ARE TIGHT: cover ONLY lines whose content changes. Never widen a range over unchanged lines. Pure additions use `INS.*`, never a widened `SWAP`.
 6. RE-GROUND AFTER EVERY EDIT: each successful editEpisode mints a fresh #TAG and renumbers. Take the next edit's header/numbers from the edit response (it returns updated `numberedText`) or a fresh getEpisodeLines. On a stale-tag rejection or any surprising result, STOP and re-read before further edits.
 7. Multiple separate changes = multiple sections (or multiple hunks under one header) in a SINGLE editEpisode call — they apply all-or-nothing. Never chain editEpisode calls for changes that belong together.
-8. Body text must be Japanese, unless the user explicitly asked for another language.
-9. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range, the intended change, or the canon impact is ambiguous or high-risk.
-10. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read.
-11. After a successful edit, report what changed once (the returned warnings/numberedText). Do not reprint the whole patch unless the user asks.
+8. IF multiple non-contiguous ranges are available as exact 1-based line ranges from the same pre-edit text, use editEpisodeBatch once with every `expectedText`, `replacementText`, and Japanese `reason`. Never apply those ranges through separate tool calls.
+9. Body text must be Japanese, unless the user explicitly asked for another language.
+10. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range, the intended change, or the canon impact is ambiguous or high-risk.
+11. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read.
+12. After a successful edit, report what changed once (the returned warnings/numberedText or editSummary/editedLineRanges). Do not reprint the whole patch unless the user asks.
 "#);
     }
 
@@ -1103,6 +1507,7 @@ TOOL USE — follow these steps in this exact order for every request:
 
 STEP 1 — DECIDE:
 - IF the request needs current application data or a data change (retrieve, search, verify, edit, save, update, create, delete, consistency check) AND a capable tool is listed below → you MUST actually call that tool.
+- For web searches, the selected provider's native hosted search is preferred according to the user's search priority setting. The `webSearch` function is the Exa fallback; use it when native search is unavailable or the request explicitly requires the Exa result format.
 - Writing a plan, a procedure, or tool arguments as plain text is NOT execution. A reply that only describes what should be done is an unfinished task.
 - IF no tool is needed → answer directly and skip the remaining steps.
 
@@ -1142,7 +1547,31 @@ mod tests {
             .expect("editEpisode definition");
         let schema = &edit["inputSchema"];
         assert_eq!(schema["additionalProperties"], false);
-        assert_eq!(schema["required"].as_array().map(Vec::len), Some(6));
+        assert_eq!(schema["required"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn npm_compatible_tool_contracts_keep_optional_fields_optional() {
+        let tools = definitions();
+        let batch = tools
+            .iter()
+            .find(|tool| tool["name"] == "editEpisodeBatch")
+            .expect("editEpisodeBatch definition");
+        assert_eq!(batch["inputSchema"]["required"], json!(["edits"]));
+        assert_eq!(batch["inputSchema"]["properties"]["edits"]["minItems"], 1);
+
+        let retrieve = tools
+            .iter()
+            .find(|tool| tool["name"] == "retrieveEpisode")
+            .expect("retrieveEpisode definition");
+        assert!(retrieve["inputSchema"]["properties"].get("type").is_some());
+        assert!(retrieve["inputSchema"]["properties"].get("contentType").is_none());
+
+        let web_search = tools
+            .iter()
+            .find(|tool| tool["name"] == "webSearch")
+            .expect("webSearch definition");
+        assert_eq!(web_search["inputSchema"]["required"], json!(["query"]));
     }
 
     #[test]
