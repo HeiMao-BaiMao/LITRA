@@ -162,6 +162,12 @@ where
         vec![]
     };
     let best_of_two = enabled(settings, "continuationBestOfTwo");
+    // ベスト2候補生成とビート分割は粒度が異なり併用しない（ベスト2優先）。
+    // 両方有効かつビート分割の材料が揃っている場合のみ、休止していることを
+    // 一度だけ可視化する（設定上は両方ONのまま気づかず使い続ける事故を防ぐ）。
+    if beats.len() >= 2 && best_of_two {
+        on_stage("ベスト2優先のためビート分割は休止中");
+    }
     on_stage(if beats.len() >= 2 && !best_of_two {
         "ビートごとに本文を生成中"
     } else {
