@@ -1,7 +1,7 @@
 use serde::Serialize;
-use wasm_bindgen::{closure::Closure, JsValue};
+use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::Document;
+use web_sys::{Document, HtmlInputElement};
 
 use crate::runtime::{invoke, oauth};
 
@@ -15,6 +15,11 @@ pub fn provider_changed(document: &Document, provider: &str) -> Result<(), JsVal
     let is_oauth = matches!(provider, "codex" | "github-copilot");
     set_hidden(document, "setting-api-key-row", is_oauth)?;
     set_hidden(document, "setting-oauth-row", !is_oauth)?;
+    set_hidden(
+        document,
+        "setting-copilot-enterprise-row",
+        provider != "github-copilot",
+    )?;
     if is_oauth {
         set_busy(document, false)?;
         let document = document.clone();
@@ -55,7 +60,14 @@ pub async fn start_oauth(document: &Document, provider: &str) -> Result<(), JsVa
             );
             let _ = set_hidden(&callback_document, "setting-oauth-user-code", false);
         }) as Box<dyn FnMut(String, String)>);
-        let result = oauth::start_copilot(oauth::as_function(callback.as_ref())).await;
+        let enterprise_url = document
+            .get_element_by_id("setting-copilot-enterprise-url")
+            .and_then(|element| element.dyn_into::<HtmlInputElement>().ok())
+            .map(|input| input.value())
+            .unwrap_or_default();
+        let result =
+            oauth::start_copilot(oauth::as_function(callback.as_ref()), enterprise_url.trim())
+                .await;
         drop(callback);
         result
     };
@@ -95,7 +107,11 @@ async fn refresh_status(document: &Document, provider: &str) -> Result<(), JsVal
     set_text(
         document,
         "setting-oauth-status",
-        if logged_in { "ログイン済み" } else { "未ログイン" },
+        if logged_in {
+            "ログイン済み"
+        } else {
+            "未ログイン"
+        },
     );
     set_hidden(document, "btn-oauth-login", logged_in)?;
     set_hidden(document, "btn-oauth-logout", !logged_in)?;

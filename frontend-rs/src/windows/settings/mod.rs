@@ -35,8 +35,14 @@ async fn mount_editor(document: &Document, bind_tabs: bool) -> Result<(), JsValu
                     return;
                 };
                 payload.relationship_episode_id = state.borrow().relationship_episode_id.clone();
-                let _ = render::update_tabs(&document, &payload.view);
-                let _ = render::render(&document, &payload);
+                let editing = document
+                    .active_element()
+                    .and_then(|element| element.closest("#settings-container").ok().flatten())
+                    .is_some();
+                if !editing {
+                    let _ = render::update_tabs(&document, &payload.view);
+                    let _ = render::render(&document, &payload);
+                }
                 *state.borrow_mut() = payload;
             }) as Box<dyn FnMut(JsValue)>),
         )
@@ -44,9 +50,14 @@ async fn mount_editor(document: &Document, bind_tabs: bool) -> Result<(), JsValu
     }
 
     if bind_tabs {
-        bind_tab(document, "#tab-characters", "characters")?;
-        bind_tab(document, "#tab-world", "world")?;
-        bind_tab(document, "#tab-relationships", "relationships")?;
+        bind_tab(document, "#tab-characters", "characters", Rc::clone(&state))?;
+        bind_tab(document, "#tab-world", "world", Rc::clone(&state))?;
+        bind_tab(
+            document,
+            "#tab-relationships",
+            "relationships",
+            Rc::clone(&state),
+        )?;
     }
     events::bind(document, &container, state)?;
     bind_resizer(document)?;
@@ -90,9 +101,18 @@ fn required(document: &Document, selector: &str) -> Result<Element, JsValue> {
         .ok_or_else(|| JsValue::from_str(&format!("settings control is missing: {selector}")))
 }
 
-fn bind_tab(document: &Document, selector: &str, view: &'static str) -> Result<(), JsValue> {
+fn bind_tab(
+    document: &Document,
+    selector: &str,
+    view: &'static str,
+    state: Rc<RefCell<SettingsState>>,
+) -> Result<(), JsValue> {
     let tab = required(document, selector)?;
+    let document = document.clone();
     let on_click = Closure::wrap(Box::new(move |_event: Event| {
+        state.borrow_mut().view = view.into();
+        let _ = render::update_tabs(&document, view);
+        let _ = render::render(&document, &state.borrow());
         let payload = Object::new();
         let _ = Reflect::set(&payload, &"view".into(), &view.into());
         tauri::emit("settings-select-view", &payload);

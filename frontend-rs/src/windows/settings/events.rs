@@ -1,7 +1,4 @@
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use js_sys::{Object, Reflect};
 use serde_json::{json, Value};
@@ -56,8 +53,20 @@ fn bind_clicks(
                     tauri::emit("settings-create-world", &payload);
                 }
             }
-            "select-character" => emit_target_id(&target, "settings-select-character"),
-            "select-world" => emit_target_id(&target, "settings-select-world"),
+            "select-character" => {
+                if let Some(id) = target.get_attribute("data-id") {
+                    state.borrow_mut().current_character_id = Some(id);
+                    let _ = render::render(&document, &state.borrow());
+                    emit_target_id(&target, "settings-select-character");
+                }
+            }
+            "select-world" => {
+                if let Some(id) = target.get_attribute("data-id") {
+                    state.borrow_mut().current_world_entry_id = Some(id);
+                    let _ = render::render(&document, &state.borrow());
+                    emit_target_id(&target, "settings-select-world");
+                }
+            }
             "delete-character" => delete_entity(&target, &state, true),
             "delete-world" => delete_entity(&target, &state, false),
             "add-custom" | "delete-custom" => {
@@ -122,7 +131,7 @@ fn bind_inputs(
     container: &Element,
     state: Rc<RefCell<SettingsState>>,
 ) -> Result<(), JsValue> {
-    let timeout = Rc::new(Cell::new(None::<i32>));
+    let timeouts = Rc::new(RefCell::new(HashMap::<&'static str, i32>::new()));
     let document = document.clone();
     let handler = Closure::wrap(Box::new(move |event: Event| {
         let Some(target) = event
@@ -144,7 +153,7 @@ fn bind_inputs(
             if let Some(field) = target.get_attribute("data-rel-field") {
                 update_relationship(&mut state.borrow_mut(), index, &field, value);
                 schedule(
-                    Rc::clone(&timeout),
+                    Rc::clone(&timeouts),
                     "settings-update-relationships",
                     "map",
                     state.borrow().relationships_map.clone(),
@@ -182,7 +191,7 @@ fn bind_inputs(
         } else {
             ("settings-update-world", "entry")
         };
-        schedule(Rc::clone(&timeout), event, key, item);
+        schedule(Rc::clone(&timeouts), event, key, item);
     }) as Box<dyn FnMut(Event)>);
     container.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
     container.add_event_listener_with_callback("change", handler.as_ref().unchecked_ref())?;
@@ -347,17 +356,26 @@ fn emit_value(event: &str, key: &str, value: &Value) {
     tauri::emit(event, &payload);
 }
 
-fn schedule(timeout: Rc<Cell<Option<i32>>>, event: &'static str, key: &'static str, value: Value) {
+fn schedule(
+    timeouts: Rc<RefCell<HashMap<&'static str, i32>>>,
+    event: &'static str,
+    key: &'static str,
+    value: Value,
+) {
     let Some(window) = web_sys::window() else {
         return;
     };
-    if let Some(timeout_id) = timeout.take() {
+    if let Some(timeout_id) = timeouts.borrow_mut().remove(event) {
         window.clear_timeout_with_handle(timeout_id);
     }
-    let callback = Closure::once_into_js(move || emit_value(event, key, &value));
+    let pending_timeouts = Rc::clone(&timeouts);
+    let callback = Closure::once_into_js(move || {
+        pending_timeouts.borrow_mut().remove(event);
+        emit_value(event, key, &value);
+    });
     if let Ok(timeout_id) =
         window.set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), 400)
     {
-        timeout.set(Some(timeout_id));
+        timeouts.borrow_mut().insert(event, timeout_id);
     }
 }

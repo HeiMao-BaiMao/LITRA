@@ -21,8 +21,10 @@ struct Args<'a> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ModelInfo {
     id: String,
+    model_picker_enabled: Option<bool>,
 }
 
 pub async fn fetch(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
@@ -53,19 +55,29 @@ pub async fn fetch(document: &Document, state: &Rc<RefCell<State>>) -> Result<()
     .await;
     match result {
         Ok(models) => {
-            let configured = state
-                .borrow()
-                .catalog
-                .iter()
-                .find(|item| item.id == provider)
-                .map(|item| {
-                    item.models
-                        .iter()
-                        .map(|model| model.id.clone())
-                        .collect::<Vec<_>>()
+            let configured = if provider == "github-copilot" {
+                Vec::new()
+            } else {
+                state
+                    .borrow()
+                    .catalog
+                    .iter()
+                    .find(|item| item.id == provider)
+                    .map(|item| {
+                        item.models
+                            .iter()
+                            .map(|model| model.id.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            };
+            let mut ids = models
+                .into_iter()
+                .filter(|model| {
+                    provider != "github-copilot" || model.model_picker_enabled == Some(true)
                 })
-                .unwrap_or_default();
-            let mut ids = models.into_iter().map(|model| model.id).collect::<Vec<_>>();
+                .map(|model| model.id)
+                .collect::<Vec<_>>();
             ids.extend(configured);
             ids.sort();
             ids.dedup();

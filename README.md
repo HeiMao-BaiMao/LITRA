@@ -31,6 +31,8 @@ LITRA は、長編小説や連作の制作を前提にした、リトラと一�
 
 API キー、ベース URL、モデル、temperature、最大出力トークン、コンテキスト上限、reasoning / thinking 関連の設定はアプリ内の設定画面から変更できます。
 
+Web 検索は設定画面の「検索ツールの優先順位」で候補を並べ替えられます。既定では、選択中のプロバイダーが対応するネイティブ検索（OpenAI Responses / Anthropic Messages / Gemini Google Search）を優先し、Exa を共通フォールバックとして使用します。Gemini 3 では Google Search とアプリのカスタムツールを併用し、それ以前の現行Geminiモデルでは単独のネイティブ検索として利用します。Codex、Copilot、OpenCode、DeepSeek、さくらの AI Engine、PLaMo、llama.cpp には、現行の公開 API 仕様で確認できるネイティブ Web 検索を割り当てていません。
+
 ### プロバイダー設定のカスタマイズ（providers.json）
 
 プロバイダーとモデルの定義は、初回起動時にアプリ設定ディレクトリへ書き出される `providers.json` で自由にカスタマイズできます（ビルド後も編集可能）。

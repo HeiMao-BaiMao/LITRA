@@ -204,6 +204,10 @@
             <button id="btn-oauth-cancel" type="button" class="btn-oauth hidden">キャンセル</button>
             <div id="setting-oauth-user-code" class="oauth-user-code hidden"></div>
           </div>
+          <label id="setting-copilot-enterprise-row" class="hidden">
+            <span>GitHub Enterprise URL（任意）</span>
+            <input id="setting-copilot-enterprise-url" type="url" placeholder="https://github.example" />
+          </label>
           <label>
             <span>ベース URL</span>
             <input id="setting-base-url" type="url" />
@@ -549,6 +553,11 @@
               <span>Exa API キー（任意・未入力なら無料枠で動作）</span>
               <input id="setting-exa-api-key" type="password" autocomplete="off" />
             </label>
+            <div class="web-search-priority-settings">
+              <h4>検索ツールの優先順位</h4>
+              <p class="settings-group-description">現在のプロバイダーで利用できる候補を上から試します。ネイティブ検索に対応しないプロバイダーでは Exa に自動で切り替わります。</p>
+              <div id="web-search-priority-list" class="web-search-priority-list"></div>
+            </div>
           </section>
           </div>
 

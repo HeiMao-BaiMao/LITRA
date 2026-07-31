@@ -1,12 +1,43 @@
 use std::cell::RefCell;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
-use web_sys::{Document, HtmlElement, HtmlInputElement};
+use web_sys::{Document, Element, HtmlElement, HtmlInputElement};
 
 use crate::runtime::{invoke, tauri};
 
 const EXA_KEY: &str = "websearch:exaApiKey";
+
+pub const DEFAULT_WEB_SEARCH_PRIORITY: [&str; 4] = [
+    "openai-web-search",
+    "anthropic-web-search",
+    "google-search",
+    "exa",
+];
+
+const WEB_SEARCH_CANDIDATES: [(&str, &str, &str); 4] = [
+    (
+        "openai-web-search",
+        "OpenAI Web search",
+        "OpenAI Responses API のネイティブ検索",
+    ),
+    (
+        "anthropic-web-search",
+        "Anthropic Web search",
+        "Anthropic Messages API のネイティブ検索",
+    ),
+    (
+        "google-search",
+        "Google Search",
+        "Gemini の Google 検索グラウンディング",
+    ),
+    (
+        "exa",
+        "Exa",
+        "プロバイダーに依存しない検索（フォールバック）",
+    ),
+];
 
 // 同期進捗表示に使う現在のプロジェクト名。
 // メイン画面でプロジェクトを切り替えるたびに更新される。
@@ -69,7 +100,7 @@ struct SyncProgress {
     target_name: Option<String>,
 }
 
-pub async fn populate(document: &Document) -> Result<(), JsValue> {
+pub async fn populate(document: &Document, settings: &Value) -> Result<(), JsValue> {
     let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
     set_checked(document, "setting-webdav-enabled", config.enabled);
     set_value(document, "setting-webdav-url", &config.base_url);
@@ -90,7 +121,157 @@ pub async fn populate(document: &Document) -> Result<(), JsValue> {
         "setting-exa-api-key",
         exa.as_deref().unwrap_or_default(),
     );
+    render_web_search_priority(document, settings);
     update_enabled(document)
+}
+
+pub fn capture_web_search_priority(
+    document: &Document,
+    object: &mut Map<String, Value>,
+) -> Result<(), JsValue> {
+    let mut priority = Vec::new();
+    if let Some(list) = document.get_element_by_id("web-search-priority-list") {
+        let rows = list.query_selector_all("[data-search-backend]")?;
+        for index in 0..rows.length() {
+            let Some(row) = rows
+                .item(index)
+                .and_then(|node| node.dyn_into::<Element>().ok())
+            else {
+                continue;
+            };
+            if let Some(id) = row.get_attribute("data-search-backend") {
+                priority.push(Value::String(id));
+            }
+        }
+    }
+    if priority.is_empty() {
+        priority.extend(
+            DEFAULT_WEB_SEARCH_PRIORITY
+                .iter()
+                .map(|id| Value::String((*id).into())),
+        );
+    }
+    object.insert("webSearchPriority".into(), Value::Array(priority));
+    Ok(())
+}
+
+pub fn move_web_search_priority(
+    document: &Document,
+    backend: &str,
+    direction: i32,
+) -> Result<(), JsValue> {
+    let Some(list) = document.get_element_by_id("web-search-priority-list") else {
+        return Ok(());
+    };
+    let rows = list.query_selector_all("[data-search-backend]")?;
+    let mut target = None;
+    for index in 0..rows.length() {
+        let Some(row) = rows
+            .item(index)
+            .and_then(|node| node.dyn_into::<Element>().ok())
+        else {
+            continue;
+        };
+        if row.get_attribute("data-search-backend").as_deref() == Some(backend) {
+            target = Some(row);
+            break;
+        }
+    }
+    let Some(target) = target else {
+        return Ok(());
+    };
+    if direction < 0 {
+        if let Some(previous) = target.previous_element_sibling() {
+            list.insert_before(&target, Some(&previous))?;
+        }
+    } else if direction > 0 {
+        if let Some(next) = target.next_element_sibling() {
+            if let Some(after) = next.next_element_sibling() {
+                list.insert_before(&target, Some(&after))?;
+            } else {
+                list.append_child(&target)?;
+            }
+        }
+    }
+    refresh_web_search_priority_controls(&list);
+    Ok(())
+}
+
+fn render_web_search_priority(document: &Document, settings: &Value) {
+    let Some(list) = document.get_element_by_id("web-search-priority-list") else {
+        return;
+    };
+    let mut priority = settings
+        .get("webSearchPriority")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|id| {
+                    WEB_SEARCH_CANDIDATES
+                        .iter()
+                        .any(|candidate| candidate.0 == *id)
+                })
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for id in DEFAULT_WEB_SEARCH_PRIORITY {
+        if !priority.iter().any(|item| item == id) {
+            priority.push(id.to_owned());
+        }
+    }
+    list.set_inner_html(
+        &priority
+            .iter()
+            .enumerate()
+            .filter_map(|(index, id)| {
+                let (_, label, description) = WEB_SEARCH_CANDIDATES
+                    .iter()
+                    .find(|candidate| candidate.0 == id)?;
+                Some(format!(
+                    r#"<div class="web-search-priority-row" data-search-backend="{id}"><div class="web-search-priority-info"><strong data-search-label="{label}">{rank}. {label}</strong><small>{description}</small></div><div class="web-search-priority-actions"><button type="button" data-action="move-web-search-up" data-id="{id}" title="優先順位を上げる">▲</button><button type="button" data-action="move-web-search-down" data-id="{id}" title="優先順位を下げる">▼</button></div></div>"#,
+                    rank = index + 1,
+                ))
+            })
+            .collect::<String>(),
+    );
+    refresh_web_search_priority_controls(&list);
+}
+
+fn refresh_web_search_priority_controls(list: &Element) {
+    let Ok(rows) = list.query_selector_all("[data-search-backend]") else {
+        return;
+    };
+    let length = rows.length();
+    for index in 0..length {
+        let Some(row) = rows
+            .item(index)
+            .and_then(|node| node.dyn_into::<Element>().ok())
+        else {
+            continue;
+        };
+        if let Ok(Some(rank)) = row.query_selector("[data-search-label]") {
+            if let Some(label) = rank.get_attribute("data-search-label") {
+                rank.set_text_content(Some(&format!("{}. {label}", index + 1)));
+            }
+        }
+        if let Ok(Some(button)) = row.query_selector("[data-action=move-web-search-up]") {
+            if index == 0 {
+                let _ = button.set_attribute("disabled", "true");
+            } else {
+                let _ = button.remove_attribute("disabled");
+            }
+        }
+        if let Ok(Some(button)) = row.query_selector("[data-action=move-web-search-down]") {
+            if index + 1 == length {
+                let _ = button.set_attribute("disabled", "true");
+            } else {
+                let _ = button.remove_attribute("disabled");
+            }
+        }
+    }
 }
 
 pub async fn save(document: &Document) -> Result<(), JsValue> {

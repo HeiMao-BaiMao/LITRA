@@ -31,7 +31,7 @@ pub async fn open(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
     let settings: Value = invoke::invoke("ai_settings_snapshot", &Empty {}).await?;
     state.borrow_mut().ai_settings = settings;
     populate(document, &state.borrow())?;
-    integrations::populate(document).await?;
+    integrations::populate(document, &state.borrow().ai_settings).await?;
     set_hidden(document, false)
 }
 
@@ -45,6 +45,10 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
         ("setting-api-key", "apiKey"),
         ("setting-base-url", "baseUrl"),
         ("setting-model", "model"),
+        (
+            "setting-copilot-enterprise-url",
+            "githubCopilotEnterpriseUrl",
+        ),
         ("setting-chat-submit-shortcut", "chatSubmitShortcut"),
         ("setting-openai-reasoning-effort", "openaiReasoningEffort"),
         (
@@ -126,6 +130,7 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
         }
     }
     form::capture(document, object)?;
+    integrations::capture_web_search_priority(document, object)?;
     invoke::invoke::<_, ()>(
         "ai_settings_save",
         &SaveArgs {
@@ -206,7 +211,7 @@ pub async fn reset(document: &Document, state: &Rc<RefCell<State>>) -> Result<()
         current.catalog = catalog;
     }
     populate(document, &state.borrow())?;
-    integrations::populate(document).await
+    integrations::populate(document, &state.borrow().ai_settings).await
 }
 
 pub fn provider_changed(
@@ -264,6 +269,11 @@ pub fn provider_changed(
         }
     }
     models::update_button(document, provider.map(|provider| provider.fixed_models))?;
+    let requires_api_key = provider.is_none_or(|provider| provider.requires_api_key);
+    if let Some(row) = document.get_element_by_id("setting-api-key-row") {
+        row.class_list()
+            .toggle_with_force("hidden", !requires_api_key)?;
+    }
     for (selector, visible) in [
         (
             ".provider-field-openai",
@@ -421,6 +431,11 @@ fn populate(document: &Document, state: &State) -> Result<(), JsValue> {
         ("setting-api-key", "apiKey", ""),
         ("setting-base-url", "baseUrl", ""),
         ("setting-model", "model", ""),
+        (
+            "setting-copilot-enterprise-url",
+            "githubCopilotEnterpriseUrl",
+            "",
+        ),
         ("setting-temperature", "temperature", "1"),
         ("setting-max-tokens", "maxTokens", "8192"),
         ("setting-max-context-tokens", "maxContextTokens", "128000"),

@@ -947,6 +947,11 @@ button#btn-cancel:hover:not(:disabled) {
 .nav-episode-title-container {
   flex: 1;
   min-width: 0;
+  cursor: pointer;
+}
+
+.nav-episode-title-container:hover {
+  background-color: var(--bg-tertiary);
 }
 
 .nav-episode-title {
@@ -1708,6 +1713,62 @@ button#btn-cancel:hover:not(:disabled) {
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background: var(--bg-primary);
+}
+
+.web-search-priority-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.web-search-priority-settings h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.web-search-priority-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.web-search-priority-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-secondary);
+}
+
+.web-search-priority-info {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.web-search-priority-info strong {
+  font-size: 0.82rem;
+}
+
+.web-search-priority-info small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.web-search-priority-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+}
+
+.web-search-priority-actions button {
+  min-width: 1.8rem;
+  padding: 0.25rem 0.35rem;
 }
 
 .settings-integrations-grid,
