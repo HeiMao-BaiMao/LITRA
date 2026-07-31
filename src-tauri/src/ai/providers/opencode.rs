@@ -34,6 +34,20 @@ pub(super) fn retry_delay(status: u16, attempt: usize) -> Option<Duration> {
 }
 
 pub(super) fn normalize_body(mut body: Value) -> Value {
+    let is_deepseek_v4 = body
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(|model| {
+            let model = model.to_ascii_lowercase();
+            model.starts_with("deepseek-v4-") || model == "deepseek-v4"
+        });
+    if is_deepseek_v4 {
+        // OpenCode Go's DeepSeek V4 route rejects tool_choice while thinking
+        // is enabled. Tool selection remains automatic when tools are present.
+        if let Some(object) = body.as_object_mut() {
+            object.remove("tool_choice");
+        }
+    }
     if let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) {
         for message in messages {
             let has_tool_calls = message
@@ -159,5 +173,14 @@ mod tests {
     fn normalizes_empty_tool_call_assistant_content() {
         let body = json!({"messages": [{"role": "assistant", "content": "", "tool_calls": [{}]}]});
         assert!(normalize_body(body)["messages"][0]["content"].is_null());
+    }
+
+    #[test]
+    fn removes_deepseek_v4_tool_choice() {
+        let body = json!({
+            "model": "deepseek-v4-flash",
+            "tool_choice": "required"
+        });
+        assert!(normalize_body(body).get("tool_choice").is_none());
     }
 }
