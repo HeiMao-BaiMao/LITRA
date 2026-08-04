@@ -27,14 +27,74 @@ jobs:
         working-directory: src-tauri
         run: cargo audit
 
-  js-audit:
-    name: JS dependency audit (bun audit)
+  clippy:
+    name: Clippy (backend)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-      - name: bun audit
-        run: bun audit --audit-level=high
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy with warnings as errors
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test backend
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Test frontend (host unit tests)
+        working-directory: frontend-rs
+        run: cargo test
+
+  frontend-wasm:
+    name: Frontend WASM build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: cargo check (wasm32-unknown-unknown)
+        working-directory: frontend-rs
+        run: cargo check --target wasm32-unknown-unknown
+
+      - name: trunk build --release
+        run: trunk build --release
+
+  licenses:
+    name: Third-party license drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Regenerate license files and fail on drift
+        run: |
+          node scripts/generate-licenses.mjs
+          git diff --exit-code -- public/third-party-licenses.json legal/THIRD_PARTY_LICENSES.json legal/THIRD_PARTY_LICENSES.md
