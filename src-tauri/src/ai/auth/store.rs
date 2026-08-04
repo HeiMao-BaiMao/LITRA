@@ -87,13 +87,13 @@ fn validate_oauth_provider(provider: &str) -> Result<(), String> {
 #[tauri::command]
 pub async fn oauth_credential_status(provider: String) -> Result<bool, String> {
     validate_oauth_provider(&provider)?;
-    Ok(tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         read_json_sync::<serde_json::Value>(&provider)
             .map(|value| value.is_some_and(|value| valid_credential_shape(&provider, &value)))
             .unwrap_or(false)
     })
     .await
-    .map_err(|error| format!("OAuth credential status task failed: {error}"))?)
+    .map_err(|error| format!("OAuth credential status task failed: {error}"))
 }
 
 fn valid_credential_shape(provider: &str, value: &serde_json::Value) -> bool {

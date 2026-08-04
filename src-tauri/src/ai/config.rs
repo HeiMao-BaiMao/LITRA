@@ -519,11 +519,12 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
                         models[position].max_tokens = cached.max_output_tokens;
                     }
                 } else {
-                    let mut model = Model::default();
-                    model.id = cached.id;
-                    model.connection = cached.endpoint;
-                    model.max_tokens = cached.max_output_tokens;
-                    models.push(model);
+                    models.push(Model {
+                        id: cached.id,
+                        connection: cached.endpoint,
+                        max_tokens: cached.max_output_tokens,
+                        ..Default::default()
+                    });
                 }
             }
         }

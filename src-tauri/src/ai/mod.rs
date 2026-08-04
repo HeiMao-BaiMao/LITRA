@@ -67,17 +67,14 @@ async fn stream_request(
         },
     )?;
     let client = transport::build_client()?;
-    let prepared = loop {
-        let prepared = tokio::select! {
-            _ = token.cancelled() => {
-                send(channel, AiStreamEvent::Cancelled)?;
-                return Ok(());
-            }
-            response = transport::send_request(&client, request) => response?,
-        };
-        if prepared.response.status().is_success() {
-            break prepared;
+    let prepared = tokio::select! {
+        _ = token.cancelled() => {
+            send(channel, AiStreamEvent::Cancelled)?;
+            return Ok(());
         }
+        response = transport::send_request(&client, request) => response?,
+    };
+    if !prepared.response.status().is_success() {
         let status = prepared.response.status().as_u16();
         if request.native_search_enabled() && matches!(status, 400 | 404 | 405 | 415 | 422 | 501) {
             // Hosted tools are entitlement/model dependent. Retry once with
@@ -87,8 +84,7 @@ async fn stream_request(
             fallback.search_priority = vec!["exa".into()];
             return stream_request_with_request(&fallback, channel, token, client).await;
         }
-        break prepared;
-    };
+    }
     stream_prepared(request, channel, token, prepared).await
 }
 

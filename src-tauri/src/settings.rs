@@ -367,8 +367,8 @@ pub async fn reset_all_settings(app: AppHandle) -> Result<Value, String> {
     let _ = crate::secrets::delete_secret("websearch:exaApiKey");
 
     // 6. OAuth 認証情報を削除
-    let _ = crate::ai::auth::store::oauth_credential_delete("codex".to_string());
-    let _ = crate::ai::auth::store::oauth_credential_delete("github-copilot".to_string());
+    let _ = crate::ai::auth::store::oauth_credential_delete("codex".to_string()).await;
+    let _ = crate::ai::auth::store::oauth_credential_delete("github-copilot".to_string()).await;
 
     Ok(empty_settings)
 }
