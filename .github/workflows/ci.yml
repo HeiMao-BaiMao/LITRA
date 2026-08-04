@@ -29,7 +29,7 @@ jobs:
 
   clippy:
     name: Clippy (backend)
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -41,11 +41,11 @@ jobs:
 
       - name: Clippy with warnings as errors
         working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -55,11 +55,11 @@ jobs:
 
       - name: Test backend
         working-directory: src-tauri
-        run: cargo test
+        run: cargo test --locked
 
       - name: Test frontend (host unit tests)
         working-directory: frontend-rs
-        run: cargo test
+        run: cargo test --locked
 
   frontend-wasm:
     name: Frontend WASM build
@@ -81,10 +81,10 @@ jobs:
 
       - name: cargo check (wasm32-unknown-unknown)
         working-directory: frontend-rs
-        run: cargo check --target wasm32-unknown-unknown
+        run: cargo check --locked --target wasm32-unknown-unknown
 
       - name: trunk build --release
-        run: trunk build --release
+        run: trunk build --release --locked
 
   licenses:
     name: Third-party license drift check

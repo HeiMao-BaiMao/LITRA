@@ -27,7 +27,7 @@ function normalizeLicense(value) {
 function collectCargoLicenses(crateDir, platform) {
   const output = execFileSync(
     "cargo",
-    ["metadata", "--format-version", "1", "--filter-platform", platform],
+    ["metadata", "--format-version", "1", "--locked", "--filter-platform", platform],
     { cwd: join(rootDir, crateDir), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
   const metadata = JSON.parse(output);

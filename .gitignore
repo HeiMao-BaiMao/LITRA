@@ -26,9 +26,9 @@ dist-ssr
 # Serena configuration is intentionally tracked
 !.serena/
 
-# Rust lockfile is not tracked in this project
-src-tauri/Cargo.lock
-frontend-rs/Cargo.lock
+# Cargo.lock はアプリ(バイナリ)のため追跡する。CI の決定論性と
+# ライセンス・監査の再現に必要。依存追加時は必ず一緒にコミットする。
+src-tauri/target
 frontend-rs/target
 public/rust-ui
 # CocoIndex Code (ccc)
