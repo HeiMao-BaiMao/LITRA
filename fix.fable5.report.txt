@@ -519,4 +519,16 @@ cargo check --target wasm32-unknown-unknown の通過を確認済み。
     確認できなかった（.ts ソースが残っていない）。役割パラメータを渡しながら
     メインモデルで上書きする実装は設計意図と矛盾すると判断し、報告書の推奨通り
     修正した。ユーザーへの報告時にこの判断を明示すること。
+    ※2026-08-04 追記: sample/LITRA（TS版 origin の clone、HEAD f101c91）で検証済み。
+    TS版 handleGenerateSummary(main.ts:1817-1867) は
+    resolveBackgroundRunSettings → resolveBackgroundSettings(settings.ts:686-699) で
+    provider = backgroundProvider ?? chatProvider ?? provider、
+    model = backgroundModel || chatModel || specific.model の順に解決し、
+    その解決済み設定を streamChat に渡している（メインモデルによる上書きは無い）。
+    つまり「要約はメインモデルで走る」という旧コメントは誤りであり、
+    修正後の Rust 実装（role="background"、provider/model オーバーライドなし、
+    バックエンド ai/config.rs の backgroundModel → chatModel フォールバック）と
+    同一の挙動である。設定画面の役割説明
+    （settings-modal.ts:1232「バックグラウンド（要約・整合性チェック）」）とも一致。
+    検証の結果、項目10の修正方針と実装は TS 版仕様に一致していることが確認できた。
 ================================================================================
