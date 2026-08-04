@@ -13,7 +13,11 @@ struct OAuthArgs<'a> {
 
 pub fn provider_changed(document: &Document, provider: &str) -> Result<(), JsValue> {
     let is_oauth = matches!(provider, "codex" | "github-copilot");
-    set_hidden(document, "setting-api-key-row", is_oauth)?;
+    // OAuth プロバイダーでは API キー入力行を隠す。非 OAuth の表示/非表示は
+    // カタログの requiresApiKey に委ねる（ここで無条件に表示して上書きしない）。
+    if is_oauth {
+        set_hidden(document, "setting-api-key-row", true)?;
+    }
     set_hidden(document, "setting-oauth-row", !is_oauth)?;
     set_hidden(
         document,

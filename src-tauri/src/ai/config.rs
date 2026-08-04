@@ -6,6 +6,23 @@ use tauri::{AppHandle, Manager};
 
 const DEFAULT_PROVIDERS: &str = include_str!("../../../config/default-providers.json");
 
+/// デフォルトのプロバイダー定義を解決する。
+/// 優先順: ① 同梱リソース config/default-providers.json（ユーザーが編集可能）
+///         ② コンパイル時に埋め込んだ既定値（include_str）
+/// 同梱リソースが読み込めない場合（未パッケージ実行など）は埋め込みにフォールバックする。
+pub(crate) fn default_providers_document(app: &AppHandle) -> Result<ProviderDocument, String> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let shipped = resource_dir.join("config").join("default-providers.json");
+        if let Ok(text) = fs::read_to_string(&shipped) {
+            if let Ok(document) = serde_json::from_str::<ProviderDocument>(&text) {
+                return Ok(document);
+            }
+        }
+    }
+    serde_json::from_str(DEFAULT_PROVIDERS)
+        .map_err(|error| format!("Default provider config is invalid: {error}"))
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Connection {
@@ -49,8 +66,8 @@ struct RoleProfile {
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Provider {
-    id: String,
+pub(crate) struct Provider {
+    pub(crate) id: String,
     #[serde(default)]
     name: String,
     sdk_type: String,
@@ -73,9 +90,9 @@ fn default_requires_api_key() -> bool {
 }
 
 #[derive(Default, Deserialize)]
-struct ProviderDocument {
+pub(crate) struct ProviderDocument {
     #[serde(default)]
-    providers: Vec<Provider>,
+    pub(crate) providers: Vec<Provider>,
 }
 
 #[derive(Serialize)]
@@ -122,8 +139,7 @@ pub fn ai_runtime_config(
         .map_err(|error| error.to_string())?;
     let settings = read_json(app_data_dir.join("litra-settings.json"))
         .unwrap_or_else(|| Value::Object(Default::default()));
-    let defaults: ProviderDocument = serde_json::from_str(DEFAULT_PROVIDERS)
-        .map_err(|error| format!("Default provider config is invalid: {error}"))?;
+    let defaults: ProviderDocument = default_providers_document(&app)?;
     let configured = read_json(app_config_dir.join("providers.json"))
         .and_then(|value| serde_json::from_value::<ProviderDocument>(value).ok())
         .unwrap_or_default();
@@ -460,8 +476,7 @@ pub struct ProviderCatalogEntry {
 
 #[tauri::command]
 pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, String> {
-    let defaults: ProviderDocument =
-        serde_json::from_str(DEFAULT_PROVIDERS).map_err(|error| error.to_string())?;
+    let defaults: ProviderDocument = default_providers_document(&app)?;
     let configured = read_json(
         app.path()
             .app_config_dir()
@@ -675,8 +690,7 @@ pub async fn ai_settings_reset(app: AppHandle) -> Result<(), String> {
             Err(error) => return Err(format!("Failed to remove {}: {error}", path.display())),
         }
     }
-    let defaults: ProviderDocument = serde_json::from_str(DEFAULT_PROVIDERS)
-        .map_err(|error| format!("Default provider config is invalid: {error}"))?;
+    let defaults: ProviderDocument = default_providers_document(&app)?;
     for provider in defaults.providers {
         crate::secrets::delete_secret(&format!("apikey:{}", provider.id))?;
     }

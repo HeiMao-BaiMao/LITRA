@@ -351,14 +351,9 @@ pub async fn reset_all_settings(app: AppHandle) -> Result<Value, String> {
     let _ = super::window_state::clear_window_state(app.clone());
 
     // 4. 全プロバイダの API キーを削除（デフォルト設定の全プロバイダ ID を走査）
-    const DEFAULT_PROVIDERS: &str = include_str!("../../config/default-providers.json");
-    if let Ok(doc) = serde_json::from_str::<serde_json::Value>(DEFAULT_PROVIDERS) {
-        if let Some(providers) = doc["providers"].as_array() {
-            for provider in providers {
-                if let Some(id) = provider["id"].as_str() {
-                    let _ = crate::secrets::delete_secret(&format!("apikey:{id}"));
-                }
-            }
+    if let Ok(document) = crate::ai::config::default_providers_document(&app) {
+        for provider in document.providers {
+            let _ = crate::secrets::delete_secret(&format!("apikey:{}", provider.id));
         }
     }
 

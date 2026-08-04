@@ -30,7 +30,8 @@
     "licenseFile": "../LICENSE.rtf",
     "resources": {
       "../legal/THIRD_PARTY_LICENSES.json": "legal/THIRD_PARTY_LICENSES.json",
-      "../legal/THIRD_PARTY_LICENSES.md": "legal/THIRD_PARTY_LICENSES.md"
+      "../legal/THIRD_PARTY_LICENSES.md": "legal/THIRD_PARTY_LICENSES.md",
+      "../config/default-providers.json": "config/default-providers.json"
     },
     "icon": [
       "icons/32x32.png",

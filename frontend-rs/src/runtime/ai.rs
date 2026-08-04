@@ -122,11 +122,13 @@ struct ConfigArgs<'a> {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CatalogModel {
     pub id: String,
     pub label: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CatalogProvider {
     pub id: String,
     pub name: String,
