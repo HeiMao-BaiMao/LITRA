@@ -1,22 +1,47 @@
 # LITRA
 
-LITRA は、長編小説や連作の制作を前提にした、リトラと一緒に進める執筆ツールです。Tauri 2、Vite、TypeScript、Rust で構成され、本文、設定資料、エピソード要約、メモ、ジャンル知識をローカルに保存します。
+LITRA は、長編小説や連作の制作を前提にした、AI と一緒に進める執筆ツールです。Tauri 2 と Rust（WASM フロントエンド）で構成され、本文、設定資料、エピソード要約、メモ、ジャンル知識をすべてローカルに保存します。
 
-## 主な機能
+## まずはこれだけ
 
-- プロジェクト単位の小説管理
-- エピソード本文の編集、並び替え、削除
-- エピソード要約と一行要約の保存
-- エピソード別の覚え書きとプロジェクトメモ
+### インストール
+
+GitHub Releases から最新版をダウンロードしてインストールします。
+
+- Windows: `LITRA_x64-setup.exe`（NSIS インストーラ）または `LITRA_x64_en-US.msi`
+- インストール後、スタートメニューから LITRA を起動します
+
+### 最初の一歩
+
+1. メイン画面でプロジェクトを作成します（例:「はじめての長編」）
+2. エピソードを追加して、本文を書き始めます
+3. 設定画面（歯車ボタン）で AI プロバイダーと API キーを設定します
+   - OpenAI / Anthropic / DeepSeek / Google Gemini など、対応プロバイダーの API キーを取得して入力するだけです
+   - llama.cpp などのローカルサーバーを使う場合は、ベース URL に `http://127.0.0.1:8080/v1` を指定します
+4. チャットパネルに「続きを書いて」などと入力すると、AI が本文の続きを提案します
+
+### できること
+
+- プロジェクト単位の小説管理（エピソードの追加・並び替え・削除）
+- エピソード要約と一行要約の自動生成・保存
 - キャラクター、世界観、人間関係の設定管理
-- リトラチャットからの本文検索、行指定編集、一括編集、整合性チェック
+- チャットからの本文検索、行指定編集、一括編集、整合性チェック
 - フォルダ取り込みによる本文・設定の分類と変換
-- 取り込み後の任意の整合性チェック
 - ジャンルライブラリによる参考資料、分析結果、再利用可能なジャンル知識の管理
-- ジャンルごとのリトラチャットと添付長文の保存
 - メイン画面、チャット、要約、メモ、設定、ジャンル画面の分離ウィンドウ
 
-## AI プロバイダー
+### 作品データの保存場所
+
+作品データはすべて手元の PC に保存されます。
+
+- プロジェクト: `Documents/litra/projects`
+- ジャンルライブラリ: `Documents/litra/genres`
+
+---
+
+## 上級者向け設定
+
+### AI プロバイダーの詳細設定
 
 初期設定では以下のプロバイダー設定を持っています。
 
@@ -31,9 +56,9 @@ LITRA は、長編小説や連作の制作を前提にした、リトラと一�
 
 API キー、ベース URL、モデル、temperature、最大出力トークン、コンテキスト上限、reasoning / thinking 関連の設定はアプリ内の設定画面から変更できます。
 
-Web 検索は設定画面の「検索ツールの優先順位」で候補を並べ替えられます。既定では、選択中のプロバイダーが対応するネイティブ検索（OpenAI Responses / Anthropic Messages / Gemini Google Search）を優先し、Exa を共通フォールバックとして使用します。Gemini 3 では Google Search とアプリのカスタムツールを併用し、それ以前の現行Geminiモデルでは単独のネイティブ検索として利用します。Codex、Copilot、OpenCode、DeepSeek、さくらの AI Engine、PLaMo、llama.cpp には、現行の公開 API 仕様で確認できるネイティブ Web 検索を割り当てていません。
+Web 検索は設定画面の「検索ツールの優先順位」で候補を並べ替えられます。既定では、選択中のプロバイダーが対応するネイティブ検索（OpenAI Responses / Anthropic Messages / Gemini Google Search）を優先し、Exa を共通フォールバックとして使用します。Gemini 3 では Google Search とアプリのカスタムツールを併用し、それ以前の現行 Gemini モデルでは単独のネイティブ検索として利用します。Codex、Copilot、OpenCode、DeepSeek、さくらの AI Engine、PLaMo、llama.cpp には、現行の公開 API 仕様で確認できるネイティブ Web 検索を割り当てていません。
 
-### プロバイダー設定のカスタマイズ（providers.json）
+### providers.json によるカスタマイズ
 
 プロバイダーとモデルの定義は、初回起動時にアプリ設定ディレクトリへ書き出される `providers.json` で自由にカスタマイズできます（ビルド後も編集可能）。
 
@@ -54,18 +79,9 @@ Web 検索は設定画面の「検索ツールの優先順位」で候補を並�
 | `modelsPolicy` | `merge`: アプリ更新時に既定モデルを id 単位でマージ（既定） / `replace`: このファイルの `models` をそのまま使う |
 | `models` | モデルごとの既定値（`id` / `label` / `temperature` / `maxTokens` / `maxContextTokens` / `topP` / `topK` / `frequencyPenalty` / `presencePenalty` / reasoning・thinking 関連） |
 
-編集内容はアプリ側の既定値より優先されます。既定モデル一覧の自動追加を止めたい場合は該当プロバイダーに `"modelsPolicy": "replace"` を指定してください。ファイルを削除するか、設定画面の初期化を実行すると既定の内容に戻ります。
+編集内容はアプリ側の既定値より優先されます。既定モデル一覧の自動追加を止めたい場合は該当プロバイダーに `"modelsPolicy": "replace"` を指定してください。ファイルを削除するか、設定画面の初期化を実行すると、次回起動時に既定の内容で再作成されます。
 
-## データ保存
-
-作品データはユーザーの Documents 配下に保存されます。
-
-- プロジェクト: `Documents/litra/projects`
-- ジャンルライブラリ: `Documents/litra/genres`
-
-検索インデックスはアプリデータディレクトリ配下の `litra/index` と `litra/genre-index` を使います。インデックスは再構築可能な派生データです。
-
-## 開発
+### 開発
 
 必要なもの:
 
@@ -85,10 +101,33 @@ cargo tauri dev
 
 リリース用フロントエンドは `trunk build --release`、Rust バックエンドは `cargo test --manifest-path src-tauri/Cargo.toml` で検証できます。Node.js、Bun、Vite は使用しません。
 
-## 構成
+### 構成
 
 - `frontend-rs/src/`: 全画面の Rust/WASM フロントエンド、UI、AI クライアント
 - `src-tauri/`: Tauri アプリ本体、ファイル操作、検索、インポート、AI ツール用コマンド
-- `config/default-providers.json`: API Type と複数接続先を含む初期 AI プロバイダー・モデル定義
+- `config/default-providers.json`: API Type と複数接続先を含む初期 AI プロバイダー・モデル定義（ビルド時にバイナリへ埋め込み、インストーラにも同梱）
 - `frontend-rs/src/windows/`: 画面単位に分割した Rust UI 実装
 - `frontend-rs/src/runtime/`: AI ストリーム、Tauri invoke、ウィンドウ間イベントの Rust ランタイム
+
+---
+
+## 特記事項
+
+### 設定ファイルの場所
+
+| 内容 | 場所 |
+| --- | --- |
+| アプリ設定（選択中プロバイダー・モデル等） | `%APPDATA%\org.hmbm.litra\litra-settings.json` |
+| プロバイダー定義（初回起動時に自動作成） | `%APPDATA%\org.hmbm.litra\providers.json` |
+| API キー | OS の資格情報ストア（Windows では資格情報マネージャー） |
+| モデル一覧キャッシュ | `%APPDATA%\org.hmbm.litra\ai-model-catalog.json` |
+
+設定の読み込み優先順位は、ユーザーの `providers.json`（カスタム定義）が最も優先され、次にインストーラ同梱の `config/default-providers.json`、最後にバイナリ埋め込みの既定値が使われます。
+
+### 検索インデックス
+
+検索インデックスはアプリデータディレクトリ配下の `litra/index` と `litra/genre-index` を使います。インデックスは再構築可能な派生データです。
+
+### 初期化について
+
+設定画面の「初期化」を実行すると、AI・同期・ウィンドウ設定と全 API キーが削除され、既定値に戻ります。`providers.json` も削除され、次回起動時に既定の内容で再作成されます。作品データ（`Documents/litra`）は影響を受けません。

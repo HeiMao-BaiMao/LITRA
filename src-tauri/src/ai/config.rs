@@ -6,6 +6,27 @@ use tauri::{AppHandle, Manager};
 
 const DEFAULT_PROVIDERS: &str = include_str!("../../../config/default-providers.json");
 
+/// 初回起動時に、デフォルトのプロバイダー定義をアプリ設定ディレクトリへ書き出す。
+/// この `providers.json` はユーザーが自由に編集でき、編集内容はアプリの既定値より
+/// 優先される。リセットで削除された場合も、次回起動時に再作成される。
+pub(crate) fn ensure_providers_config(app: &AppHandle) {
+    let Ok(app_config_dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let path = app_config_dir.join("providers.json");
+    if path.exists() {
+        return;
+    }
+    let Ok(document) = default_providers_document(app) else {
+        return;
+    };
+    let Ok(json) = serde_json::to_string_pretty(&document) else {
+        return;
+    };
+    let _ = fs::create_dir_all(&app_config_dir);
+    let _ = fs::write(&path, json);
+}
+
 /// デフォルトのプロバイダー定義を解決する。
 /// 優先順: ① 同梱リソース config/default-providers.json（ユーザーが編集可能）
 ///         ② コンパイル時に埋め込んだ既定値（include_str）
@@ -23,7 +44,7 @@ pub(crate) fn default_providers_document(app: &AppHandle) -> Result<ProviderDocu
         .map_err(|error| format!("Default provider config is invalid: {error}"))
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Connection {
     id: String,
@@ -64,7 +85,7 @@ struct RoleProfile {
     prompt_scaffold: Option<String>,
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Provider {
     pub(crate) id: String,
@@ -89,7 +110,7 @@ fn default_requires_api_key() -> bool {
     true
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, Serialize)]
 pub(crate) struct ProviderDocument {
     #[serde(default)]
     pub(crate) providers: Vec<Provider>,
