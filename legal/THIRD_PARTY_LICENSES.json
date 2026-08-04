@@ -1,6 +1,6 @@
 {
   "appName": "LITRA",
-  "appVersion": "2.0.0",
+  "appVersion": "2.0.1",
   "sourceFiles": [
     "src-tauri/Cargo.lock",
     "frontend-rs/Cargo.lock"
