@@ -1,7 +1,7 @@
 use crate::storage::{
     project_edit_log_path as edit_log_path, project_episodes_dir as episodes_dir,
-    project_episodes_list_path as episode_list_path,
-    project_summaries_path as summary_file_path, read_json, read_or_empty, write_json, write_text,
+    project_episodes_list_path as episode_list_path, project_summaries_path as summary_file_path,
+    read_json, read_or_empty, write_json, write_text,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -66,9 +66,7 @@ fn append_edit_log_entries(project_id: &str, new_entries: Vec<EditLogEntry>) -> 
     let path = edit_log_path(project_id)?;
     let mut document = read_or_empty(&path, json!({ "entries": [] }));
 
-    let entries = document
-        .get_mut("entries")
-        .and_then(|v| v.as_array_mut());
+    let entries = document.get_mut("entries").and_then(|v| v.as_array_mut());
     let entries = match entries {
         Some(entries) => entries,
         None => {
@@ -457,6 +455,19 @@ pub fn get_edit_log(req: GetEditLogRequest) -> Result<Vec<EditLogEntry>, String>
     entries.truncate(limit);
 
     Ok(entries)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppendEditLogRequest {
+    pub project_id: String,
+    pub entries: Vec<EditLogEntry>,
+}
+
+/// hashline 編集など、フロントエンドで適用した編集のログを追記する。
+#[tauri::command]
+pub fn append_edit_log(req: AppendEditLogRequest) -> Result<(), String> {
+    append_edit_log_entries(&req.project_id, req.entries)
 }
 
 #[derive(Debug, Deserialize)]
@@ -870,6 +881,37 @@ pub fn save_episode_one_liner(req: SaveOneLinerRequest) -> Result<(), String> {
     write_json(&path, &summaries).map_err(|e| format!("Failed to write summaries.json: {}", e))?;
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSummaryAndOneLinerRequest {
+    pub project_id: String,
+    pub episode_id: String,
+    pub content: String,
+    pub one_liner: String,
+}
+
+/// Save both summary fields from one read/modify/write operation so a tool
+/// call cannot leave the episode half-updated between two IPC commands.
+#[tauri::command]
+pub fn save_episode_summary_and_one_liner(
+    req: SaveSummaryAndOneLinerRequest,
+) -> Result<(), String> {
+    let path = summary_file_path(&req.project_id)?;
+    let mut summaries = if path.exists() {
+        read_json(&path).unwrap_or_else(|_| json!({ "summaries": {} }))
+    } else {
+        json!({ "summaries": {} })
+    };
+
+    summaries["summaries"][&req.episode_id] = json!({
+        "content": req.content,
+        "oneLiner": req.one_liner,
+        "updatedAt": chrono::Utc::now().to_rfc3339(),
+    });
+
+    write_json(&path, &summaries).map_err(|e| format!("Failed to write summaries.json: {}", e))
 }
 
 #[cfg(test)]
@@ -1352,6 +1394,27 @@ mod tests {
             summaries["summaries"]["ep-1"]["oneLiner"].as_str().unwrap(),
             "一行要約"
         );
+
+        cleanup(&project_id);
+    }
+
+    #[test]
+    fn save_summary_and_one_liner_updates_both_fields_together() {
+        let project_id = test_project_id();
+
+        save_episode_summary_and_one_liner(SaveSummaryAndOneLinerRequest {
+            project_id: project_id.clone(),
+            episode_id: "ep-1".to_string(),
+            content: "詳細な要約".to_string(),
+            one_liner: "一行要約".to_string(),
+        })
+        .expect("combined summary save should succeed");
+
+        let path = summary_file_path(&project_id).unwrap();
+        let entry = &read_json(&path).unwrap()["summaries"]["ep-1"];
+        assert_eq!(entry["content"], "詳細な要約");
+        assert_eq!(entry["oneLiner"], "一行要約");
+        assert!(entry["updatedAt"].as_str().is_some());
 
         cleanup(&project_id);
     }

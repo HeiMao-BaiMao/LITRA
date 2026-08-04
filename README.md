@@ -31,6 +31,8 @@ LITRA は、長編小説や連作の制作を前提にした、リトラと一�
 
 API キー、ベース URL、モデル、temperature、最大出力トークン、コンテキスト上限、reasoning / thinking 関連の設定はアプリ内の設定画面から変更できます。
 
+Web 検索は設定画面の「検索ツールの優先順位」で候補を並べ替えられます。既定では、選択中のプロバイダーが対応するネイティブ検索（OpenAI Responses / Anthropic Messages / Gemini Google Search）を優先し、Exa を共通フォールバックとして使用します。Gemini 3 では Google Search とアプリのカスタムツールを併用し、それ以前の現行Geminiモデルでは単独のネイティブ検索として利用します。Codex、Copilot、OpenCode、DeepSeek、さくらの AI Engine、PLaMo、llama.cpp には、現行の公開 API 仕様で確認できるネイティブ Web 検索を割り当てていません。
+
 ### プロバイダー設定のカスタマイズ（providers.json）
 
 プロバイダーとモデルの定義は、初回起動時にアプリ設定ディレクトリへ書き出される `providers.json` で自由にカスタマイズできます（ビルド後も編集可能）。
@@ -44,7 +46,8 @@ API キー、ベース URL、モデル、temperature、最大出力トークン�
 | フィールド | 説明 |
 | --- | --- |
 | `id` / `name` | プロバイダーの識別子と表示名 |
-| `sdkType` | `openai`（OpenAI 互換） / `anthropic` / `google` |
+| `endpoints` | 同じ Provider で選択できる複数の接続先。各要素に `id` / `apiType` / `baseUrl` を指定 |
+| `apiType` | `openai-chat` / `openai-responses` / `anthropic-messages` / `google-generate-content` |
 | `defaultBaseUrl` / `defaultModel` | 既定のベース URL とモデル |
 | `requiresApiKey` | API キー必須かどうか |
 | `modelSelection` | `fixed`: `models` からの固定選択（取得ボタン無効） / `fetch`: 自由入力＋モデル一覧取得 API を使用 |
@@ -66,24 +69,26 @@ API キー、ベース URL、モデル、temperature、最大出力トークン�
 
 必要なもの:
 
-- Bun
-- Rust
+- Rust（`wasm32-unknown-unknown` ターゲットを含む）
+- Trunk
 - Tauri 2 のビルドに必要な OS 別依存関係
 
 コマンド:
 
 ```bash
-bun install
-bun run dev
-bun run build
-bun run tauri dev
+rustup target add wasm32-unknown-unknown
+cargo install trunk
+cargo install tauri-cli --version "^2.0.0" --locked
+trunk serve --port 1420
+cargo tauri dev
 ```
 
-`bun run build` は TypeScript の型チェックと Vite のビルドを実行します。
+リリース用フロントエンドは `trunk build --release`、Rust バックエンドは `cargo test --manifest-path src-tauri/Cargo.toml` で検証できます。Node.js、Bun、Vite は使用しません。
 
 ## 構成
 
-- `src/`: フロントエンド、AI サービス、プロジェクト管理、ジャンル管理
+- `frontend-rs/src/`: 全画面の Rust/WASM フロントエンド、UI、AI クライアント
 - `src-tauri/`: Tauri アプリ本体、ファイル操作、検索、インポート、AI ツール用コマンド
-- `src/providers/default-providers.json`: 初期 AI プロバイダーとモデル定義
-- `src/ai/tools.ts`: リトラチャットから使える本文編集、検索、要約、設定更新ツール
+- `config/default-providers.json`: API Type と複数接続先を含む初期 AI プロバイダー・モデル定義
+- `frontend-rs/src/windows/`: 画面単位に分割した Rust UI 実装
+- `frontend-rs/src/runtime/`: AI ストリーム、Tauri invoke、ウィンドウ間イベントの Rust ランタイム

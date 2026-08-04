@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LITRA",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "identifier": "org.hmbm.litra",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "trunk serve --port 1420 --no-sri",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "trunk build --release",
     "frontendDist": "../dist"
   },
   "app": {

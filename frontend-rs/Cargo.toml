@@ -1,0 +1,50 @@
+[package]
+name = "litra-frontend"
+version = "2.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+js-sys = "0.3"
+ammonia = "4"
+once_cell = "1"
+pulldown-cmark = "0.13"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1"
+similar = "2"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+xxhash-rust = { version = "0.8", features = ["xxh32"] }
+web-sys = { version = "0.3", features = [
+  "AbortController",
+  "Crypto",
+  "DataTransfer",
+  "Document",
+  "DomTokenList",
+  "console",
+  "CssStyleDeclaration",
+  "DragEvent",
+  "Element",
+  "Event",
+  "EventTarget",
+  "Blob",
+  "File",
+  "FileList",
+  "HtmlButtonElement",
+  "HtmlCollection",
+  "HtmlElement",
+  "HtmlInputElement",
+  "HtmlFormElement",
+  "HtmlSelectElement",
+  "HtmlTextAreaElement",
+  "KeyboardEvent",
+  "MouseEvent",
+  "NodeList",
+  "PointerEvent",
+  "SubtleCrypto",
+  "Window",
+] }

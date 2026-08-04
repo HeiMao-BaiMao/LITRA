@@ -1,0 +1,534 @@
+================================================================================
+LITRA 生成経路 修正方針レポート (fix.fable5.report.txt)
+作成日: 2026-08-01
+作成: Claude (Opus) — 生成パイプライン監査に基づく
+対象ブランチ: agent/direct-chat-writing
+================================================================================
+
+本レポートは「小説生成パイプラインが使う経路」の監査で見つかった問題のうち、
+プロンプト以外の修正点について、修正方針と理由を詳述するものである。
+プロンプト本体(二層スキャフォールド)は本セッションで実装済み(第0章参照)。
+
+優先度凡例:
+  [重大]   データ破壊・機能不全。最優先で修正すべき。
+  [中]     品質・設計意図からの逸脱。近いうちに修正すべき。
+  [軽微]   影響が限定的、または設計判断を伴う。
+
+--------------------------------------------------------------------------------
+0. 実装済みの変更(本セッション / プロンプト範囲)
+--------------------------------------------------------------------------------
+以下は既にコミット可能な状態で実装され、cargo test(137件)と
+cargo check --target wasm32-unknown-unknown の通過を確認済み。
+
+(1) frontend-rs/src/windows/main_app/generation/old_prompts.rs
+  - 執筆方針・メタ認知・最終指示の全定数を二層構成に全面差し替え。
+      既定(重装) = 指示追従力の弱いモデル向け:
+        JAPANESE_FICTION_DIRECTION      … 1行1規則+×/○例+例文流用ガード
+        METACOGNITION_DIRECTIVE         … 「執筆前の確定」+「1文ごとの1問」へ分解
+        SURGICAL/FULL_REPAIR_METACOGNITION … 「指摘箇所だけ」「1文字も変えない」の逐条化
+        FICTION_OUTPUT_SELF_CHECK       … 出力契約を冒頭・末尾で二度宣言+5項チェックリスト
+        FICTION_REPAIR_OUTPUT_SELF_CHECK … 新設。既定層に修復用最終指示が無かった非対称を解消
+      "light"(軽装) = 指示追従力の高いモデル向け:
+        *_LIGHT 各定数 … 契約と非自明な制約のみを高密度で。二重意識メタ認知を保持
+  - metacognition_section(operation, scaffold) に scaffold 引数を追加し、
+    draft/rewrite/revise/targeted_revision/line_edit_revision の5呼出を更新。
+  - output_self_check() に既定層の full-repair アームを追加。
+  - plan() が場面状態カード・話し方カードを受け取るよう変更
+    (旧: _scene/_voices で破棄。判断モデルが弱い場合の整合チェック材料を補強)。
+
+(2) frontend-rs/src/windows/main_app/generation/mod.rs
+  - scaffold() を writingOverrides.promptScaffold 優先(トップレベルへフォールバック)に変更し
+    pub(crate) 化。※従来は設定画面の「執筆詳細のscaffold」選択が保存されるだけで
+    プロンプト構築時に一切読まれていなかった(=UIが死んでいた)。これを配線した。
+  - judgment_scaffold() を新設(judgmentOverrides 優先)。候補比較・査読基準など
+    判断モデルに送るプロンプトのscaffoldを、執筆モデルではなく判断モデルの設定で選ぶ。
+    適用箇所: choose_draft / choose_candidate / prefer_revision(2箇所)。
+  - テスト追加: plan のカード挿入、scaffold解決、層スイッチの検証。
+
+(3) frontend-rs/src/windows/main_app/agent_tools/writing.rs
+  - line_edit の3箇所の scaffold 解決を generation::scaffold / judgment_scaffold へ統一。
+
+備考: generation/old_prompts/*.txt のうち plan.txt / draft.txt / revise.txt 等は
+旧TS版のアーカイブ文書であり include_str されていない(実体は .rs 内定数)。
+実体が .rs へ移った経緯を踏まえ、アーカイブ側は意図的に更新していない。
+
+--------------------------------------------------------------------------------
+1. [重大] 「続きを書く」確定処理が 24,000字超の原稿を破壊する
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/windows/main_app/ai_actions.rs
+      continue_story() 末尾の確定ブロック(現行 181行目付近)
+
+症状:
+  ストリーミング続き生成の完了時に
+      let base_len = context.len();
+      current.editor_text.truncate(base_len);
+  を実行している。context は editor_text の「末尾24,000文字」のスライス
+  (同関数冒頭 80-89行目)なので、原稿全体が24,000字以下のときだけ
+  偶然 context.len() == editor_text.len() となり正しく動く。
+
+  原稿が24,000字を超えると base_len は「末尾スライスのバイト長」であり、
+  editor_text 全体のバイト長より小さい。その位置で truncate すると:
+    (a) その位置が UTF-8 文字境界でなければ String::truncate は即パニック。
+        WASM ではアプリごと停止する。日本語本文では高確率で境界に当たらない。
+    (b) 偶然境界に当たった場合は、原稿の中間〜末尾が切り落とされ、
+        「先頭の一部+生成された続き」という壊れた本文が作られる。
+        直後の save_editor() でそれがディスクへ保存される(=恒久的データ損失)。
+
+  長編執筆を前提とするアプリで、1話24,000字超は普通に起こる。実害が最も大きい。
+
+根本原因:
+  「ストリーミングで editor_text に逐次追記した分を取り除いて、サニタイズ済みの
+  最終テキストで置き直す」という意図に対し、切り詰め基準に
+  「ストリーミング開始前の editor_text 全体のバイト長」ではなく
+  「プロンプト用末尾スライスのバイト長」を使ってしまったこと。
+
+修正方針:
+  ストリーミング開始前(on_chunk クロージャ生成の直前)に
+      let base_len = state.borrow().editor_text.len();
+  を取得して保持し、確定ブロックでは captured base_len に対して truncate する。
+
+      let addition = generated.text.trim_start();
+      {
+          let mut current = state.borrow_mut();
+          current.editor_text.truncate(base_len);   // 追記分だけを除去
+          if !current.editor_text.ends_with('\n') && !current.editor_text.is_empty() {
+              current.editor_text.push('\n');
+          }
+          current.editor_text.push_str(addition);
+      }
+
+  この base_len は「追記開始前の文字列の終端」なので必ず文字境界であり、
+  パニックも中間破壊も起こらない。
+
+なぜこの直し方か(代替案との比較):
+  - 「context + addition で組み立て直す」案は不可。context は末尾スライスなので
+    同じ破壊が起こる。全文を別変数に複製して保持する案はメモリ二重化になる。
+    追記分の除去に必要な情報は「開始時点の長さ」だけであり、それを持つのが最小。
+  - chars 数で数え直す案は O(n) の走査が増えるだけで利点がない。
+
+回帰リスク: なし(24,000字以下の従来挙動は完全に同一)。
+検証方法:
+  25,000字以上のエピソードで「続きを書く」を実行し、
+  (1) パニックしない (2) 既存本文が1文字も欠けない (3) 末尾にのみ追記される
+  ことを確認。ユニットテスト化するなら確定ブロックを純関数
+  (base_len, editor_text, addition) -> String に切り出すとよい。
+
+--------------------------------------------------------------------------------
+2. [重大] チャットの長さ自動継続が OpenAI chat 以外で一切発火しない
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/windows/main_app/ai_actions.rs chat() 内 445行目付近
+      generated.finish_reason.as_deref() == Some("length")
+
+症状:
+  出力上限で切れた応答を自動継続する仕組みが、finish_reason の完全一致
+  "length" でしか発火しない。バックエンドは finish_reason を正規化せず
+  プロバイダ生値で返すことを確認済み:
+    - OpenAI chat completions: "length"                (発火する)
+    - Anthropic:               "max_tokens"            (発火しない)
+    - Google Gemini:           "MAX_TOKENS" ※大文字   (発火しない)
+    - OpenAI responses:        "max_output_tokens"     (発火しない)
+      (src-tauri/src/ai/stream/{anthropic,google,openai}.rs 参照。
+       responses は response.incomplete の incomplete_details/reason を転送)
+  つまり Anthropic / Gemini / responses 系では、上限で切れた回答が
+  切れたまま放置される。
+
+根本原因:
+  同一機能が2実装ある。generation/mod.rs の is_length_finish() は
+  to_ascii_lowercase() の上で "length" | "max_tokens" | "max_output_tokens"
+  を受理する正しい実装(Gemini の "MAX_TOKENS" も小文字化で一致)。
+  chat() 側だけが素朴な完全一致で書かれている。
+
+修正方針:
+  is_length_finish を pub(crate) にして chat() から共用する。
+      // generation/mod.rs
+      pub(crate) fn is_length_finish(reason: Option<&str>) -> bool { ... 既存のまま ... }
+      // ai_actions.rs
+      Ok(ref generated)
+          if super::generation::is_length_finish(generated.finish_reason.as_deref())
+              && !generated.text.trim().is_empty()
+              && continuation_count < MAX_LENGTH_CONTINUATIONS => { ... }
+
+なぜこの直し方か:
+  判定表を2箇所に持つと今回と同種の食い違いが再発する。
+  バックエンドで finish_reason を正規化する案(共通enum化)はより根本的だが、
+  transport 表示等が生値前提のため影響範囲が広い。まず共用化が安全。
+  正規化はバックエンドの AiStreamEvent::Finished に normalized フィールドを
+  追加する形で後日行うのがよい。
+
+回帰リスク: OpenAI chat の挙動は不変。他プロバイダで「継続が新たに発火する」
+  変化はあるが、それが本来の仕様。
+検証方法: maxTokens を極端に小さく(例: 200)して各プロバイダでチャットし、
+  自動継続メッセージ(exclude_from_context=true)が積まれることを確認。
+
+--------------------------------------------------------------------------------
+3. [中] 機械検査の指摘が査読ゲートで無視される
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/windows/main_app/generation/mod.rs
+      continue_story_full() のレビュー節(266-282行目付近)
+
+症状:
+  査読テキスト findings に【機械検査による指摘】を連結した後で
+      if !review::requires_revision(&findings) { return Ok(selected); }
+  と判定しているが、requires_revision() は【総合判定】行(またはJSON verdict)
+  しか見ない(review.rs 86-134行)。よって LLM 査読が「修正なしで採用可」を
+  返すと、機械検査で hard 違反(文の重複・直前本文の反復)が残っていても
+  改稿がスキップされ、せっかく検出した指摘が黙って捨てられる。
+
+  前段のリトライ(232-252行)は「hard違反数が減ったら差し替え」なので、
+  リトライ後も違反が残ったまま採用に至るケースは実在する。
+
+修正方針:
+      let checked = draft_checks::check_draft(&selected.text, context);
+      let has_hard_mechanical = !checked.hard.is_empty();
+      let mechanical_findings = checked.hard.into_iter().chain(checked.soft).collect::<Vec<_>>();
+      ...(findingsへの連結は現状のまま)...
+      if !review::requires_revision(&findings) && !has_hard_mechanical {
+          return Ok(selected);
+      }
+
+なぜ hard のみで強制するか(soft を含めない理由):
+  soft(現状は一人称ドリフトのみ)は「意図的な視点交代」など正当な場合がある
+  警告レベルの検査であり、これで改稿を強制すると不要な書き換え(チャーン)を
+  誘発する。soft は findings 文面に含めて査読・改稿モデルへの参考情報に留め、
+  ゲートを動かすのは決定論的に「誤りである」と言い切れる hard に限定する。
+  revise プロンプト側(手順2)は既に【機械検査による指摘】の反映を必須と
+  定義済みなので、ゲートさえ通れば修正は行われる。
+
+回帰リスク: hard違反が残ったケースでのみ改稿工程が新たに走る(コスト増は
+  そのケースに限定され、品質保証としては本来の設計意図)。
+検証方法: check_draft が hard を返すドラフトを固定入力し、
+  requires_revision=false の査読文でも revise 経路に入ることをテスト。
+
+--------------------------------------------------------------------------------
+4. [中] direct writing モードの長さ継続で原稿コンテキストが消える
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/windows/main_app/ai_actions.rs chat() (415-486行目付近)
+
+症状:
+  direct モードでは最後の user メッセージに
+  「現在の本文(末尾最大12000文字)」を注入してから送信する(426-428行)。
+  しかし応答が上限で切れて自動継続に入ると、messages を state.chat の
+  生 content から再構築するため(461-481行)、注入が失われる。
+  結果、「原稿の続きを書いて適用する」モードのモデルが、継続ターンでは
+  原稿を一切見ずに続きを書くことになる。視点・文体・直前文への接続が
+  壊れた続きが editEpisode に流れ込む温床になる。
+
+根本原因:
+  メッセージ組み立てロジック(フィルタ+末尾30件+json化)が2箇所に
+  複写されており、片方にだけ direct 注入が付いている。
+
+修正方針:
+  組み立てと注入をヘルパへ抽出し、初回・継続の両方で同じ経路を通す。
+
+      fn collect_chat_messages(chat: &[ChatMessage]) -> Vec<Value> {
+          chat.iter()
+              .filter(|m| !m.exclude_from_context
+                  && !m.content.trim().is_empty()
+                  && matches!(m.role.as_str(), "user" | "assistant"))
+              .rev().take(30).collect::<Vec<_>>().into_iter().rev()
+              .map(|m| json!({"role": m.role, "content": m.content}))
+              .collect()
+      }
+
+      fn inject_direct_context(messages: &mut [Value], editor_context: &str) {
+          if let Some(last_user) = messages.iter_mut().rev()
+              .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+          {
+              let request = last_user.get("content").and_then(Value::as_str)
+                  .unwrap_or_default().to_owned();
+              last_user["content"] = Value::String(format!(
+                  "現在の本文（末尾最大12000文字）:\n{editor_context}\n\n【依頼】\n{request}"));
+          }
+      }
+
+  継続時:
+      messages = collect_chat_messages(&state.borrow().chat);
+      if direct { inject_direct_context(&mut messages, &editor_context); }
+      messages.push(json!({"role":"user","content":LENGTH_CONTINUATION_PROMPT}));
+
+  注入先は「継続プロンプトを積む前の最後の user」= 元の依頼文になる
+  (継続プロンプト自体は exclude_from_context=true で履歴から除外されるため、
+  再構築後も注入対象は初回と同じメッセージになる)。
+
+  さらに editor_context を継続時に取り直す(state から再取得する)ことを推奨。
+  初回送信中にストリーミングで editor_text が伸びている場合、古いスナップ
+  ショットより現在の本文の方が接続判断に適するため。
+
+回帰リスク: 非directモードは不変。directの初回送信も不変。
+検証方法: direct ON + 小さい maxTokens で執筆依頼し、継続リクエストの
+  user メッセージ先頭に「現在の本文」ブロックが再付与されることをログで確認。
+
+--------------------------------------------------------------------------------
+5. [中] 役割別モデルのコンテキスト長に未対応 + カード生成失敗の黙殺
+--------------------------------------------------------------------------------
+場所:
+  - ai_actions.rs continue_story() の 24,000字ハードコード(80-89行)
+  - agent_tools/writing.rs tail(…, 24_000 / 12_000 / 5_000)
+  - prompt_context.rs budgets() がメイン設定の maxContextTokens を使用(25-46行)
+  - generation/mod.rs optional_judgment()(611-616行付近)のエラー握りつぶし
+
+症状:
+  (a) 本文スライス長とプロンプト予算が「メイン(チャット)モデルの設定」から
+      決まる。writing/judgment に小さいコンテキストのモデル(ローカル
+      llama.cpp 等)を割り当てると、プロンプトが上限を超えて API エラーになる。
+  (b) 場面状態カード・話し方カードの生成は optional_judgment() が
+      Err を unwrap_or_default() で潰すため、(a)のエラーが起きても
+      ユーザーには何も見えず、カード無しで続行される。品質劣化が観測不能。
+
+修正方針:
+  (a) 役割別の実効上限をフロントに引く。バックエンド ai_runtime_config は
+      既に role 別解決を持つ(src-tauri/src/ai/config.rs)ので、応答に
+      max_context_tokens を追加し、continue_story / continue_passage の冒頭で
+          let limits = invoke("ai_runtime_config", role="writing").await;
+      を1回呼んで、24,000字定数を
+          usable_chars = (max_context_tokens - max_output - overhead) * 1.6 の一部
+      に置き換える(prompt_context::budgets と同じ換算式を共用関数化)。
+      judgment 側のカード生成プロンプトにも同様に judgment の上限でスライス。
+  (b) optional_judgment を Option<String> 返しに変え、呼び出し側で
+          None => { on_stage("場面整理に失敗（スキップして続行）"); String::new() }
+      とし、runtime::ai のログ(request:error は既に出る)に加えて
+      UI のステージ表示で1拍可視化する。挙動(スキップ続行)は維持する。
+
+なぜこの直し方か:
+  スライス定数をモデル非依存のまま増減させる案は、別のモデル構成で必ず再発する。
+  「上限はモデル設定が知っている」事実に合わせて算出側を寄せるのが唯一の恒久策。
+  (b)で失敗を止めずに可視化に留めるのは、カードが「無くても続行できる補助」
+  という現設計(optional)を尊重するため。失敗で全体を止めると、判断モデル障害時に
+  執筆機能まで巻き込まれる。
+
+回帰リスク: (a)は大コンテキストモデルでスライスが「増える」方向にも働く。
+  プロンプト費用が増え得るため、現行24,000字を上限キャップとして残す選択肢もある
+  (推奨: min(従来定数, 算出値) から始めて様子を見る)。
+検証方法: maxContextTokens=8192 のダミーモデルを writing に割り当て、
+  エラーにならずスライスが縮むこと、judgment 障害時にステージ表示が出ることを確認。
+
+--------------------------------------------------------------------------------
+6. [軽微→中] providers.json のモデル別 promptScaffold プロファイルが未配線
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/ai/role_settings.rs apply_role_profile()(呼び出し元ゼロ)
+      config/default-providers.json の各モデル "writing": {"promptScaffold":"light"}
+
+症状:
+  providers.json では約30モデルに writing.promptScaffold="light" が付与済みだが、
+  それをランタイム設定へ写す apply_role_profile() はフロントのどこからも
+  呼ばれていない(TS移植後の未配線)。つまり「モデルを選ぶだけで適切な層になる」
+  という既定プロファイル設計が機能していない。
+  ※本セッションの実装で writingOverrides/judgmentOverrides(設定画面の
+    「執筆詳細/判断詳細」の scaffold 選択)は配線済み。残るのは
+    「ユーザーが明示設定していないときのモデル既定値」の経路のみ。
+
+修正方針(推奨order):
+  1. バックエンド経由(推奨): ai_runtime_config の応答に、解決済みモデルの
+     writing/judgment プロファイル由来 prompt_scaffold: Option<String> を追加。
+     フロントは生成開始時に role="writing"/"judgment" の config を取得して
+     (項目5の上限取得と同じ1回の呼び出しに同乗)、
+     generation::scaffold / judgment_scaffold のフォールバック末尾に差し込む:
+         writingOverrides.promptScaffold
+         → トップレベル promptScaffold
+         → モデルプロファイル既定(新規)
+         → None(重装)
+  2. フロント完結案: 設定ロード時に catalog からモデル既定を引いて
+     apply_role_profile で ai_settings 相当へ焼き込む。呼び出しが増えず単純だが、
+     モデル切替のたびに再適用する同期点が増え、設定保存物と実効値が
+     混ざる(ユーザー明示値との区別が消える)欠点がある。1案を推奨する。
+
+なぜ優先度を上げるか:
+  本セッションで二層プロンプトを実装した結果、層選択の価値が上がった。
+  現状はユーザーが設定画面で明示しない限り全モデル重装で動く。
+  重装は弱いモデルには最適だが、上位モデルでは冗長で、providers.json に
+  既に書かれた意図(上位モデル=light)が反映されないままになる。
+
+検証方法: writingOverrides 未設定の状態で GPT-5.6 Sol を執筆モデルにし、
+  生成プロンプトに【日本語小説としての生成方針 — 要点】(light)が
+  含まれることをログで確認。
+
+--------------------------------------------------------------------------------
+7. [軽微] 一文字の人物名が話し方カード・関連場面検索の対象にならない
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/windows/main_app/prompt_context.rs
+      mentioned_character_names()(226行目付近)
+      .filter(|candidate| candidate.chars().count() >= 2)
+
+症状:
+  「蓮」「葵」「凛」のような一字名の登場人物は、本文末尾に何度登場しても
+  mentioned_character_names() に拾われず、話し方カード生成(character_voices)
+  と関連過去場面検索(build_related_scenes)の対象に永遠にならない。
+
+根本原因:
+  reading/alias を「、」「,」改行で分割した断片の誤爆(助詞1字など)を防ぐ
+  ための最小長フィルタが、主名称(name)まで一律に適用されている。
+
+修正方針:
+  キーごとに最小長を分ける。
+      for key in ["name", "reading", "alias"] {
+          // name は一字名(蓮、葵 等)を許可。reading/alias は分割断片の
+          // 誤爆を避けるため従来通り2文字以上に限定する。
+          let min_chars = if key == "name" { 1 } else { 2 };
+          ... .filter(|candidate| candidate.chars().count() >= min_chars)
+      }
+
+トレードオフの明示:
+  一字名は部分文字列一致で誤検知し得る(「睡蓮」の中の「蓮」、
+  「凛々しい」の中の「凛」)。誤検知の実害は「その人物の話し方カードが
+  余分に作られ、関連場面が1件検索される」程度で、正史を汚す類ではない。
+  一方、現状の実害は「一字名キャラの声の一貫性支援が全損」であり、
+  非対称に大きい。よって許可へ倒す。形態素解析による厳密化は
+  WASM での辞書コストに見合わない。
+
+検証方法: 既存テスト mentioned_names_follow_last_mention_order に
+  一字名ケースを追加(name:"蓮" / 本文「蓮が振り返った。」→ ["蓮"])。
+
+--------------------------------------------------------------------------------
+8. [軽微] サニタイザが日本語ラベル前置き(【続き】等)を除去しない
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/ai/draft_checks.rs sanitize_draft_text()(22-44行)
+
+症状:
+  現行の除去対象は「``` フェンス」「# 見出し」「承知しました/以下が続き…系」のみ。
+  弱いモデルが出しがちな
+      【続き】\n本文…   /  本文: 本文…   /  【本文】\n…
+  のような日本語ラベル前置きは素通りし、check_draft の hard 検査にも
+  掛からないため、そのままエディタ本文へ挿入される。
+  (新プロンプトの既定層は最終指示でこれらを明示禁止したが、
+   禁止を破る個体への機械的防波堤が無い。)
+
+修正方針:
+  先頭アンカー(\A 相当。regexクレートは非(?m)の ^)+既知ラベルの
+  許可リスト方式で除去を追加する。
+
+      static LEADING_LABEL: LazyLock<Regex> = LazyLock::new(|| {
+          Regex::new(
+              r"^\s*(?:【(?:続き|本文|続きの本文|修正稿|改稿|書き直し|出力|回答)】|(?:続き|本文|修正稿)\s*[:：])\s*",
+          ).unwrap()
+      });
+      // sanitize_draft_text 内、PREAMBLE/HEADING 除去の後に:
+      text = LEADING_LABEL.replace(&text, "").to_string();
+
+なぜ許可リスト+先頭限定か:
+  - 汎用の「行頭【…】を全除去」は危険。ゲームUI風の地の文
+    (【スキル取得】等)を正当に使う作品が実在するため、
+    本文の一部を誤爆で失う。誤爆コストが「前置き見逃し」より遥かに高い。
+  - 文中除去も危険(台詞・引用に「本文:」が現れ得る)。前置きは定義上
+    出力先頭にしか現れないので \A 限定が正しいスコープ。
+
+検証方法: テスト3件を追加。
+  (1) "【続き】\n主人公は…" → ラベル除去
+  (2) "本文: 主人公は…"     → ラベル除去
+  (3) "【スキル取得】\n…"    → 変更なし(許可リスト外)
+
+--------------------------------------------------------------------------------
+9. [軽微] best-of-two とビート分割の無言の排他
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/windows/main_app/generation/mod.rs(163-168行付近)
+      let first = if beats.len() >= 2 && !best_of_two { ...ビート分割... }
+
+症状:
+  continuationBestOfTwo と continuationBeatSplitEnabled を両方 ON にすると、
+  ビート分割は黙って無効化され、モノリシック2候補生成になる。
+  設定画面にもステージ表示にもその旨が出ないため、ユーザーは
+  「ビート分割が効いている」と誤認したまま使い続ける。
+
+修正方針(推奨は a + b):
+  a. 挙動の可視化: 両方有効時に on_stage で
+     「ベスト2優先のためビート分割は休止中」を一度表示する(1行変更)。
+  b. 設定画面の該当チェックボックスの説明文に排他仕様を明記する。
+  c. (任意・将来)真の併用: ビートごとに2候補生成+選択。コストは
+     およそ2倍×ビート数になるため、既定では推奨しない。
+
+なぜ「best-of-two 優先」を維持するか:
+  ビート分割は累積コンテキストの尻尾24,000字での逐次生成であり、
+  候補比較(全文単位の判断)と粒度が合わない。併用を安易に組むと
+  ビート間の接続で比較器が誤選択しやすい。現在の優先順位自体は妥当で、
+  問題は「黙っていること」だけである。
+
+--------------------------------------------------------------------------------
+10. [軽微] 要約が背景モデル設定を使わない
+--------------------------------------------------------------------------------
+場所: frontend-rs/src/windows/main_app/ai_actions.rs summary()(572-581行付近)
+
+症状:
+  role="background" を指定しつつ、provider/model のオーバーライドに
+  「メイン画面で選択中の provider/model」を渡している。そのため
+  設定画面で背景モデルを別に構成していても、要約はメインモデルで走る。
+  設定画面の「背景」の意味と実挙動が食い違う。
+
+修正方針:
+  オーバーライドを渡さず None にし、role 解決(backgroundProvider/Model)に
+  委ねるのが素直:
+      ai::generate_streaming("background", system, prompt, None, None, on_chunk)
+
+  ただしコメントに「TS版と同様」とあり、旧仕様が「要約はメインモデル」
+  だった可能性がある。TS版の挙動確認の上で判断すべき。互換を保つなら、
+  設定画面の背景モデル欄に「要約には使われない」旨を明記する方が誠実。
+
+回帰リスク: 背景モデルが未構成(空)の場合のフォールバック順
+  (backgroundModel → chatModel)は src-tauri/src/ai/config.rs が既に
+  処理しているため、None 化しても未構成環境で壊れない。
+
+--------------------------------------------------------------------------------
+11. [訂正] sample_prompt_text のセグメント重複疑い → 問題なし
+--------------------------------------------------------------------------------
+初回監査で「セグメント開始位置が近接すると同一テキストが重複混入する」と
+報告したが、再検証の結果これは誤りだったため撤回する。
+
+根拠: text_len > max_chars のとき
+  available = max_chars - marker*(seg-1)、chunk = available/seg、
+  max_start = len - chunk ≥ seg*chunk - chunk = (seg-1)*chunk
+  よって隣接開始位置の間隔 max_start/(seg-1) ≥ chunk となり、
+  丸め誤差(±1文字)を除いて区間は重ならない。修正不要。
+
+--------------------------------------------------------------------------------
+付録A. 修正の推奨着手順
+--------------------------------------------------------------------------------
+  1. 項目1(truncate)         … 5分で直せる致命傷。最優先。
+  2. 項目2(finish_reason)    … 共用化のみ。次点。
+  3. 項目4(direct継続)       … ヘルパ抽出を伴う小規模リファクタ。
+  4. 項目3(機械検査ゲート)   … 2行+テスト。
+  5. 項目8(サニタイザ)       … 新プロンプト既定層の契約を機械的に担保する対。
+  6. 項目6(プロファイル配線) … 項目5と同じ invoke に同乗させると一石二鳥。
+  7. 項目5(役割別上限)       … 設計変更を含むため計画的に。
+  8. 項目7/9/10              … 随時。
+
+付録B. 検証状況
+  - 第0章(プロンプト二層化): 実装済み。
+  - 項目1〜10: 全項目実装済み(2026-08-01 追記)。
+    frontend-rs cargo test 144件全通過(137→144、+7件)。
+    src-tauri cargo test 89件全通過。
+    cargo check --target wasm32-unknown-unknown / src-tauri cargo check とも警告ゼロ。
+
+  実装時の主な設計判断（本文の修正方針からの変更点）:
+  - 項目6と項目5は、どちらも「プロンプト構築前に role="writing"/"judgment" の
+    ai_runtime_config を1回取得する」という同じ土台を必要としたため、一体で実装した。
+    ai_runtime_config の応答に prompt_scaffold / max_context_tokens を追加し、
+    Model構造体に writing/judgment ネストプロファイル(promptScaffold)と
+    max_context_tokens を追加。フロントは runtime::ai::role_defaults(role) で
+    軽量取得し、generation::scaffold()/judgment_scaffold() の最終フォールバック
+    （writingModelDefaultScaffold/judgmentModelDefaultScaffold）に注入する。
+  - 項目5(a)の本文スライス役割別対応は、報告書が明示的に数値を挙げていた
+    「ai_actions.rs::continue_story の24,000字」と「agent_tools/writing.rs::
+    continue_passage の24,000字」の2箇所にのみ適用した。rewrite_selection
+    (6,000+3,000字)・rewrite_passage/line_edit(12,000/5,000字)は据え置き。
+    理由: これらは24,000字よりオーバーフロー実害が小さく、5箇所全てに
+    展開すると変更範囲とリスクが不釣り合いに増える。上限キャップ式
+    （min(従来定数, 算出値)）は prompt_context::context_slice_chars として
+    共通化済みなので、必要になれば残り3箇所への適用は同じ関数を呼ぶだけで済む。
+  - 項目5(b)は optional_judgment を Result 経由に変え、失敗時は
+    on_stage("場面整理に失敗（スキップして続行）") を1回出すのみに留めた
+    （挙動＝スキップして続行、は変更していない）。
+  - 項目10は「TS版と同様」という既存コメントの真偽をレガシーアーカイブから
+    確認できなかった（.ts ソースが残っていない）。役割パラメータを渡しながら
+    メインモデルで上書きする実装は設計意図と矛盾すると判断し、報告書の推奨通り
+    修正した。ユーザーへの報告時にこの判断を明示すること。
+    ※2026-08-04 追記: sample/LITRA（TS版 origin の clone、HEAD f101c91）で検証済み。
+    TS版 handleGenerateSummary(main.ts:1817-1867) は
+    resolveBackgroundRunSettings → resolveBackgroundSettings(settings.ts:686-699) で
+    provider = backgroundProvider ?? chatProvider ?? provider、
+    model = backgroundModel || chatModel || specific.model の順に解決し、
+    その解決済み設定を streamChat に渡している（メインモデルによる上書きは無い）。
+    つまり「要約はメインモデルで走る」という旧コメントは誤りであり、
+    修正後の Rust 実装（role="background"、provider/model オーバーライドなし、
+    バックエンド ai/config.rs の backgroundModel → chatModel フォールバック）と
+    同一の挙動である。設定画面の役割説明
+    （settings-modal.ts:1232「バックグラウンド（要約・整合性チェック）」）とも一致。
+    検証の結果、項目10の修正方針と実装は TS 版仕様に一致していることが確認できた。
+================================================================================

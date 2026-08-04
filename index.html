@@ -3,14 +3,22 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="stylesheet" href="/src/styles.css" />
-  <link rel="icon" href="/src/assets/LITRA.svg" type="image/svg+xml" />
+  <link data-trunk rel="css" href="src/styles.css" />
+  <link data-trunk rel="copy-file" href="src/assets/LITRA.svg" />
+  <link rel="icon" href="/LITRA.svg" type="image/svg+xml" />
+  <link data-trunk rel="rust" href="frontend-rs/Cargo.toml" />
+  <link data-trunk rel="copy-file" href="summary-window.html" />
+  <link data-trunk rel="copy-file" href="memo-window.html" />
+  <link data-trunk rel="copy-file" href="project-memo-window.html" />
+  <link data-trunk rel="copy-file" href="chat-window.html" />
+  <link data-trunk rel="copy-file" href="settings-window.html" />
+  <link data-trunk rel="copy-file" href="genre-library.html" />
+  <link data-trunk rel="copy-file" href="genre-chat-window.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LITRA - リトラと進める小説執筆ツール</title>
-  <script type="module" src="/src/main.ts" defer></script>
 </head>
 
-<body>
+<body data-rust-window="main">
   <div id="app" class="app">
     <header class="toolbar">
       <div class="toolbar-left">
@@ -97,9 +105,14 @@
         <textarea id="editor" class="editor" placeholder="ここから小説を書き始めましょう..." spellcheck="false"></textarea>
       </section>
 
-      <section id="settings-panel" class="settings-panel hidden"></section>
+      <section id="settings-panel" class="settings-panel hidden">
+        <main id="settings-container" class="settings-container"></main>
+      </section>
 
-      <section id="memos-panel" class="memos-panel hidden"></section>
+      <section id="memos-panel" class="memos-panel hidden">
+        <div id="memos-detached-notice" class="memos-detached-notice hidden">メモは別ウィンドウで開いています</div>
+        <main id="memos-container" class="memos-container"></main>
+      </section>
 
       <aside id="chat-panel" class="chat-panel collapsible">
         <div class="chat-panel-header">
@@ -191,6 +204,10 @@
             <button id="btn-oauth-cancel" type="button" class="btn-oauth hidden">キャンセル</button>
             <div id="setting-oauth-user-code" class="oauth-user-code hidden"></div>
           </div>
+          <label id="setting-copilot-enterprise-row" class="hidden">
+            <span>GitHub Enterprise URL（任意）</span>
+            <input id="setting-copilot-enterprise-url" type="url" placeholder="https://github.example" />
+          </label>
           <label>
             <span>ベース URL</span>
             <input id="setting-base-url" type="url" />
@@ -433,7 +450,7 @@
 
             <label class="checkbox-label">
               <input id="setting-continuation-beat-split" type="checkbox" />
-              <span>構想メモのビートごとに分割して執筆（構想ステップが有効な場合のみ動作します。ビート数だけAPI呼び出しが増えます）</span>
+              <span>構想メモのビートごとに分割して執筆（構想ステップが有効な場合のみ動作します。ビート数だけAPI呼び出しが増えます。「本文案を2案生成して選定」が同時に有効な場合はそちらが優先され、ビート分割は休止します）</span>
             </label>
               </div>
             </div>
@@ -536,6 +553,11 @@
               <span>Exa API キー（任意・未入力なら無料枠で動作）</span>
               <input id="setting-exa-api-key" type="password" autocomplete="off" />
             </label>
+            <div class="web-search-priority-settings">
+              <h4>検索ツールの優先順位</h4>
+              <p class="settings-group-description">現在のプロバイダーで利用できる候補を上から試します。ネイティブ検索に対応しないプロバイダーでは Exa に自動で切り替わります。</p>
+              <div id="web-search-priority-list" class="web-search-priority-list"></div>
+            </div>
           </section>
           </div>
 

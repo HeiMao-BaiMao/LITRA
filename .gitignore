@@ -28,6 +28,9 @@ dist-ssr
 
 # Rust lockfile is not tracked in this project
 src-tauri/Cargo.lock
+frontend-rs/Cargo.lock
+frontend-rs/target
+public/rust-ui
 # CocoIndex Code (ccc)
 /.cocoindex_code/*
 !/.cocoindex_code/settings.yml
@@ -39,4 +42,7 @@ session_*.zip
 /fable5.feature.txt
 /fable5.proposal.txt
 
-/.pi-subagents
+/.pi-subagents/
+
+# Legacy TypeScript reference archive (frozen snapshot for porting reference)
+/legacy-ts-archive/

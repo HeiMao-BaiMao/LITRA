@@ -1,11 +1,20 @@
+// LITRA のサードパーティライセンス一覧を生成する。
+// アプリが実際に同梱する依存のみを対象とする:
+//   - src-tauri (ネイティブ側、x86_64-pc-windows-msvc)
+//   - frontend-rs (wasm フロント、wasm32-unknown-unknown)
+// npm 依存は存在しない(TS フロントは Rust へ置換済み)ため対象外。
+// 出力: public/third-party-licenses.json (wasm へ include_str)、
+//       legal/THIRD_PARTY_LICENSES.json / .md (Tauri リソースとして同梱)。
+// バージョンは src-tauri/tauri.conf.json を単一の真実とする。
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
-const packageJson = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
-const packageLock = JSON.parse(readFileSync(join(rootDir, "package-lock.json"), "utf8"));
+const tauriConf = JSON.parse(
+  readFileSync(join(rootDir, "src-tauri", "tauri.conf.json"), "utf8"),
+);
 
 function normalizeLicense(value) {
   if (typeof value === "string" && value.trim()) return value.trim();
@@ -15,41 +24,15 @@ function normalizeLicense(value) {
   return "UNKNOWN";
 }
 
-function normalizeRepository(value) {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && typeof value.url === "string") {
-    return value.url.replace(/^git\+/, "");
-  }
-  return undefined;
-}
-
-function collectNodeLicenses() {
-  const entries = [];
-  for (const [path, meta] of Object.entries(packageLock.packages ?? {})) {
-    if (!path.startsWith("node_modules/")) continue;
-    if (meta.dev) continue;
-
-    entries.push({
-      ecosystem: "npm",
-      name: meta.name ?? path.replace(/^node_modules\//, ""),
-      version: meta.version ?? "",
-      license: normalizeLicense(meta.license),
-      source: normalizeRepository(meta.repository) ?? meta.resolved,
-      homepage: meta.homepage,
-    });
-  }
-  return entries;
-}
-
-function collectCargoLicenses() {
-  const output = execFileSync("cargo", ["metadata", "--format-version", "1", "--filter-platform", "x86_64-pc-windows-msvc"], {
-    cwd: join(rootDir, "src-tauri"),
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
+function collectCargoLicenses(crateDir, platform) {
+  const output = execFileSync(
+    "cargo",
+    ["metadata", "--format-version", "1", "--filter-platform", platform],
+    { cwd: join(rootDir, crateDir), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
   const metadata = JSON.parse(output);
   return metadata.packages
-    .filter((pkg) => typeof pkg.source === "string")
+    .filter((pkg) => typeof pkg.source === "string") // workspace メンバー自身を除外
     .map((pkg) => ({
       ecosystem: "cargo",
       name: pkg.name,
@@ -77,7 +60,7 @@ function markdownTable(entries) {
   const lines = [
     "# Third-Party Licenses",
     "",
-    "This file lists third-party dependencies used by LITRA. It is generated from package-lock.json and Cargo metadata.",
+    "This file lists third-party dependencies used by LITRA. It is generated from Cargo metadata (src-tauri and frontend-rs).",
     "",
     "| Ecosystem | Package | Version | License | Source |",
     "| --- | --- | --- | --- | --- |",
@@ -90,11 +73,14 @@ function markdownTable(entries) {
   return lines.join("\n");
 }
 
-const entries = dedupe([...collectNodeLicenses(), ...collectCargoLicenses()]);
+const entries = dedupe([
+  ...collectCargoLicenses("src-tauri", "x86_64-pc-windows-msvc"),
+  ...collectCargoLicenses("frontend-rs", "wasm32-unknown-unknown"),
+]);
 const payload = {
-  appName: "LITRA",
-  appVersion: packageJson.version,
-  sourceFiles: ["package-lock.json", "src-tauri/Cargo.lock"],
+  appName: tauriConf.productName,
+  appVersion: tauriConf.version,
+  sourceFiles: ["src-tauri/Cargo.lock", "frontend-rs/Cargo.lock"],
   entries,
 };
 

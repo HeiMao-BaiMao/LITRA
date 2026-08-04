@@ -119,7 +119,7 @@ fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn read_json_if_valid(path: &Path) -> Option<Value> {
+pub(crate) fn read_json_if_valid(path: &Path) -> Option<Value> {
     let text = fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
 }

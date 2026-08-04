@@ -22,15 +22,6 @@
         { "path": "$DOCUMENT/litra/**" }
       ]
     },
-    {
-      "identifier": "http:default",
-      "allow": [
-        "https://*:*",
-        "https://*",
-        "http://localhost:*",
-        "http://127.0.0.1:*"
-      ]
-    },
     "opener:default",
     "store:default",
     "core:window:allow-create",

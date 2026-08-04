@@ -1,0 +1,1 @@
+candidate_{index + 1}

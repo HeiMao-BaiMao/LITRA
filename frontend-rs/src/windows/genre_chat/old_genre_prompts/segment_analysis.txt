@@ -1,0 +1,25 @@
+{genreResearchBasePrompt}
+
+TASK:
+Analyze the following segment from a reference work for the genre "{genre.name}".
+
+SEGMENT CONTEXT:
+- Source title: {sourceTitle}
+- Source role in genre study: {sourceRole}
+- Segment heading: {segment.heading || "（なし）"}
+
+{formatPromptDataBlock("segment_text", segmentText)}
+
+ANALYSIS STEPS — follow in this order:
+1. Read the segment text above.
+2. Identify style features: prose style, rhythm, dialogue, description, interiority, pacing, information disclosure, emotional effect.
+3. Identify structural features: narrative functions, scene patterns, character functions, worldbuilding functions.
+4. For each feature, decide: genre signal, non-genre signal, or work-specific feature.
+5. For each feature, set confidence (0.0-1.0) and add short evidence excerpts (max 3).
+6. For each feature, describe how an AI imitating it could fail, and give generation guidance.
+
+STRICT RULES:
+- NEVER treat work-specific proper nouns, events, or plot details as genre requirements.
+- Write every natural-language value in Japanese.
+
+Return ONLY the JSON object defined by the schema.

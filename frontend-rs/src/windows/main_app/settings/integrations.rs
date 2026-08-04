@@ -1,0 +1,677 @@
+use std::cell::RefCell;
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use web_sys::{Document, Element, HtmlElement, HtmlInputElement};
+
+use crate::runtime::{invoke, tauri};
+
+const EXA_KEY: &str = "websearch:exaApiKey";
+
+pub const DEFAULT_WEB_SEARCH_PRIORITY: [&str; 4] = [
+    "openai-web-search",
+    "anthropic-web-search",
+    "google-search",
+    "exa",
+];
+
+const WEB_SEARCH_CANDIDATES: [(&str, &str, &str); 4] = [
+    (
+        "openai-web-search",
+        "OpenAI Web search",
+        "OpenAI Responses API のネイティブ検索",
+    ),
+    (
+        "anthropic-web-search",
+        "Anthropic Web search",
+        "Anthropic Messages API のネイティブ検索",
+    ),
+    (
+        "google-search",
+        "Google Search",
+        "Gemini の Google 検索グラウンディング",
+    ),
+    (
+        "exa",
+        "Exa",
+        "プロバイダーに依存しない検索（フォールバック）",
+    ),
+];
+
+// 同期進捗表示に使う現在のプロジェクト名。
+// メイン画面でプロジェクトを切り替えるたびに更新される。
+thread_local! {
+    static CURRENT_PROJECT_NAME: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// 同期進捗に表示するプロジェクト名を設定する。
+pub fn set_project_name(name: Option<String>) {
+    CURRENT_PROJECT_NAME.with(|cell| *cell.borrow_mut() = name);
+}
+
+fn current_project_name() -> Option<String> {
+    CURRENT_PROJECT_NAME.with(|cell| cell.borrow().clone())
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebDavConfig {
+    enabled: bool,
+    base_url: String,
+    username: Option<String>,
+    password: Option<String>,
+    remote_folder: String,
+}
+
+#[derive(Serialize)]
+struct ConfigArgs<'a> {
+    config: &'a WebDavConfig,
+}
+
+#[derive(Serialize)]
+struct SecretArgs<'a> {
+    key: &'a str,
+}
+
+#[derive(Serialize)]
+struct SecretSetArgs<'a> {
+    key: &'a str,
+    value: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncSummary {
+    files_processed: usize,
+    files_failed: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncProgress {
+    phase: String,
+    current: usize,
+    total: usize,
+    // バックエンドが送るファイルパス。表示には使わず対象名で代替する。
+    #[allow(dead_code)]
+    message: String,
+    /// 同期対象の名前（プロジェクト名・ジャンル名）。バックエンドが解決して送る。
+    target_name: Option<String>,
+}
+
+pub async fn populate(document: &Document, settings: &Value) -> Result<(), JsValue> {
+    let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
+    set_checked(document, "setting-webdav-enabled", config.enabled);
+    set_value(document, "setting-webdav-url", &config.base_url);
+    set_value(
+        document,
+        "setting-webdav-username",
+        config.username.as_deref().unwrap_or_default(),
+    );
+    set_value(
+        document,
+        "setting-webdav-password",
+        config.password.as_deref().unwrap_or_default(),
+    );
+    set_value(document, "setting-webdav-folder", &config.remote_folder);
+    let exa: Option<String> = invoke::invoke("secret_get", &SecretArgs { key: EXA_KEY }).await?;
+    set_value(
+        document,
+        "setting-exa-api-key",
+        exa.as_deref().unwrap_or_default(),
+    );
+    render_web_search_priority(document, settings);
+    update_enabled(document)
+}
+
+pub fn capture_web_search_priority(
+    document: &Document,
+    object: &mut Map<String, Value>,
+) -> Result<(), JsValue> {
+    let mut priority = Vec::new();
+    if let Some(list) = document.get_element_by_id("web-search-priority-list") {
+        let rows = list.query_selector_all("[data-search-backend]")?;
+        for index in 0..rows.length() {
+            let Some(row) = rows
+                .item(index)
+                .and_then(|node| node.dyn_into::<Element>().ok())
+            else {
+                continue;
+            };
+            if let Some(id) = row.get_attribute("data-search-backend") {
+                priority.push(Value::String(id));
+            }
+        }
+    }
+    if priority.is_empty() {
+        priority.extend(
+            DEFAULT_WEB_SEARCH_PRIORITY
+                .iter()
+                .map(|id| Value::String((*id).into())),
+        );
+    }
+    object.insert("webSearchPriority".into(), Value::Array(priority));
+    Ok(())
+}
+
+pub fn move_web_search_priority(
+    document: &Document,
+    backend: &str,
+    direction: i32,
+) -> Result<(), JsValue> {
+    let Some(list) = document.get_element_by_id("web-search-priority-list") else {
+        return Ok(());
+    };
+    let rows = list.query_selector_all("[data-search-backend]")?;
+    let mut target = None;
+    for index in 0..rows.length() {
+        let Some(row) = rows
+            .item(index)
+            .and_then(|node| node.dyn_into::<Element>().ok())
+        else {
+            continue;
+        };
+        if row.get_attribute("data-search-backend").as_deref() == Some(backend) {
+            target = Some(row);
+            break;
+        }
+    }
+    let Some(target) = target else {
+        return Ok(());
+    };
+    if direction < 0 {
+        if let Some(previous) = target.previous_element_sibling() {
+            list.insert_before(&target, Some(&previous))?;
+        }
+    } else if direction > 0 {
+        if let Some(next) = target.next_element_sibling() {
+            if let Some(after) = next.next_element_sibling() {
+                list.insert_before(&target, Some(&after))?;
+            } else {
+                list.append_child(&target)?;
+            }
+        }
+    }
+    refresh_web_search_priority_controls(&list);
+    Ok(())
+}
+
+fn render_web_search_priority(document: &Document, settings: &Value) {
+    let Some(list) = document.get_element_by_id("web-search-priority-list") else {
+        return;
+    };
+    let mut priority = settings
+        .get("webSearchPriority")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|id| {
+                    WEB_SEARCH_CANDIDATES
+                        .iter()
+                        .any(|candidate| candidate.0 == *id)
+                })
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for id in DEFAULT_WEB_SEARCH_PRIORITY {
+        if !priority.iter().any(|item| item == id) {
+            priority.push(id.to_owned());
+        }
+    }
+    list.set_inner_html(
+        &priority
+            .iter()
+            .enumerate()
+            .filter_map(|(index, id)| {
+                let (_, label, description) = WEB_SEARCH_CANDIDATES
+                    .iter()
+                    .find(|candidate| candidate.0 == id)?;
+                Some(format!(
+                    r#"<div class="web-search-priority-row" data-search-backend="{id}"><div class="web-search-priority-info"><strong data-search-label="{label}">{rank}. {label}</strong><small>{description}</small></div><div class="web-search-priority-actions"><button type="button" data-action="move-web-search-up" data-id="{id}" title="優先順位を上げる">▲</button><button type="button" data-action="move-web-search-down" data-id="{id}" title="優先順位を下げる">▼</button></div></div>"#,
+                    rank = index + 1,
+                ))
+            })
+            .collect::<String>(),
+    );
+    refresh_web_search_priority_controls(&list);
+}
+
+fn refresh_web_search_priority_controls(list: &Element) {
+    let Ok(rows) = list.query_selector_all("[data-search-backend]") else {
+        return;
+    };
+    let length = rows.length();
+    for index in 0..length {
+        let Some(row) = rows
+            .item(index)
+            .and_then(|node| node.dyn_into::<Element>().ok())
+        else {
+            continue;
+        };
+        if let Ok(Some(rank)) = row.query_selector("[data-search-label]") {
+            if let Some(label) = rank.get_attribute("data-search-label") {
+                rank.set_text_content(Some(&format!("{}. {label}", index + 1)));
+            }
+        }
+        if let Ok(Some(button)) = row.query_selector("[data-action=move-web-search-up]") {
+            if index == 0 {
+                let _ = button.set_attribute("disabled", "true");
+            } else {
+                let _ = button.remove_attribute("disabled");
+            }
+        }
+        if let Ok(Some(button)) = row.query_selector("[data-action=move-web-search-down]") {
+            if index + 1 == length {
+                let _ = button.set_attribute("disabled", "true");
+            } else {
+                let _ = button.remove_attribute("disabled");
+            }
+        }
+    }
+}
+
+pub async fn save(document: &Document) -> Result<(), JsValue> {
+    let config = read(document);
+    invoke::invoke::<_, ()>("save_webdav_sync_config", &ConfigArgs { config: &config }).await?;
+    let exa = value(document, "setting-exa-api-key");
+    if exa.trim().is_empty() {
+        invoke::invoke::<_, ()>("secret_delete", &SecretArgs { key: EXA_KEY }).await
+    } else {
+        invoke::invoke::<_, ()>(
+            "secret_set",
+            &SecretSetArgs {
+                key: EXA_KEY,
+                value: exa.trim(),
+            },
+        )
+        .await
+    }
+}
+
+pub fn update_enabled(document: &Document) -> Result<(), JsValue> {
+    let disabled = !checked(document, "setting-webdav-enabled");
+    for id in [
+        "setting-webdav-url",
+        "setting-webdav-username",
+        "setting-webdav-password",
+        "setting-webdav-folder",
+    ] {
+        if let Some(input) = input(document, id) {
+            input.set_disabled(disabled);
+        }
+    }
+    Ok(())
+}
+
+/// TS版 `createSyncOverlay` 相当: WebDAV同期オーバーレイのDOM要素を事前作成する。
+/// 起動時に呼び、最初の同期操作前にDOM要素が存在することを保証する。
+/// 作成後は非表示（display:none）のまま。
+pub fn create_sync_overlay(document: &Document) {
+    if document.get_element_by_id("litra-sync-overlay").is_some() {
+        return;
+    }
+    let overlay = document.create_element("div").unwrap();
+    overlay.set_id("litra-sync-overlay");
+    let _ = overlay.set_attribute(
+        "style",
+        "position: fixed; top: 0; left: 0; width: 100%; height: 100%; \
+         background: rgba(0,0,0,0.5); display: none; align-items: center; \
+         justify-content: center; z-index: 99999;",
+    );
+
+    let card = document.create_element("div").unwrap();
+    let _ = card.set_attribute(
+        "style",
+        "background: var(--surface, #1e1e2e); color: var(--text-primary, #cdd6f4); \
+         padding: 2rem 3rem; border-radius: 12px; \
+         box-shadow: 0 4px 24px rgba(0,0,0,0.3); \
+         text-align: center; min-width: 320px;",
+    );
+
+    let msg_el = document.create_element("div").unwrap();
+    msg_el.set_id("litra-sync-message");
+    let _ = msg_el.set_attribute("style", "font-size: 1.1rem; margin-bottom: 1rem;");
+    let _ = card.append_child(&msg_el);
+
+    let bar = document.create_element("div").unwrap();
+    bar.set_id("litra-sync-progress-bar");
+    let _ = bar.set_attribute(
+        "style",
+        "width: 100%; height: 6px; background: var(--surface-hover, #313244); \
+         border-radius: 3px; overflow: hidden;",
+    );
+
+    let fill = document.create_element("div").unwrap();
+    fill.set_id("litra-sync-progress-fill");
+    let _ = fill.set_attribute(
+        "style",
+        "width: 0%; height: 100%; background: var(--accent, #89b4fa); \
+         transition: width 0.3s;",
+    );
+    let _ = bar.append_child(&fill);
+    let _ = card.append_child(&bar);
+
+    let count = document.create_element("div").unwrap();
+    count.set_id("litra-sync-count");
+    let _ = count.set_attribute(
+        "style",
+        "margin-top: 0.5rem; font-size: 0.85rem; \
+         color: var(--text-secondary, #a6adc8);",
+    );
+    let _ = card.append_child(&count);
+
+    let _ = overlay.append_child(&card);
+    let _ = document.body().unwrap().append_child(&overlay);
+}
+
+/// TS版 `onSyncProgress` 相当。バックエンドから届く同期進捗を表示へ反映する。
+pub async fn listen_progress(document: &Document) -> Result<(), JsValue> {
+    let document = document.clone();
+    tauri::listen(
+        "webdav-sync-progress",
+        Closure::wrap(Box::new(move |payload: JsValue| {
+            let Ok(progress) = serde_wasm_bindgen::from_value::<SyncProgress>(payload) else {
+                return;
+            };
+            update_sync_progress(&document, &progress);
+        }) as Box<dyn FnMut(JsValue)>),
+    )
+    .await
+}
+
+pub async fn pull_on_start(_document: &Document) -> Result<(), JsValue> {
+    let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
+    if !config.enabled || config.base_url.trim().is_empty() {
+        return Ok(());
+    }
+    if let Some(window) = web_sys::window() {
+        show_sync_modal(&window, "WebDAV から同期中…");
+    }
+    let result: Result<SyncSummary, JsValue> = invoke::invoke("pull_webdav_all", &Empty {}).await;
+    match result {
+        Ok(summary) => {
+            if let Some(window) = web_sys::window() {
+                update_sync_modal(
+                    &window,
+                    &format!(
+                        "WebDAV 同期完了: {} 件処理、{} 件失敗",
+                        summary.files_processed, summary.files_failed
+                    ),
+                );
+                // 完了表示後に非表示
+                let window_clone = window.clone();
+                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    Closure::once_into_js(move || hide_sync_modal(&window_clone)).unchecked_ref(),
+                    3000,
+                );
+            }
+        }
+        Err(error) => {
+            if let Some(window) = web_sys::window() {
+                update_sync_modal(&window, &format!("WebDAV 同期失敗: {error:?}"));
+                let window_clone = window.clone();
+                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    Closure::once_into_js(move || hide_sync_modal(&window_clone)).unchecked_ref(),
+                    8000,
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn push_on_close() -> Result<(), JsValue> {
+    let config: WebDavConfig = invoke::invoke("load_webdav_sync_config", &Empty {}).await?;
+    if config.enabled && !config.base_url.trim().is_empty() {
+        if let Some(window) = web_sys::window() {
+            show_sync_modal(&window, "WebDAVに同期中...");
+            // ブラウザがDOMを描画するまで待機（必須: さもなくば非同期処理が先に始まり表示されない）
+            sleep_ms(150).await;
+        }
+        match invoke::invoke::<_, SyncSummary>("push_webdav_all", &Empty {}).await {
+            Ok(summary) => {
+                if let Some(window) = web_sys::window() {
+                    update_sync_modal(
+                        &window,
+                        &format!(
+                            "完了: {}件処理、{}件失敗",
+                            summary.files_processed, summary.files_failed
+                        ),
+                    );
+                    // 完了表示をユーザーが見られるように待機（この直後にウィンドウ破棄）
+                    sleep_ms(2000).await;
+                }
+                web_sys::console::log_1(
+                    &format!(
+                        "[litra] WebDAV push complete: {} processed, {} failed",
+                        summary.files_processed, summary.files_failed
+                    )
+                    .into(),
+                );
+            }
+            Err(error) => {
+                if let Some(window) = web_sys::window() {
+                    update_sync_modal(&window, &format!("失敗: {error:?}"));
+                    sleep_ms(5000).await;
+                }
+                web_sys::console::error_1(&format!("[litra] WebDAV push failed: {error:?}").into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read(document: &Document) -> WebDavConfig {
+    WebDavConfig {
+        enabled: checked(document, "setting-webdav-enabled"),
+        base_url: value(document, "setting-webdav-url").trim().into(),
+        username: non_empty(value(document, "setting-webdav-username")),
+        password: non_empty(value(document, "setting-webdav-password")),
+        remote_folder: value(document, "setting-webdav-folder").trim().into(),
+    }
+}
+
+// ---- 同期モーダル (旧TS createSyncOverlay の移植) ----
+
+fn show_sync_modal(window: &web_sys::Window, message: &str) {
+    let document = window.document().unwrap();
+    // 既存のオーバーレイがあれば再利用
+    if let Some(overlay) = document.get_element_by_id("litra-sync-overlay") {
+        if let Some(msg_el) = document.get_element_by_id("litra-sync-message") {
+            msg_el.set_text_content(Some(message));
+        }
+        // プログレスバーをリセット
+        if let Some(fill) = document.get_element_by_id("litra-sync-progress-fill") {
+            set_style_property(&fill, "width", "0%");
+        }
+        if let Some(count) = document.get_element_by_id("litra-sync-count") {
+            count.set_text_content(Some(""));
+        }
+        // cssText 全体を置換すると fixed 配置や z-index まで失われる。
+        // TS版の `overlay.style.display = "flex"` と同じく一項目だけ更新する。
+        set_style_property(&overlay, "display", "flex");
+        return;
+    }
+    // 新規作成
+    let overlay = document.create_element("div").unwrap();
+    overlay.set_id("litra-sync-overlay");
+    let _ = overlay.set_attribute(
+        "style",
+        "position: fixed; top: 0; left: 0; width: 100%; height: 100%; \
+         background: rgba(0,0,0,0.5); display: flex; align-items: center; \
+         justify-content: center; z-index: 99999;",
+    );
+
+    let card = document.create_element("div").unwrap();
+    let _ = card.set_attribute(
+        "style",
+        "background: var(--surface, #1e1e2e); color: var(--text-primary, #cdd6f4); \
+         padding: 2rem 3rem; border-radius: 12px; \
+         box-shadow: 0 4px 24px rgba(0,0,0,0.3); \
+         text-align: center; min-width: 320px;",
+    );
+
+    let msg_el = document.create_element("div").unwrap();
+    msg_el.set_id("litra-sync-message");
+    let _ = msg_el.set_attribute("style", "font-size: 1.1rem; margin-bottom: 1rem;");
+    msg_el.set_text_content(Some(message));
+
+    let bar = document.create_element("div").unwrap();
+    bar.set_id("litra-sync-progress-bar");
+    let _ = bar.set_attribute(
+        "style",
+        "width: 100%; height: 6px; background: var(--surface-hover, #313244); \
+         border-radius: 3px; overflow: hidden;",
+    );
+
+    let fill = document.create_element("div").unwrap();
+    fill.set_id("litra-sync-progress-fill");
+    let _ = fill.set_attribute(
+        "style",
+        "width: 0%; height: 100%; background: var(--accent, #89b4fa); \
+         transition: width 0.3s;",
+    );
+
+    let count = document.create_element("div").unwrap();
+    count.set_id("litra-sync-count");
+    let _ = count.set_attribute(
+        "style",
+        "margin-top: 0.5rem; font-size: 0.85rem; \
+         color: var(--text-secondary, #a6adc8);",
+    );
+
+    let _ = bar.append_child(&fill);
+    let _ = card.append_child(&msg_el);
+    let _ = card.append_child(&bar);
+    let _ = card.append_child(&count);
+    let _ = overlay.append_child(&card);
+    let _ = document.body().unwrap().append_child(&overlay);
+}
+
+fn update_sync_modal(window: &web_sys::Window, message: &str) {
+    if let Some(document) = window.document() {
+        if let Some(msg_el) = document.get_element_by_id("litra-sync-message") {
+            msg_el.set_text_content(Some(message));
+        }
+    }
+}
+
+fn update_sync_progress(document: &Document, progress: &SyncProgress) {
+    if let Some(message) = document.get_element_by_id("litra-sync-message") {
+        // ファイル名の羅列は煩雑なため、同期対象（プロジェクト/ジャンル）名と
+        // 方向だけの簡潔な表示にする。対象名はバックエンドが解決して送る。
+        let direction = if progress.phase == "pull" {
+            "から同期中"
+        } else {
+            "に同期中"
+        };
+        // イベントの対象名を優先。無い場合（同期開始直後など）は現在のプロジェクト名、
+        // それも無ければ汎用表記にフォールバックする。
+        let name = progress
+            .target_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(current_project_name);
+        let text = match name {
+            Some(name) => format!("「{}」のファイルをWebDAV{}…", name.trim(), direction),
+            None => format!("ファイルをWebDAV{}…", direction),
+        };
+        message.set_text_content(Some(&text));
+    }
+    if let Some(fill) = document.get_element_by_id("litra-sync-progress-fill") {
+        set_style_property(
+            &fill,
+            "width",
+            &format!("{:.2}%", progress_percent(progress.current, progress.total)),
+        );
+    }
+    if let Some(count) = document.get_element_by_id("litra-sync-count") {
+        let text = if progress.total > 0 {
+            format!("{} / {}", progress.current, progress.total)
+        } else {
+            progress.current.to_string()
+        };
+        count.set_text_content(Some(&text));
+    }
+}
+
+fn hide_sync_modal(window: &web_sys::Window) {
+    if let Some(document) = window.document() {
+        if let Some(overlay) = document.get_element_by_id("litra-sync-overlay") {
+            set_style_property(&overlay, "display", "none");
+        }
+    }
+}
+
+fn set_style_property(element: &web_sys::Element, property: &str, value: &str) {
+    if let Some(element) = element.dyn_ref::<HtmlElement>() {
+        let _ = element.style().set_property(property, value);
+    }
+}
+
+fn progress_percent(current: usize, total: usize) -> f64 {
+    if total == 0 {
+        return 0.0;
+    }
+    ((current as f64 / total as f64) * 100.0).clamp(0.0, 100.0)
+}
+
+/// 指定ミリ秒間だけ待機する。DOM描画の待機や完了表示に使う。
+async fn sleep_ms(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
+        } else {
+            // window がない場合は即座に解決
+            let _ = resolve.call0(&JsValue::UNDEFINED);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+fn non_empty(value: String) -> Option<String> {
+    let value = value.trim().to_owned();
+    (!value.is_empty()).then_some(value)
+}
+fn input(document: &Document, id: &str) -> Option<HtmlInputElement> {
+    document.get_element_by_id(id)?.dyn_into().ok()
+}
+fn value(document: &Document, id: &str) -> String {
+    input(document, id)
+        .map(|item| item.value())
+        .unwrap_or_default()
+}
+fn set_value(document: &Document, id: &str, value: &str) {
+    if let Some(input) = input(document, id) {
+        input.set_value(value);
+    }
+}
+fn checked(document: &Document, id: &str) -> bool {
+    input(document, id)
+        .map(|item| item.checked())
+        .unwrap_or(false)
+}
+fn set_checked(document: &Document, id: &str, checked: bool) {
+    if let Some(input) = input(document, id) {
+        input.set_checked(checked);
+    }
+}
+
+#[derive(Serialize)]
+struct Empty {}
+
+#[cfg(test)]
+mod tests {
+    use super::progress_percent;
+
+    #[test]
+    fn progress_percent_handles_empty_and_clamps_overflow() {
+        assert_eq!(progress_percent(3, 0), 0.0);
+        assert_eq!(progress_percent(1, 4), 25.0);
+        assert_eq!(progress_percent(8, 4), 100.0);
+    }
+}
