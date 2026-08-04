@@ -49,7 +49,7 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | crc32fast | 1.5.0 | MIT OR Apache-2.0 | [link](https://github.com/srijs/rust-crc32fast) |
 | cargo | crossbeam-channel | 0.5.15 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
 | cargo | crossbeam-deque | 0.8.6 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
-| cargo | crossbeam-epoch | 0.9.18 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | crossbeam-epoch | 0.9.20 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
 | cargo | crossbeam-utils | 0.8.21 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
 | cargo | crunchy | 0.2.4 | MIT | [link](https://github.com/eira-fransham/crunchy) |
 | cargo | crypto-common | 0.1.7 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/traits) |
