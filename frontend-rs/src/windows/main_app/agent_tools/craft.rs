@@ -76,16 +76,15 @@ async fn craft_advice(
     // 現在のエピソード本文の末尾を相談の文脈として渡す(continuePassage と同じ
     // スライス予算。コンテキスト上限が取れなければ 24,000 字)。
     let writing_defaults = ai::role_defaults("writing").await.ok();
-    let slice_chars = prompt_context::context_slice_chars(
+    let full_slice = prompt_context::context_slice_chars(
         writing_defaults
             .as_ref()
             .and_then(|value| value.max_context_tokens),
         24_000,
     );
-    let (settings, context) = {
+    let (settings, editor_text) = {
         let current = state.borrow();
-        let context = prompt_context::tail_chars(&current.editor_text, slice_chars);
-        (current.ai_settings.clone(), context)
+        (current.ai_settings.clone(), current.editor_text.clone())
     };
     let scaffold = generation::judgment_scaffold(&settings);
     let settings_context = {
@@ -95,23 +94,46 @@ async fn craft_advice(
     };
     let _ = current_episode;
     on_progress("小説原理に照らして回答を検討中");
-    let result = ai::generate(
-        "judgment",
-        generation::craft::system_with_principles(scaffold),
-        generation::craft::craft_advice(
+    // reasoning モデルが思考に全出力予算を費やして空応答になることがあるため、
+    // 1回だけ文脈を絞って再試行する。再試行も失敗したらツールをエラーで
+    // 中断せず success=false を返し、チャットモデルが直接回答できるようにする
+    // (ツール失敗が会話ラウンド全体を潰さない)。
+    let mut attempt = 0;
+    loop {
+        let slice = if attempt == 0 { full_slice } else { 8_000 };
+        let context = prompt_context::tail_chars(&editor_text, slice);
+        let system = generation::craft::system_with_principles(scaffold);
+        let prompt = generation::craft::craft_advice(
             &context,
             consultation,
             settings_context.as_deref(),
             scaffold,
-        ),
-    )
-    .await?;
-    Ok(json!({
-        "success": true,
-        "message": "作劇相談への回答を生成しました。",
-        "advice": result.text,
-        "model": result.model,
-    }))
+        );
+        match ai::generate("judgment", system, prompt).await {
+            Ok(result) => {
+                return Ok(json!({
+                    "success": true,
+                    "message": "作劇相談への回答を生成しました。",
+                    "advice": result.text,
+                    "model": result.model,
+                }));
+            }
+            Err(_) if attempt == 0 => {
+                attempt += 1;
+                on_progress("回答の生成に失敗。文脈を絞って再試行中");
+            }
+            Err(error) => {
+                let message = error
+                    .as_string()
+                    .unwrap_or_else(|| "AIからの応答が空でした。".into());
+                return Ok(json!({
+                    "success": false,
+                    "message": "作劇相談の回答生成に失敗しました。チャット上で直接お答えください。",
+                    "error": message,
+                }));
+            }
+        }
+    }
 }
 
 async fn record_craft_note(
