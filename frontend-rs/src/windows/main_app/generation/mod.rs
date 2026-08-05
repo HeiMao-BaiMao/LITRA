@@ -1,3 +1,4 @@
+pub(crate) mod craft;
 pub(crate) mod old_prompts;
 mod prompts;
 pub(crate) mod review;
@@ -138,7 +139,7 @@ where
         on_stage("構想を作成中");
         ai::generate(
             "judgment",
-            super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+            craft::system_with_principles(judgment_scaffold(settings)),
             prompts::plan(
                 context,
                 instruction,
@@ -151,6 +152,48 @@ where
         )
         .await?
         .text
+    } else {
+        String::new()
+    };
+
+    // 構成点検: 構想を現在の局面と前話のあらすじに照合し、報告を構想に追記する。
+    // 失敗しても続行できる(craftStructureCheckEnabled のみで制御)。
+    let plan = if enabled(settings, "craftStructureCheckEnabled") && !plan.trim().is_empty() {
+        on_stage("構成を点検中");
+        let check = optional_judgment(
+            &craft::system_with_principles(judgment_scaffold(settings)),
+            craft::structure_check(
+                context,
+                nonempty(&references.settings_context),
+                Some(&plan),
+            ),
+            &mut *on_stage,
+        )
+        .await;
+        if check.trim().is_empty() {
+            plan
+        } else {
+            format!("{plan}\n\n【構成点検の報告】\n{check}")
+        }
+    } else {
+        plan
+    };
+
+    // 文学目標カード: 構想を「読者への効果」の観点から設計カード化する。
+    // ドラフト・査読・改稿へ基準として渡る(continuationCraftCardEnabled のみで制御)。
+    let craft_card = if enabled(settings, "continuationCraftCardEnabled") {
+        on_stage("文学目標カードを作成中");
+        optional_judgment(
+            &craft::system_with_principles(judgment_scaffold(settings)),
+            craft::craft_card(
+                context,
+                Some(&plan),
+                nonempty(&references.settings_context),
+                judgment_scaffold(settings),
+            ),
+            &mut *on_stage,
+        )
+        .await
     } else {
         String::new()
     };
@@ -183,6 +226,7 @@ where
             &fingerprint_section,
             references,
             scaffold(settings),
+            &craft_card,
             &beats,
         )
         .await?
@@ -196,6 +240,7 @@ where
             &fingerprint_section,
             references,
             scaffold(settings),
+            &craft_card,
             None,
             on_chunk.clone(),
         )
@@ -212,6 +257,7 @@ where
             &fingerprint_section,
             references,
             scaffold(settings),
+            &craft_card,
             None,
             None,
         )
@@ -249,6 +295,7 @@ where
             &fingerprint_section,
             references,
             scaffold(settings),
+            &craft_card,
             None,
             None,
         )
@@ -260,17 +307,92 @@ where
     }
 
     if enabled(settings, "continuationReviewEnabled") {
-        on_stage("判断モデルで査読中");
+        let j_scaffold = judgment_scaffold(settings);
         let extras = old_prompts::fiction_extra_sections(&scene, &voices, &fingerprint_section);
-        let mut findings = review::inspect(
-            context,
-            &selected.text,
-            nonempty(&references.settings_context),
-            nonempty(&plan),
-            references.related_scenes.as_deref(),
-            &extras,
-        )
-        .await?;
+        on_stage(if craft_card.trim().is_empty() {
+            "判断モデルで査読中"
+        } else {
+            "文学目標と照合しながら査読中"
+        });
+        let mut findings = if craft_card.trim().is_empty() {
+            review::inspect(
+                context,
+                &selected.text,
+                nonempty(&references.settings_context),
+                nonempty(&plan),
+                references.related_scenes.as_deref(),
+                &extras,
+                j_scaffold,
+            )
+            .await?
+        } else {
+            review::inspect_craft(
+                context,
+                &selected.text,
+                &craft_card,
+                nonempty(&references.settings_context),
+                nonempty(&plan),
+                references.related_scenes.as_deref(),
+                &extras,
+                j_scaffold,
+            )
+            .await?
+        };
+        // craft 検証(初読読者・緩急・テーマ)を査読に重ねる。各トグルは独立。
+        let mut craft_findings = Vec::new();
+        if enabled(settings, "craftReaderSimEnabled") {
+            on_stage("初読読者の視点で検証中");
+            craft_findings.push(
+                run_craft_audit(
+                    "初読読者",
+                    craft::reader_sim(context, &selected.text),
+                    craft::reader_sim_schema(),
+                    "events",
+                    &mut *on_stage,
+                )
+                .await,
+            );
+        }
+        if enabled(settings, "craftPacingAuditEnabled") {
+            on_stage("緩急と情報開示を監査中");
+            craft_findings.push(
+                run_craft_audit(
+                    "緩急",
+                    craft::pacing_audit(context, &selected.text),
+                    craft::pacing_audit_schema(),
+                    "findings",
+                    &mut *on_stage,
+                )
+                .await,
+            );
+        }
+        if enabled(settings, "craftThemeAuditEnabled") {
+            on_stage("テーマと約束を監査中");
+            craft_findings.push(
+                run_craft_audit(
+                    "テーマ",
+                    craft::theme_audit(
+                        context,
+                        nonempty(&references.settings_context),
+                        nonempty(&references.settings_context),
+                        &selected.text,
+                    ),
+                    craft::theme_audit_schema(),
+                    "findings",
+                    &mut *on_stage,
+                )
+                .await,
+            );
+        }
+        let craft_findings = craft_findings
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !craft_findings.trim().is_empty() {
+            findings.push_str("\n\n【craft検証による指摘】\n");
+            findings.push_str(&craft_findings);
+        }
         let checked = draft_checks::check_draft(&selected.text, context);
         // hard違反は決定論的に「誤りである」と言い切れる検査のみ（文の反復等）。
         // soft（一人称ドリフト等）は意図的な視点交代の可能性があるため、
@@ -297,6 +419,11 @@ where
             return Ok(selected);
         }
         on_stage("査読結果から改稿中");
+        let mut revise_extras = extras.clone();
+        if !craft_card.trim().is_empty() {
+            revise_extras.push('\n');
+            revise_extras.push_str(&craft::craft_card_section(&craft_card));
+        }
         let revised = revise_with_review(
             context,
             &selected.text,
@@ -305,7 +432,7 @@ where
             scaffold(settings),
             nonempty(&references.settings_context),
             references.related_scenes.as_deref(),
-            &extras,
+            &revise_extras,
         )
         .await?;
         if revised.text == selected.text {
@@ -319,6 +446,7 @@ where
                 &revised.text,
                 nonempty(&references.settings_context),
                 judgment_scaffold(settings),
+                enabled(settings, "craftCompareRevisionsEnabled"),
             )
             .await?
         {
@@ -435,6 +563,7 @@ where
             None,
             references.related_scenes.as_deref(),
             "",
+            scaffold(settings),
         )
         .await?;
         if !review::requires_revision(&findings) {
@@ -463,6 +592,7 @@ where
                 &revised.text,
                 nonempty(&references.settings_context),
                 judgment_scaffold(settings),
+                enabled(settings, "craftCompareRevisionsEnabled"),
             )
             .await?
         {
@@ -482,6 +612,7 @@ async fn draft(
     style_fingerprint: &str,
     references: &FictionReferences,
     scaffold: Option<&str>,
+    craft: &str,
     beat_directive: Option<(&str, usize, usize)>,
     on_chunk: Option<ChunkCallback>,
 ) -> Result<ai::GeneratedText, JsValue> {
@@ -496,8 +627,9 @@ async fn draft(
         scaffold,
         Some(style_fingerprint),
         beat_directive,
+        (!craft.trim().is_empty()).then_some(craft),
     );
-    let system: String = super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into();
+    let system: String = craft::system_with_principles(scaffold);
     let mut result = if let Some(callback) = on_chunk {
         let cb = Rc::clone(&callback);
         ai::generate_streaming(
@@ -522,7 +654,7 @@ async fn draft(
         }
         let turn = ai::agent_turn(
             "writing",
-            super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+            craft::system_with_principles(scaffold),
             vec![
                 serde_json::json!({"role":"user","content":prompt}),
                 serde_json::json!({"role":"assistant","content":result.text}),
@@ -567,6 +699,7 @@ async fn draft_beats(
     style_fingerprint: &str,
     references: &FictionReferences,
     scaffold: Option<&str>,
+    craft: &str,
     beats: &[String],
 ) -> Result<ai::GeneratedText, JsValue> {
     let mut cumulative_context = context.to_string();
@@ -581,6 +714,7 @@ async fn draft_beats(
             style_fingerprint,
             references,
             scaffold,
+            craft,
             Some((beat, index + 1, beats.len())),
             None,
         )
@@ -612,7 +746,7 @@ async fn rewrite_candidate(
     scaffold: Option<&str>,
     on_chunk: Option<ChunkCallback>,
 ) -> Result<ai::GeneratedText, JsValue> {
-    let system: String = super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into();
+    let system: String = craft::system_with_principles(scaffold);
     let prompt = prompts::rewrite(
         context,
         passage,
@@ -646,6 +780,63 @@ async fn optional_judgment(
             String::new()
         }
     }
+}
+
+/// craft 検証(初読読者・緩急・テーマ)の実行。構造化出力が返すリストを
+/// 査読に追記できる1行ずつの指摘文に整形する。失敗したらスキップする
+/// (optional_judgment と同じ failure-tolerant 方針)。
+async fn run_craft_audit(
+    label: &str,
+    prompt: String,
+    schema: Value,
+    list_key: &str,
+    on_stage: &mut dyn FnMut(&str),
+) -> String {
+    let result = crate::ai::structured_output::generate_structured_object::<Value>(
+        "judgment",
+        Some(&craft::full_system()),
+        &prompt,
+        schema,
+        None,
+        None,
+    )
+    .await;
+    let value = match result {
+        Ok(value) => value,
+        Err(_) => {
+            on_stage(&format!("{label}検証に失敗（スキップして続行）"));
+            return String::new();
+        }
+    };
+    let mut lines = value
+        .get(list_key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(format_craft_finding)
+        .collect::<Vec<_>>();
+    if let Some(summary) = value.get("summary").and_then(Value::as_str) {
+        if !summary.trim().is_empty() {
+            lines.push(format!("- 総評: {}", summary.trim()));
+        }
+    }
+    lines.join("\n")
+}
+
+/// 監査結果の1要素を「- L{行} [{種別}] {理由}」の1行にする。
+/// 行番号・種別・理由のいずれかが欠けている要素は捨てる。
+fn format_craft_finding(item: &Value) -> Option<String> {
+    let reason = item.get("reason").and_then(Value::as_str)?.trim();
+    if reason.is_empty() {
+        return None;
+    }
+    let line = item
+        .get("line")
+        .and_then(Value::as_i64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "?".into());
+    let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
+    Some(format!("- L{line} [{kind}] {reason}"))
 }
 
 fn enabled(settings: &Value, key: &str) -> bool {
@@ -782,7 +973,8 @@ mod tests {
     fn every_prompt_keeps_original_context() {
         let context = "固有の本文末尾";
         assert!(
-            prompts::draft(context, "", "", "", "", None, None, None, None, None).contains(context)
+            prompts::draft(context, "", "", "", "", None, None, None, None, None, None)
+                .contains(context)
         );
         assert!(prompts::review(context, "候補", None, None, None, "").contains(context));
         assert!(
@@ -794,6 +986,7 @@ mod tests {
 
     #[test]
     fn draft_includes_generated_continuity_cards_and_style() {
+        let card = craft::craft_card_section("【この場面の目的】対立を深める");
         let prompt = prompts::draft(
             "直前本文",
             "続ける",
@@ -805,6 +998,7 @@ mod tests {
             None,
             Some("【文体指標】短文中心"),
             Some(("扉を開ける", 1, 2)),
+            Some(&card),
         );
         assert!(prompt.contains("【場面の現在状態"));
         assert!(prompt.contains("<reference_data name=\"scene_state\">\n場所: 書斎"));
@@ -815,6 +1009,9 @@ mod tests {
         assert!(prompt.contains("【LITRA工程】continuation-draft/v2"));
         assert!(prompt.contains("【最終指示"));
         assert!(prompt.contains("【執筆前の確定"));
+        assert!(prompt.contains("【文学目標カード"));
+        assert!(prompt.contains("<reference_data name=\"craft_card\">"));
+        assert!(prompt.contains("【この場面の目的】対立を深める"));
     }
 
     #[test]
@@ -844,7 +1041,7 @@ mod tests {
             judgment_scaffold(&json!({"judgmentOverrides":{"promptScaffold":"light"}})),
             Some("light")
         );
-        let heavy = prompts::draft("本文", "", "", "", "", None, None, None, None, None);
+        let heavy = prompts::draft("本文", "", "", "", "", None, None, None, None, None, None);
         assert!(heavy.contains("【執筆前の確定"));
         assert!(!heavy.contains("【メタ認知"));
         let light = prompts::draft(
@@ -856,6 +1053,7 @@ mod tests {
             None,
             None,
             Some("light"),
+            None,
             None,
             None,
         );
@@ -906,6 +1104,47 @@ mod tests {
             Some("前。新しい文。重複。重複。後。".into())
         );
     }
+
+    #[test]
+    fn craft_finding_lines_keep_line_kind_and_reason() {
+        use serde_json::json;
+        assert_eq!(
+            format_craft_finding(&json!({"line": 12, "type": "confused", "reason": "誰の発言か分からない"})),
+            Some("- L12 [confused] 誰の発言か分からない".into())
+        );
+        // 行番号が無くても種別と理由があれば整形する
+        assert_eq!(
+            format_craft_finding(&json!({"type": "stalled", "reason": "緊張が更新されない"})),
+            Some("- L? [stalled] 緊張が更新されない".into())
+        );
+        // 理由が無い要素は捨てる
+        assert_eq!(
+            format_craft_finding(&json!({"line": 3, "type": "hooked"})),
+            None
+        );
+    }
+
+    #[test]
+    fn craft_card_reaches_draft_through_prompt() {
+        // continue_story_full の配線で card は draft の craft_section に渡る。
+        // ここでは old_prompts::draft 単体での注入を確認する。
+        let section = craft::craft_card_section("【この場面の目的】対立を深める");
+        let prompt = prompts::draft(
+            "本文",
+            "",
+            "",
+            "",
+            "",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&section),
+        );
+        assert!(prompt.contains("【文学目標カード"));
+        assert!(prompt.contains("【この場面の目的】対立を深める"));
+    }
 }
 
 async fn revise_with_review(
@@ -921,7 +1160,7 @@ async fn revise_with_review(
     if targeted {
         let mut proposal = ai::generate(
             "writing",
-            super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+            craft::system_with_principles(scaffold),
             prompts::revise(
                 context,
                 draft,
@@ -947,7 +1186,7 @@ async fn revise_with_review(
     }
     ai::generate(
         "writing",
-        super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+        craft::system_with_principles(scaffold),
         prompts::revise(
             context,
             draft,

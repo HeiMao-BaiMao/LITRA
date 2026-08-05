@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 //  汎用ヘルパー
 // ============================================================
 
-fn format_data_block(label: &str, content: &str) -> String {
+pub(crate) fn format_data_block(label: &str, content: &str) -> String {
     if content.is_empty() {
         return String::new();
     }
@@ -117,7 +117,7 @@ pub(crate) fn sample_prompt_text(text: &str, max_chars: usize, segment_count: us
 //  セクションビルダー
 // ============================================================
 
-fn build_related_scenes_section(related_scenes: Option<&str>) -> String {
+pub(crate) fn build_related_scenes_section(related_scenes: Option<&str>) -> String {
     let trimmed = related_scenes.unwrap_or("").trim();
     if trimmed.is_empty() {
         return String::new();
@@ -134,7 +134,7 @@ fn build_related_scenes_section(related_scenes: Option<&str>) -> String {
     s
 }
 
-fn build_story_reference_section(settings_context: Option<&str>) -> String {
+pub(crate) fn build_story_reference_section(settings_context: Option<&str>) -> String {
     let trimmed = settings_context.unwrap_or("").trim();
     if trimmed.is_empty() {
         return String::new();
@@ -419,6 +419,7 @@ pub fn plan(
     s
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draft(
     context: &str,
     instruction: &str,
@@ -431,6 +432,7 @@ pub fn draft(
     author_instruction: Option<&str>,
     style_fingerprint: Option<&str>,
     beat_directive: Option<(&str, usize, usize)>,
+    craft_section: Option<&str>,
 ) -> String {
     let mut s = String::new();
 
@@ -485,6 +487,11 @@ pub fn draft(
         s.push_str("2. ただし優先順位は「直前本文との自然な接続・正史 > 構想メモ」である。書き進めて矛盾や不自然さが生じる場合は、構想メモより本文の流れを優先してよい。\n");
         s.push_str("3. 構想メモの文言をそのまま本文にコピーしない。メモは設計図であり、本文はゼロから小説の文章として書く。\n\n");
         s.push_str(&limit_prompt_text(plan_text, 2000, "tail"));
+        s.push_str("\n\n");
+    }
+
+    if let Some(craft_section) = craft_section.map(str::trim).filter(|value| !value.is_empty()) {
+        s.push_str(&craft_section);
         s.push_str("\n\n");
     }
 

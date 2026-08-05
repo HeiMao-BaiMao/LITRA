@@ -17,6 +17,7 @@ const MAX_TOOL_ROUNDS: usize = 16;
 /// 重複するツール呼び出しを検出した場合に中断するためのしきい値
 const MAX_DUPLICATE_CALLS: usize = 2;
 
+mod craft;
 mod genre;
 mod project;
 mod writing;
@@ -883,6 +884,10 @@ async fn execute(
     if project::handles(name) {
         return project::execute(state, project_id, current_episode, name, input).await;
     }
+    if craft::handles(name) {
+        return craft::execute(state, project_id, current_episode, name, input, on_progress)
+            .await;
+    }
     let mut input = input.as_object().cloned().unwrap_or_default();
     let value: Value = match name {
         "listEpisodes" => {
@@ -1257,6 +1262,7 @@ fn definitions() -> Vec<Value> {
     definitions.extend(project::definitions());
     definitions.extend(genre::definitions());
     definitions.extend(writing::definitions());
+    definitions.extend(craft::definitions());
     definitions
 }
 
@@ -1497,6 +1503,26 @@ MEMOS:
 - Read existing memos before creating or updating one. Do not create duplicates for the same subject.
 - Preserve unrelated content. Write stored title and prose in Japanese.
 - Do not promote guesses or assistant suggestions into project canon without an explicit user request.
+"#);
+    }
+    if available.contains("craftAdvice") {
+        s.push_str(r#"
+
+CRAFT CONSULTATION (craftAdvice):
+- IF the user asks 作劇相談 — how a scene should continue, what should happen next, how to fix a plot or pacing problem, why a passage does not work — call craftAdvice with the full consultation in Japanese.
+- The tool runs the judgment model with the novel-principles ruleset and returns a diagnosis, options with tradeoffs, and one recommendation.
+- Do NOT answer 作劇相談 yourself with chat-model reasoning while this tool is available.
+- Line-level editing requests (ペン入れ, 添削) → lineEditPassage. Rewriting a passage → rewritePassage. Writing a new continuation → continuePassage.
+"#);
+    }
+    if available.contains("recordCraftNote") || available.contains("getCraftNotes") {
+        s.push_str(r#"
+
+CRAFT NOTES (技法ノート):
+- Call recordCraftNote after a writing session when something measurably worked or failed: an adopted revision, a praised passage, a repeated review flag, or the user's explicit reaction.
+- Put the concrete facts into record: what was written, what the review said, what was adopted or rejected, and the outcome. The tool extracts reusable lessons and stores them in the project's craft notes.
+- Call getCraftNotes when the user asks about past craft lessons or when continuing work that previously had notes.
+- Never store plot facts or canon as craft notes; those belong to project data.
 "#);
     }
 

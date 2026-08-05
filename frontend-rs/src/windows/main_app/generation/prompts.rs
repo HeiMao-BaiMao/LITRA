@@ -47,6 +47,7 @@ pub fn draft(
     scaffold: Option<&str>,
     style_fingerprint: Option<&str>,
     beat_directive: Option<(&str, usize, usize)>,
+    craft_section: Option<&str>,
 ) -> String {
     old_prompts::draft(
         context,
@@ -60,6 +61,7 @@ pub fn draft(
         Some(instruction),
         style_fingerprint,
         beat_directive,
+        craft_section,
     )
 }
 

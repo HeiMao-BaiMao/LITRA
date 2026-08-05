@@ -292,9 +292,15 @@ pub async fn feedback_selection(
     if start >= end {
         return Err(JsValue::from_str("講評する範囲を選択してください。"));
     }
-    let settings_context = {
+    let (settings_context, scaffold) = {
         let current = state.borrow();
-        super::prompt_context::build_settings_context(&current, &current.ai_settings)
+        let settings = &current.ai_settings;
+        let scaffold = crate::windows::main_app::generation::judgment_scaffold(settings)
+            .map(str::to_owned);
+        (
+            super::prompt_context::build_settings_context(&current, settings),
+            scaffold,
+        )
     };
     let prompt = crate::windows::main_app::generation::old_prompts::feedback(
         &text[start..end],
@@ -327,7 +333,10 @@ pub async fn feedback_selection(
         drop(current);
         ai::generate_streaming(
             "judgment",
-            "あなたは率直で建設的な小説編集者です。".into(),
+            format!(
+                "あなたは率直で建設的な小説編集者です。\n\n{}",
+                crate::windows::main_app::generation::craft::principles(scaffold.as_deref())
+            ),
             prompt,
             provider.as_deref(),
             model.as_deref(),

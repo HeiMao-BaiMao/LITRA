@@ -224,7 +224,7 @@ async fn line_edit(
     on_progress("判断モデルで査読中");
     let review = ai::generate(
         "judgment",
-        super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+        generation::craft::system_with_principles(generation::judgment_scaffold(&settings)),
         generation::old_prompts::line_edit_review(
             passage,
             &context,
@@ -262,7 +262,7 @@ async fn line_edit(
     );
     let first_revision = ai::generate(
         "writing",
-        super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+        generation::craft::system_with_principles(generation::scaffold(&settings)),
         revision_prompt.clone(),
     )
     .await?;
@@ -274,7 +274,7 @@ async fn line_edit(
         on_progress("別の修正案を生成中");
         let second_revision = ai::generate(
             "writing",
-            super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT.into(),
+            generation::craft::system_with_principles(generation::scaffold(&settings)),
             revision_prompt,
         )
         .await?;
