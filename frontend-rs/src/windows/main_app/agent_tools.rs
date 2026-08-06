@@ -248,10 +248,28 @@ pub async fn run(
                 );
                 continue;
             }
+            if turn.text.trim().is_empty() {
+                // 診断ログ: 空応答の状況(終了理由・捕捉済み reasoning 量・
+                // 履歴内のツール結果有無)を記録する。ツール結果後のターンで
+                // reasoning_content のリプレイが欠けると空応答になるため、
+                // reasoningChars=0 は捕捉漏れの強い手掛かりになる。
+                web_sys::console::log_1(
+                    &format!(
+                        "[litra-tool] empty-final-turn finishReason={:?} reasoningChars={} toolResultInHistory={}",
+                        turn.finish_reason,
+                        turn.reasoning.chars().count(),
+                        has_tool_result,
+                    )
+                    .into(),
+                );
+            }
             if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
                 if message.content.trim().is_empty() {
                     message.content = if direct_creative_edit {
                         "本文を編集しました。".into()
+                    } else if has_tool_result {
+                        "（ツールの実行結果を受け取りましたが、応答の生成に失敗しました。もう一度送信してください。）"
+                            .into()
                     } else {
                         "（応答がありませんでした）".into()
                     };

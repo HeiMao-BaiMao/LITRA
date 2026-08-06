@@ -155,11 +155,7 @@ pub fn parse_chat(
             )?;
         }
     }
-    if let Some(delta) = value
-        .pointer("/choices/0/delta/reasoning_content")
-        .or_else(|| value.pointer("/choices/0/delta/reasoning"))
-        .and_then(Value::as_str)
-    {
+    if let Some(delta) = extract_chat_reasoning_delta(value) {
         if !delta.is_empty() {
             send(
                 channel,
@@ -250,6 +246,33 @@ fn emit_tool_call(
             input: call.input,
         },
     )
+}
+
+/// chat 補完ストリームの `choices[0].delta` から reasoning テキストを取り出す。
+/// DeepSeek 系の `reasoning_content` に加え、エンドポイントが使う別名
+/// (`deepseek_reasoning` / `reasoning`)と、オブジェクト形式
+/// (`{"content": "…"}` など)も拾う。
+/// このテキストは後続ターンの assistant メッセージへ `reasoning_content` として
+/// リプレイされる(DeepSeek はツール呼び出し後の継続にリプレイを要求する)。
+/// 捕捉漏れがあると、ツール結果後のターンが空応答になる。
+fn extract_chat_reasoning_delta(value: &Value) -> Option<String> {
+    let delta = value.pointer("/choices/0/delta")?;
+    let reasoning = delta
+        .get("reasoning_content")
+        .or_else(|| delta.get("deepseek_reasoning"))
+        .or_else(|| delta.get("reasoning"));
+    match reasoning {
+        Some(Value::String(text)) if !text.is_empty() => Some(text.clone()),
+        Some(Value::Object(obj)) => {
+            let text = obj
+                .get("content")
+                .or_else(|| obj.get("text"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        _ => None,
+    }
 }
 
 fn emit_delta(
@@ -356,6 +379,35 @@ mod tests {
         );
         assert_eq!(
             extract_chat_text_delta(&json!({"choices": [{"delta": {}}]})),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_reasoning_delta_handles_string_object_and_aliases() {
+        // DeepSeek 標準の reasoning_content(文字列)
+        assert_eq!(
+            extract_chat_reasoning_delta(&json!({
+                "choices": [{"delta": {"reasoning_content": "思考中"}}]
+            })),
+            Some("思考中".into())
+        );
+        // オブジェクト形式({content: "…"})
+        assert_eq!(
+            extract_chat_reasoning_delta(&json!({
+                "choices": [{"delta": {"reasoning": {"content": "思考A", "effort": "high"}}}]
+            })),
+            Some("思考A".into())
+        );
+        // 別名 deepseek_reasoning
+        assert_eq!(
+            extract_chat_reasoning_delta(&json!({
+                "choices": [{"delta": {"deepseek_reasoning": "思考B"}}]
+            })),
+            Some("思考B".into())
+        );
+        assert_eq!(
+            extract_chat_reasoning_delta(&json!({"choices": [{"delta": {}}]})),
             None
         );
     }
