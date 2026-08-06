@@ -129,6 +129,9 @@ pub async fn run(
     let mut forced_tool_choice: Option<String> = None;
     // ツール結果を受け取ったモデルが空応答を返した場合の最終回答リトライは1回だけ行う。
     let mut tool_result_continuations = 0usize;
+    // ツール呼び出しなしで空応答になった場合も、プレースホルダ表示の前に
+    // 1回だけ同じ会話で再試行する(reasoning モデルが思考だけで停止する事象への保険)。
+    let mut empty_answer_retries = 0usize;
     for _ in 0..MAX_TOOL_ROUNDS {
         let progress_index = {
             let mut current = state.borrow_mut();
@@ -201,6 +204,20 @@ pub async fn run(
                 render_progress(document, state);
                 // TS版 streamChatWithAutoContinuation の allowTools=false 相当。
                 forced_tool_choice = Some("none".into());
+                continue;
+            }
+            // ツール結果が無い場合の空応答も、同じ会話でもう1回だけ再試行する。
+            if turn.text.trim().is_empty() && empty_answer_retries == 0 {
+                empty_answer_retries += 1;
+                if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
+                    message.content = "（応答の生成を再試行中…）".into();
+                    message.transport = Some(chat_transport(
+                        &turn.provider,
+                        &turn.model,
+                        turn.finish_reason.as_deref(),
+                    ));
+                }
+                render_progress(document, state);
                 continue;
             }
             if verify_tool_call_need(&messages, &turn.text, &tool_names).await {

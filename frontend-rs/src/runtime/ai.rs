@@ -303,6 +303,7 @@ pub async fn forced_tool_choice(
 pub struct RoleDefaults {
     pub prompt_scaffold: Option<String>,
     pub max_context_tokens: Option<u64>,
+    pub max_output_tokens: u64,
 }
 
 pub async fn role_defaults(role: &str) -> Result<RoleDefaults, JsValue> {
@@ -318,6 +319,7 @@ pub async fn role_defaults(role: &str) -> Result<RoleDefaults, JsValue> {
     Ok(RoleDefaults {
         prompt_scaffold: config.prompt_scaffold,
         max_context_tokens: config.max_context_tokens,
+        max_output_tokens: config.max_output_tokens,
     })
 }
 

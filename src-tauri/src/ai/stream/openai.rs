@@ -145,10 +145,7 @@ pub fn parse_chat(
     channel: &Channel<AiStreamEvent>,
     state: &mut StreamState,
 ) -> Result<(), String> {
-    if let Some(delta) = value
-        .pointer("/choices/0/delta/content")
-        .and_then(Value::as_str)
-    {
+    if let Some(delta) = extract_chat_text_delta(value) {
         if !delta.is_empty() {
             send(
                 channel,
@@ -279,6 +276,30 @@ fn emit_delta(
     send(channel, event)
 }
 
+/// chat 補完ストリームの `choices[0].delta.content` からテキストを取り出す。
+/// 文字列形式(`"…"`)と、一部の OpenAI 互換エンドポイントが使う
+/// パーツ配列形式(`[{"type":"text","text":"…"}]`)の両方に対応する。
+/// 配列形式を文字列専用のパースで読み落とすと、モデルが本文を出力しても
+/// 空応答になるため、両対応が必須。
+fn extract_chat_text_delta(value: &Value) -> Option<String> {
+    let content = value.pointer("/choices/0/delta/content")?;
+    match content {
+        Value::String(text) if !text.is_empty() => Some(text.clone()),
+        Value::Array(parts) => {
+            let mut out = String::new();
+            for part in parts {
+                if part.get("type").and_then(Value::as_str) == Some("text") {
+                    if let Some(text) = part.get("text").and_then(Value::as_str) {
+                        out.push_str(text);
+                    }
+                }
+            }
+            (!out.is_empty()).then_some(out)
+        }
+        _ => None,
+    }
+}
+
 fn emit_usage(usage: &Value, channel: &Channel<AiStreamEvent>) -> Result<(), String> {
     send(
         channel,
@@ -297,4 +318,45 @@ fn emit_usage(usage: &Value, channel: &Channel<AiStreamEvent>) -> Result<(), Str
 
 fn u64_field(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extract_text_delta_handles_string_and_part_array() {
+        assert_eq!(
+            extract_chat_text_delta(&json!({
+                "choices": [{"delta": {"content": "本文"}}]
+            })),
+            Some("本文".into())
+        );
+        // OpenAI 互換エンドポイントのパーツ配列形式。これを読み落とすと
+        // モデルが本文を出しても空応答になる。
+        assert_eq!(
+            extract_chat_text_delta(&json!({
+                "choices": [{"delta": {"content": [
+                    {"type": "text", "text": "前"},
+                    {"type": "text", "text": "後"}
+                ]}}]
+            })),
+            Some("前後".into())
+        );
+        // 配列内にテキスト以外のパーツが混ざっていても無視する。
+        assert_eq!(
+            extract_chat_text_delta(&json!({
+                "choices": [{"delta": {"content": [
+                    {"type": "refusal", "text": "拒否"},
+                    {"type": "text", "text": "本文"}
+                ]}}]
+            })),
+            Some("本文".into())
+        );
+        assert_eq!(
+            extract_chat_text_delta(&json!({"choices": [{"delta": {}}]})),
+            None
+        );
+    }
 }

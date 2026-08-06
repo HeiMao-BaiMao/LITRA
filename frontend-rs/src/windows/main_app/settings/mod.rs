@@ -30,7 +30,18 @@ struct SecretArgs<'a> {
 pub async fn open(document: &Document, state: &Rc<RefCell<State>>) -> Result<(), JsValue> {
     let settings: Value = invoke::invoke("ai_settings_snapshot", &Empty {}).await?;
     state.borrow_mut().ai_settings = settings;
-    populate(document, &state.borrow())?;
+    // 最大トークン数・最大コンテキスト数の表示フォールバックには、
+    // ハードコード値ではなく選択中モデル(chat ロール)の実効値を渡す。
+    // 旧実装は 8192/128000 を既定表示しており、そのまま保存すると
+    // reasoning モデルの出力予算を 8192 に潰していた。
+    let model_defaults = crate::runtime::ai::role_defaults("chat").await.unwrap_or(
+        crate::runtime::ai::RoleDefaults {
+            prompt_scaffold: None,
+            max_context_tokens: None,
+            max_output_tokens: 0,
+        },
+    );
+    populate(document, &state.borrow(), &model_defaults)?;
     integrations::populate(document, &state.borrow().ai_settings).await?;
     set_hidden(document, false)
 }
@@ -87,6 +98,8 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
                     | "frequencyPenalty"
                     | "presencePenalty"
                     | "anthropicThinkingBudget"
+                    | "maxTokens"
+                    | "maxContextTokens"
             )
         {
             object.remove(key);
@@ -210,7 +223,14 @@ pub async fn reset(document: &Document, state: &Rc<RefCell<State>>) -> Result<()
         current.ai_settings = settings;
         current.catalog = catalog;
     }
-    populate(document, &state.borrow())?;
+    let model_defaults = crate::runtime::ai::role_defaults("chat").await.unwrap_or(
+        crate::runtime::ai::RoleDefaults {
+            prompt_scaffold: None,
+            max_context_tokens: None,
+            max_output_tokens: 0,
+        },
+    );
+    populate(document, &state.borrow(), &model_defaults)?;
     integrations::populate(document, &state.borrow().ai_settings).await
 }
 
@@ -401,7 +421,11 @@ fn capture_provider(
     Ok(())
 }
 
-fn populate(document: &Document, state: &State) -> Result<(), JsValue> {
+fn populate(
+    document: &Document,
+    state: &State,
+    model_defaults: &crate::runtime::ai::RoleDefaults,
+) -> Result<(), JsValue> {
     let settings = &state.ai_settings;
     if let Some(select) = document
         .get_element_by_id("setting-provider")
@@ -427,6 +451,21 @@ fn populate(document: &Document, state: &State) -> Result<(), JsValue> {
                 .unwrap_or("openai"),
         );
     }
+    // 最大トークン数・最大コンテキスト数のフォールバックはモデルの実効値。
+    // 実効値が取れない場合は空欄にし、空欄のまま保存すると設定キー自体が
+    // 外れてバックエンドがモデル既定へフォールバックする。
+    let token_fallback = |key: &str| -> String {
+        match key {
+            "maxTokens" if model_defaults.max_output_tokens > 0 => {
+                model_defaults.max_output_tokens.to_string()
+            }
+            "maxContextTokens" => model_defaults
+                .max_context_tokens
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    };
     for (id, key, fallback) in [
         ("setting-api-key", "apiKey", ""),
         ("setting-base-url", "baseUrl", ""),
@@ -437,8 +476,8 @@ fn populate(document: &Document, state: &State) -> Result<(), JsValue> {
             "",
         ),
         ("setting-temperature", "temperature", "1"),
-        ("setting-max-tokens", "maxTokens", "8192"),
-        ("setting-max-context-tokens", "maxContextTokens", "128000"),
+        ("setting-max-tokens", "maxTokens", ""),
+        ("setting-max-context-tokens", "maxContextTokens", ""),
         ("setting-top-p", "topP", ""),
         ("setting-top-k", "topK", ""),
         ("setting-frequency-penalty", "frequencyPenalty", ""),
@@ -449,10 +488,15 @@ fn populate(document: &Document, state: &State) -> Result<(), JsValue> {
             "ctrlEnter",
         ),
     ] {
+        let fallback = if matches!(key, "maxTokens" | "maxContextTokens") {
+            token_fallback(key)
+        } else {
+            fallback.into()
+        };
         set_control(
             document,
             id,
-            display(settings.get(key)).unwrap_or_else(|| fallback.into()),
+            display(settings.get(key)).unwrap_or_else(|| fallback),
         );
     }
     provider_changed(
