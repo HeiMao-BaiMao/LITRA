@@ -726,14 +726,9 @@ async fn draft_beats(
             combined = Some(part);
         }
         cumulative_context.push_str(&part_text);
-        cumulative_context = cumulative_context
-            .chars()
-            .rev()
-            .take(24_000)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
+        // 旧実装は累積文脈を 24,000 字で切り詰めていたが、プロバイダー/モデル
+        // 上限以上の制限はかけない方針にしたため、累積文脈はそのまま次ビートへ
+        // 渡す(上限はモデルのコンテキストが決める)。
     }
     combined.ok_or_else(|| JsValue::from_str("構想メモからビートを取得できませんでした。"))
 }

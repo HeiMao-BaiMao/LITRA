@@ -90,29 +90,6 @@ pub(crate) fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> Str
     }
 }
 
-pub(crate) fn sample_prompt_text(text: &str, max_chars: usize, segment_count: usize) -> String {
-    let chars = text.chars().collect::<Vec<_>>();
-    if chars.len() <= max_chars {
-        return text.to_owned();
-    }
-    let marker = "\n\n【中略】\n\n";
-    let marker_chars = marker.chars().count();
-    let segments = segment_count.clamp(2, 6);
-    let available = max_chars.saturating_sub(marker_chars * (segments - 1));
-    if available <= segments {
-        return chars.into_iter().take(max_chars).collect();
-    }
-    let chunk_size = available / segments;
-    let max_start = chars.len().saturating_sub(chunk_size);
-    let mut chunks = Vec::with_capacity(segments);
-    for index in 0..segments {
-        let ratio = index as f64 / (segments - 1) as f64;
-        let start = (max_start as f64 * ratio).round() as usize;
-        chunks.push(chars[start..start + chunk_size].iter().collect::<String>());
-    }
-    chunks.join(marker).chars().take(max_chars).collect()
-}
-
 // ============================================================
 //  セクションビルダー
 // ============================================================
@@ -159,7 +136,7 @@ fn build_author_instruction_section(instruction: Option<&str>, usage: &str) -> S
     if trimmed.is_empty() {
         return String::new();
     }
-    let safe = limit_prompt_text(trimmed, 1000, "head")
+    let safe = trimmed
         .replace("<reference_data", "＜reference_data")
         .replace("</reference_data", "＜/reference_data");
     let mut s = String::new();
@@ -486,7 +463,7 @@ pub fn draft(
         );
         s.push_str("2. ただし優先順位は「直前本文との自然な接続・正史 > 構想メモ」である。書き進めて矛盾や不自然さが生じる場合は、構想メモより本文の流れを優先してよい。\n");
         s.push_str("3. 構想メモの文言をそのまま本文にコピーしない。メモは設計図であり、本文はゼロから小説の文章として書く。\n\n");
-        s.push_str(&limit_prompt_text(plan_text, 2000, "tail"));
+        s.push_str(plan_text.trim());
         s.push_str("\n\n");
     }
 
@@ -608,7 +585,7 @@ pub fn review(
     s.push_str("【改善提案】(同上)\n\n");
     if let Some(plan) = plan.map(str::trim).filter(|plan| !plan.is_empty()) {
         s.push_str("【構想メモ】\n");
-        s.push_str(&limit_prompt_text(plan, 2000, "tail"));
+        s.push_str(plan);
         s.push_str("\n\n");
     }
     let related = build_related_scenes_section(related_scenes);
@@ -751,7 +728,7 @@ pub fn select_drafts(
     s.push_str("\n\n");
     if let Some(plan) = plan.map(str::trim).filter(|plan| !plan.is_empty()) {
         s.push_str("【構想メモ】\n各案が従うはずだった構想である。構想との一致度より、上の選定基準を優先する。\n\n");
-        s.push_str(&limit_prompt_text(plan, 2000, "tail"));
+        s.push_str(plan);
         s.push_str("\n\n");
     }
     let reference = build_story_reference_section(settings_context);

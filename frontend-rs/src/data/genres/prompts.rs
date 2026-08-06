@@ -139,12 +139,7 @@ pub fn source_synthesis(
     analyses: &Value,
     source: &str,
 ) -> String {
-    let analyses = limit_prompt_text(
-        &serde_json::to_string_pretty(analyses).unwrap_or_default(),
-        12_000,
-        "head",
-    );
-    let sample = sample_prompt_text(source, 4_000, 3);
+    let analyses = serde_json::to_string_pretty(analyses).unwrap_or_default();
     format!(
         r#"{RESEARCH_BASE}
 
@@ -160,7 +155,7 @@ SOURCE CONTEXT:
 {}
 
 SYNTHESIS STEPS — follow in this order:
-1. Read the segment analyses and the sampled source text above.
+1. Read the segment analyses and the source text above.
 2. Summarize this source's overall contribution to the genre.
 3. Identify: deviations from the genre, work-specific elements, and reader expectations.
 4. Extract structural patterns, stylistic patterns, and failure risks.
@@ -172,7 +167,7 @@ STRICT RULES:
 Return ONLY the JSON object defined by the schema."#,
         genre.name,
         data("segment_analyses", &analyses),
-        data("sampled_source_text", &sample)
+        data("source_text", source)
     )
 }
 
@@ -189,16 +184,8 @@ pub fn candidate_extraction(
         .map(|item| format!("- [{}] {}: {}", item.importance, item.title, item.statement))
         .collect::<Vec<_>>()
         .join("\n");
-    let analyses = limit_prompt_text(
-        &serde_json::to_string_pretty(analyses).unwrap_or_default(),
-        12_000,
-        "head",
-    );
-    let synthesis = limit_prompt_text(
-        &serde_json::to_string_pretty(synthesis).unwrap_or_default(),
-        6_000,
-        "head",
-    );
+    let analyses = serde_json::to_string_pretty(analyses).unwrap_or_default();
+    let synthesis = serde_json::to_string_pretty(synthesis).unwrap_or_default();
     format!(
         r#"{RESEARCH_BASE}
 
@@ -240,51 +227,3 @@ fn nonempty(value: &str) -> String {
     }
 }
 
-fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> String {
-    let chars = text.chars().collect::<Vec<_>>();
-    if chars.len() <= max_chars {
-        return text.into();
-    }
-    let marker = "\n\n【中略】\n\n";
-    let available = max_chars.saturating_sub(marker.chars().count());
-    match mode {
-        "head" => format!("{}{marker}", chars[..available].iter().collect::<String>()),
-        "tail" => format!(
-            "{marker}{}",
-            chars[chars.len() - available..].iter().collect::<String>()
-        ),
-        _ => {
-            let head = (available + 1) / 2;
-            format!(
-                "{}{marker}{}",
-                chars[..head].iter().collect::<String>(),
-                chars[chars.len() - (available - head)..]
-                    .iter()
-                    .collect::<String>()
-            )
-        }
-    }
-}
-
-fn sample_prompt_text(text: &str, max_chars: usize, segment_count: usize) -> String {
-    let chars = text.chars().collect::<Vec<_>>();
-    if chars.len() <= max_chars {
-        return text.into();
-    }
-    let marker = "\n\n【中略】\n\n";
-    let segments = segment_count.clamp(2, 6);
-    let available = max_chars.saturating_sub(marker.chars().count() * (segments - 1));
-    let chunk = available / segments;
-    let max_start = chars.len().saturating_sub(chunk);
-    (0..segments)
-        .map(|index| {
-            let start =
-                ((max_start as f64) * index as f64 / (segments - 1) as f64).round() as usize;
-            chars[start..start + chunk].iter().collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join(marker)
-        .chars()
-        .take(max_chars)
-        .collect()
-}

@@ -377,17 +377,10 @@ pub async fn generate_with(
         tools: Vec::new(),
         search_priority: Vec::new(),
         prompt,
-        // TS 実装では執筆系は設定値をそのまま使い、非ストリーミングの
-        // 補助処理だけを 32768 に制限していた。ただし reasoning 系モデルは
-        // 思考トークンがこの上限を消費し、本文ゼロの length 応答(空応答)を
-        // 起こす(opencode/deepseek-v4-flash の judgment で再現)。
-        // reasoning が有効なモデルはモデル本来の上限まで使い、
-        // 費用は reasoning_effort 側で制御する。
-        max_output_tokens: if role == "writing" || config.reasoning_effort.is_some() {
-            config.max_output_tokens
-        } else {
-            config.max_output_tokens.min(32768)
-        },
+        // 出力上限はプロバイダー/モデルが定める上限(config.max_output_tokens)のみを使う。
+        // TS 由来の 32768 キャップは reasoning モデルで思考トークンが全予算を
+        // 消費し、本文ゼロの length 応答(空応答)を起こすため撤去した。
+        max_output_tokens: config.max_output_tokens,
         temperature: config.temperature,
         top_p: config.top_p,
         top_k: config.top_k,
@@ -563,13 +556,8 @@ where
         tools: Vec::new(),
         search_priority: Vec::new(),
         prompt,
-        // generate_with と同じ: reasoning 系モデルは思考トークンが 32768 上限を
-        // 消費して本文ゼロの length 応答になるため、上限を外す。
-        max_output_tokens: if role == "writing" || config.reasoning_effort.is_some() {
-            config.max_output_tokens
-        } else {
-            config.max_output_tokens.min(32768)
-        },
+        // generate_with と同じ: 出力上限はモデルが定める上限のみを使う。
+        max_output_tokens: config.max_output_tokens,
         temperature: config.temperature,
         top_p: config.top_p,
         top_k: config.top_k,

@@ -92,7 +92,6 @@ async fn continue_passage(
     let writing_defaults = ai::role_defaults("writing").await.ok();
     let slice_chars = prompt_context::context_slice_chars(
         writing_defaults.as_ref().and_then(|value| value.max_context_tokens),
-        24_000,
     );
     let (mut settings, context, mut references) = {
         let current = state.borrow();
@@ -373,7 +372,7 @@ async fn consistency(
         .join("\n");
     let prompt = build_consistency_prompt(
         focus,
-        &generation::old_prompts::sample_prompt_text(&numbered, 120_000, 4),
+        &numbered,
         &settings_context,
     );
     let output: ConsistencyOutput = crate::ai::structured_output::generate_structured_object(

@@ -34,16 +34,13 @@ fn usable_context_chars(max_context_tokens: f64, max_output_tokens: f64) -> f64 
     (usable_tokens * CONTEXT_CHAR_PER_TOKEN).floor().max(4_096.0)
 }
 
-/// 役割（writing等）の実効コンテキスト上限から、直前本文スライスに使う文字数を
-/// 算出する。上限が取得できない場合、または算出値が default を上回る場合は
-/// default をそのまま使う（大コンテキストモデルでスライスが際限なく伸びて
-/// プロンプト費用が急増しないようにする安全弁）。
-pub(crate) fn context_slice_chars(max_context_tokens: Option<u64>, default: usize) -> usize {
-    let Some(max_context_tokens) = max_context_tokens else {
-        return default;
-    };
-    let usable = usable_context_chars(max_context_tokens as f64, 8_192.0);
-    (usable as usize).min(default)
+/// 役割(writing等)の実効コンテキスト上限から、直前本文スライスに使う文字数を
+/// 算出する。上限が不明なモデルは DEFAULT_MAX_CONTEXT_TOKENS を仮定する。
+/// プロバイダー/モデルが定める上限以上の制限はかけない
+/// (旧実装の 24,000 字安全弁は大コンテキストモデルでも本文を切り詰めていた)。
+pub(crate) fn context_slice_chars(max_context_tokens: Option<u64>) -> usize {
+    let max_context = max_context_tokens.unwrap_or(DEFAULT_MAX_CONTEXT_TOKENS as u64) as f64;
+    usable_context_chars(max_context, 8_192.0) as usize
 }
 
 fn budgets(settings: &Value) -> Budgets {
@@ -52,15 +49,15 @@ fn budgets(settings: &Value) -> Budgets {
         .floor();
     let max_output = positive(settings, "maxTokens").unwrap_or(8_192.0).floor();
     let usable_chars = usable_context_chars(max_context, max_output);
-    let scaled = |ratio: f64, min: usize, max: usize| {
-        (usable_chars * ratio).clamp(min as f64, max as f64).floor() as usize
-    };
+    // 各セクションへは実効予算の比率で割り当てる。下限(フロア)だけ持ち、
+    // 上限クランプは設けない(プロバイダー/モデル上限以上の制限をかけない)。
+    let scaled = |ratio: f64, min: usize| (usable_chars * ratio).max(min as f64).floor() as usize;
     Budgets {
-        settings_field: scaled(0.015, 800, 24_000),
-        settings_section: scaled(0.12, 8_000, 240_000),
-        project_memos: scaled(0.08, 5_000, 160_000),
-        previous_summary: scaled(0.035, 2_200, 70_000),
-        current_memo: scaled(0.06, 3_500, 120_000),
+        settings_field: scaled(0.015, 800),
+        settings_section: scaled(0.12, 8_000),
+        project_memos: scaled(0.08, 5_000),
+        previous_summary: scaled(0.035, 2_200),
+        current_memo: scaled(0.06, 3_500),
     }
 }
 
@@ -315,10 +312,10 @@ pub async fn build_related_scenes(
         sections.push(format!(
             "● {name}（「{}」より）:\n{}",
             chosen.title,
-            limit_prompt_text(&chosen.snippet, 400, "middle")
+            &chosen.snippet,
         ));
     }
-    let block = limit_prompt_text(&sections.join("\n\n"), 2_400, "head");
+    let block = sections.join("\n\n");
     (!block.trim().is_empty()).then_some(block)
 }
 
@@ -503,14 +500,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn context_slice_chars_shrinks_for_small_context_models_but_never_exceeds_default() {
-        // 上限不明ならデフォルトをそのまま使う。
-        assert_eq!(context_slice_chars(None, 24_000), 24_000);
-        // 大きなコンテキストモデルでもデフォルトを超えない（回帰防止の上限キャップ）。
-        assert_eq!(context_slice_chars(Some(1_000_000), 24_000), 24_000);
-        // 小さなコンテキストモデル（例: ローカル8Kモデル）では実効値まで縮む。
-        let shrunk = context_slice_chars(Some(8_192), 24_000);
-        assert!(shrunk < 24_000);
+    fn context_slice_chars_uses_model_budget_without_artificial_cap() {
+        // 上限不明なら既定コンテキスト(65,536トークン)を仮定して実効値を算出する。
+        assert!(context_slice_chars(None) > 24_000);
+        // 大きなコンテキストモデルでは実効値まで伸びる(旧実装の 24,000 字
+        // 安全弁は撤去した)。
+        let big = context_slice_chars(Some(1_000_000));
+        assert!(big > context_slice_chars(None));
+        // 小さなコンテキストモデル(例: ローカル8Kモデル)では実効値まで縮む。
+        let shrunk = context_slice_chars(Some(8_192));
+        assert!(shrunk < context_slice_chars(None));
         assert!(shrunk >= 4_096);
     }
 

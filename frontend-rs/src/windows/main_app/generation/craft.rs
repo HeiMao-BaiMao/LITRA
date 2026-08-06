@@ -196,10 +196,7 @@ pub fn craft_review(
 ) -> String {
     let mut middle = Vec::new();
     if let Some(plan) = plan.map(str::trim).filter(|value| !value.is_empty()) {
-        middle.push(format!(
-            "【構想メモ】\n{}\n",
-            old_prompts::limit_prompt_text(plan, 2000, "tail")
-        ));
+        middle.push(format!("【構想メモ】\n{plan}\n"));
     }
     let card_section = card.map(craft_card_section).unwrap_or_default();
     if !card_section.trim().is_empty() {

@@ -87,7 +87,6 @@ pub async fn continue_story(
     let writing_defaults = ai::role_defaults("writing").await.ok();
     let slice_chars = super::prompt_context::context_slice_chars(
         writing_defaults.as_ref().and_then(|value| value.max_context_tokens),
-        24_000,
     );
     let context = super::prompt_context::tail_chars(&state.borrow().editor_text, slice_chars);
     let (mut settings, project_id, episode_id, episodes, mut references) = {
