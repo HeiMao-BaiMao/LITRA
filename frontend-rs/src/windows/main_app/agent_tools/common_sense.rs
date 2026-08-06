@@ -25,7 +25,7 @@ pub fn definitions() -> Vec<Value> {
     use super::{object_with_required, string, tool};
     vec![tool(
         "checkCommonSense",
-        "本文の現実整合性(一般常識)を監査する: 学校制度・暦・季節・時系列・因果・社会通念と矛盾する記述を行番号付きで指摘し、最小の修正方針を返す。",
+        "本文の現実整合性(一般常識)を監査する: 暦・季節・時系列・制度・因果・社会通念と矛盾する記述を行番号付きで指摘し、最小の修正方針を返す。",
         object_with_required([("passage", string())], &["passage"]),
     )]
 }

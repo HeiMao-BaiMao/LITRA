@@ -2,10 +2,10 @@ TASK:
 Audit the supplied Japanese fiction draft against real-world common sense. Check only whether explicit statements in the text contradict general real-world knowledge that the work has NOT overridden. Style, canon consistency, and literary quality are out of scope.
 
 CHECK AREAS:
-1. calendar: 暦・時系列。学校年度(卒業式は2月末〜3月初旬、入学式・始業式は4月。卒業から入学まで約1か月)、年齢と学年の対応、行事・祝日の時期、経過日数と場面の整合(例: 「卒業式からまだ二週間しか経っていない」場面に「大学」が登場する)。
+1. calendar: 暦・時系列。経過日数と場面の整合、年齢と制度上の区分(学年・勤続年数など)の対応、行事・祝日の時期(例: 「前の出来事からまだ二週間しか経っていない」場面で、季節や制度上の状態が切り替わっている)。学校が舞台の場合は学校年度(卒業式は2月末〜3月初旬、入学式・始業式は4月。卒業から入学まで約1か月)にも従う。
 2. season: 季節。自然現象の時期(桜の開花、紅葉、積雪、気温)と、それと矛盾する服装・行動。
 3. causality: 因果・物理。移動時間と距離、負傷・病気の回復期間、準備・連絡に要する時間、視界・可聴範囲。
-4. society: 社会通念・制度。飲酒・喫煙・労働の年齢制限、学校制度の現実、職業・料金・金額感、公共マナー。
+4. society: 社会通念・制度。飲酒・喫煙・労働の年齢制限、教育・労働・交通など制度の現実、職業・料金・金額感、公共マナー。
 5. era: 時代設定。作品の時代に存在しない道具・制度・言及。
 
 NOT ISSUES:

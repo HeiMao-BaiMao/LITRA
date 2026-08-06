@@ -62,10 +62,10 @@ Apply A/B like this:
   RIGHT: 「彼女の指先がテーブルを叩いている。苛立っているのかもしれない。」
   WRONG: 「彼女は内心で苛立っていた。」 (states an unperceivable fact — neither A nor B)
 - Places where the character is absent, and facts they have not learned yet (names, identities, pasts, plans): write nothing about them.
-- The character's knowledge, experience, local familiarity, and common sense must fit their established social attributes (age, school year, occupation, position, how long they have been in the place or group, origin). A sentence that presupposes experience those attributes cannot yet include is invalid even when it is shaped like perception or thought.
-  WRONG: a first-year student right after enrollment narrating 「ほとんど使っている人を見たことのない地下書庫エリアまで足を運んだ。」 (presupposes long-term observation the character cannot have)
-  RIGHT: 「人の気配のない地下書庫エリアまで足を運んだ。」 (present perception, A)
-  RIGHT: 「先輩いわく、ほとんど使う人がいないという地下書庫エリアまで足を運んだ。」 (sourced hearsay, B)
+- The character's knowledge, experience, local familiarity, and common sense must fit their established social attributes (age, occupation, position, how long they have been in the place or group, origin). A sentence that presupposes experience those attributes cannot yet include is invalid even when it is shaped like perception or thought.
+  WRONG: a character who has only just arrived at the place narrating 「ほとんど使っている人を見たことのない旧館の書庫まで足を運んだ。」 (presupposes long-term observation the character cannot have)
+  RIGHT: 「人の気配のない旧館の書庫まで足を運んだ。」 (present perception, A)
+  RIGHT: 「先にいた者いわく、ほとんど使う人がいないという旧館の書庫まで足を運んだ。」 (sourced hearsay, B)
 - Thought sentences (B) use only the vocabulary and tone the character already shows in the existing text. A witty commentary voice, punchline narration, or reader-directed explanation that the existing text does not use is YOUR voice, not the character's — do not write it.
 - Only exception: a mirror, reflection, window glass, photo, or video explicitly present in the scene lets the character see their own appearance as perception (A).
 
