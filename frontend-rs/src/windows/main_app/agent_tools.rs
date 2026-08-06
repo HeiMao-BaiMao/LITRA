@@ -250,15 +250,29 @@ pub async fn run(
             }
             if turn.text.trim().is_empty() {
                 // 診断ログ: 空応答の状況(終了理由・捕捉済み reasoning 量・
-                // 履歴内のツール結果有無)を記録する。ツール結果後のターンで
-                // reasoning_content のリプレイが欠けると空応答になるため、
-                // reasoningChars=0 は捕捉漏れの強い手掛かりになる。
+                // 履歴内のツール結果の有無と合計サイズ)を記録する。
+                // - reasoningChars=0 は reasoning_content 捕捉漏れの手掛かり。
+                // - toolResultChars が巨大(数万〜数十万字)なら、上限撤去後の
+                //   ツール結果肥大による要求サイズ超過が原因と確定できる。
+                let tool_result_chars: usize = messages
+                    .iter()
+                    .filter(|message| {
+                        message.get("role").and_then(Value::as_str) == Some("tool")
+                    })
+                    .map(|message| {
+                        message
+                            .get("content")
+                            .map(|content| content.to_string().chars().count())
+                            .unwrap_or(0)
+                    })
+                    .sum();
                 web_sys::console::log_1(
                     &format!(
-                        "[litra-tool] empty-final-turn finishReason={:?} reasoningChars={} toolResultInHistory={}",
+                        "[litra-tool] empty-final-turn finishReason={:?} reasoningChars={} toolResultInHistory={} toolResultChars={}",
                         turn.finish_reason,
                         turn.reasoning.chars().count(),
                         has_tool_result,
+                        tool_result_chars,
                     )
                     .into(),
                 );
