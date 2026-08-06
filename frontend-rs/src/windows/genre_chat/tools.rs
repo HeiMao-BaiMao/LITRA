@@ -19,8 +19,6 @@ use crate::{
 };
 
 const MAX_TOOL_ROUNDS: usize = 8;
-const MAX_SOURCE_SNIPPET: usize = 3_000;
-const MAX_KNOWLEDGE_SNIPPET: usize = 1_500;
 
 pub async fn run(
     document: &Document,
@@ -206,7 +204,7 @@ async fn execute(
                             contents.push(json!({
                                 "id":id,
                                 "name":attachment.get("name").and_then(Value::as_str).unwrap_or_default(),
-                                "content":limit_chars(&content, MAX_SOURCE_SNIPPET),
+                                "content":content,
                             }));
                         }
                     }
@@ -265,7 +263,7 @@ async fn execute(
             let content = safe_slice(&source.content, segment.start_offset, segment.end_offset);
             Ok(json!({"segment":{
                 "id":segment.id,"sourceId":segment.source_id,"ordinal":segment.ordinal,
-                "heading":segment.heading,"content":limit_chars(content, MAX_SOURCE_SNIPPET)
+                "heading":segment.heading,"content":content
             }}))
         }
         "searchGenreSourceText" => search_sources(genre_id, &input).await,
@@ -292,7 +290,7 @@ async fn execute(
             let items = knowledge::load(genre_id).await?.items.into_iter()
                 .filter(|item| item.status == "active" && category.is_none_or(|value| item.category == value))
                 .map(|item| json!({"id":item.id,"category":item.category,"title":item.title,
-                    "statement":limit_chars(&item.statement, MAX_KNOWLEDGE_SNIPPET),"importance":item.importance}))
+                    "statement":item.statement,"importance":item.importance}))
                 .collect::<Vec<_>>();
             Ok(json!({"items":items}))
         }
@@ -355,8 +353,7 @@ async fn search_sources(genre_id: &str, input: &Map<String, Value>) -> Result<Va
     let limit = input
         .get("maxResults")
         .and_then(Value::as_u64)
-        .unwrap_or(10)
-        .min(20) as usize;
+        .unwrap_or(10) as usize;
     let mut results = Vec::new();
     for metadata in sources::list(genre_id).await? {
         if ids.as_ref().is_some_and(|ids| !ids.contains(&metadata.id)) {
@@ -367,7 +364,7 @@ async fn search_sources(genre_id: &str, input: &Map<String, Value>) -> Result<Va
             let content = safe_slice(&source.content, segment.start_offset, segment.end_offset);
             if content.to_lowercase().contains(&query) {
                 results.push(json!({"sourceId":metadata.id,"segmentId":segment.id,
-                    "title":metadata.title,"snippet":limit_chars(content, 300)}));
+                    "title":metadata.title,"snippet":content}));
                 if results.len() >= limit {
                     return Ok(json!({"results":results}));
                 }
@@ -504,13 +501,6 @@ fn safe_slice(text: &str, start: usize, end: usize) -> &str {
         end -= 1;
     }
     &text[start..end]
-}
-fn limit_chars(text: &str, limit: usize) -> String {
-    let mut value = text.chars().take(limit).collect::<String>();
-    if text.chars().count() > limit {
-        value.push_str("…（後略）");
-    }
-    value
 }
 fn required_str<'a>(input: &'a Map<String, Value>, key: &str) -> Result<&'a str, JsValue> {
     input

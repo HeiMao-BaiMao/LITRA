@@ -181,7 +181,7 @@ pub async fn execute(
                         json!({
                             "episodeId": episode.id,
                             "title": if episode.title.is_empty() { "（無題）" } else { episode.title.as_str() },
-                            "preview": limit_chars(&content, 240),
+                            "preview": content,
                         })
                     })
                 })
@@ -210,7 +210,7 @@ pub async fn execute(
             Ok(json!({
                 "episodeId":id,
                 "title":title,
-                "content":limit_chars(&content, 12_000),
+                "content":content,
             }))
         }
         "saveEpisodeMemo" => {
@@ -277,7 +277,7 @@ pub async fn execute(
                             .and_then(Value::as_str)
                             .filter(|title| !title.is_empty())
                             .unwrap_or("（無題）"),
-                        "content": limit_chars(memo.get("content").and_then(Value::as_str).unwrap_or_default(), 12_000),
+                        "content": memo.get("content").and_then(Value::as_str).unwrap_or_default(),
                     })
                 })
                 .unwrap_or_else(|| json!({"error":"プロジェクトメモが見つかりません。"})))
@@ -588,13 +588,6 @@ fn memo_content(document: &Value, episode_id: &str) -> String {
         })
         .unwrap_or_default()
         .to_owned()
-}
-fn limit_chars(text: &str, limit: usize) -> String {
-    let mut value = text.chars().take(limit).collect::<String>();
-    if text.chars().count() > limit {
-        value.push_str("…（後略）");
-    }
-    value
 }
 fn set_memo(document: &mut Value, episode_id: &str, content: String) {
     if !document.is_object() {

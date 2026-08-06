@@ -44,7 +44,7 @@ pub async fn execute(name: &str, input: Value) -> Result<Value, JsValue> {
                     json!({
                         "id": genre.id,
                         "name": genre.name,
-                        "description": limit_chars(&genre.description, 500),
+                        "description": genre.description,
                         "revision": genre.revision,
                         "sourceCount": genre.source_count,
                         "acceptedKnowledgeCount": genre.accepted_knowledge_count,
@@ -77,7 +77,7 @@ pub async fn execute(name: &str, input: Value) -> Result<Value, JsValue> {
                         "category": item.category,
                         "importance": item.importance,
                         "title": item.title,
-                        "statement": limit_chars(&item.statement, 800),
+                        "statement": item.statement,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -122,8 +122,8 @@ pub async fn execute(name: &str, input: Value) -> Result<Value, JsValue> {
                         "status": item.status,
                         "confidence": item.confidence,
                         "title": item.title,
-                        "statement": limit_chars(&item.statement, 1200),
-                        "explanation": limit_chars(&item.explanation, 1200),
+                        "statement": item.statement,
+                        "explanation": item.explanation,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -146,8 +146,8 @@ pub async fn execute(name: &str, input: Value) -> Result<Value, JsValue> {
                             "genreId": item.genre_id,
                             "category": item.category,
                             "title": item.title,
-                            "statement": limit_chars(&item.statement, 12_000),
-                            "explanation": limit_chars(&item.explanation, 12_000),
+                            "statement": item.statement,
+                            "explanation": item.explanation,
                             "importance": item.importance,
                             "status": item.status,
                             "confidence": item.confidence,
@@ -171,8 +171,8 @@ pub async fn execute(name: &str, input: Value) -> Result<Value, JsValue> {
                         "sourceType": source.source_type,
                         "sourceRole": source.source_role,
                         "preference": source.preference,
-                        "sourceNote": limit_chars(&source.source_note, 500),
-                        "userInterpretation": limit_chars(&source.user_interpretation, 500),
+                        "sourceNote": source.source_note,
+                        "userInterpretation": source.user_interpretation,
                         "characterCount": source.character_count,
                         "segmentCount": source.segment_count,
                         "analysisStatus": source.analysis_status,
@@ -192,19 +192,13 @@ pub async fn execute(name: &str, input: Value) -> Result<Value, JsValue> {
             let include_content = input
                 .get("includeContent")
                 .and_then(Value::as_bool)
-                .unwrap_or(false)
-                || input.get("maxCharacters").is_some();
-            let max_characters = input
-                .get("maxCharacters")
-                .and_then(Value::as_u64)
-                .unwrap_or(16_000)
-                .min(20_000) as usize;
+                .unwrap_or(false);
             let mut output = json!({
                 "source": metadata,
                 "segments": segments,
             });
             if include_content {
-                output["content"] = Value::String(limit_chars(&content, max_characters));
+                output["content"] = Value::String(content);
             }
             Ok(output)
         }
@@ -293,7 +287,7 @@ async fn search(input: &Map<String, Value>) -> Result<Value, JsValue> {
                     "title":metadata.title,
                     "segmentId":segment.id,
                     "heading":segment.heading,
-                    "snippet":limit_chars(safe_slice(text,start,end),500),
+                    "snippet":safe_slice(text,start,end),
                 }));
                 if results.len() >= limit {
                     return Ok(json!({"count":results.len(),"results":results}));
@@ -324,8 +318,8 @@ fn optional<'a>(input: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 fn safe_slice(text: &str, start: usize, end: usize) -> &str {
-    let mut start = start.min(text.len());
-    let mut end = end.min(text.len()).max(start);
+    let mut start = start;
+    let mut end = end;
     while start > 0 && !text.is_char_boundary(start) {
         start -= 1;
     }
@@ -333,13 +327,6 @@ fn safe_slice(text: &str, start: usize, end: usize) -> &str {
         end -= 1;
     }
     &text[start..end]
-}
-fn limit_chars(text: &str, limit: usize) -> String {
-    let mut value = text.chars().take(limit).collect::<String>();
-    if text.chars().count() > limit {
-        value.push_str("…（後略）");
-    }
-    value
 }
 
 fn object<const N: usize>(properties: [(&str, Value); N], required: &[&str]) -> Value {
@@ -396,7 +383,6 @@ pub fn definitions() -> Vec<Value> {
                     ("genreId", string()),
                     ("sourceId", string()),
                     ("includeContent", boolean()),
-                    ("maxCharacters", integer()),
                 ],
                 &["genreId", "sourceId"],
             ),

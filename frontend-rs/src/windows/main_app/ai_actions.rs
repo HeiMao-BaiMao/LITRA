@@ -221,15 +221,8 @@ pub async fn rewrite_selection(
         return Err(JsValue::from_str("書き直す範囲を選択してください。"));
     }
     let selected = &text[start..end];
-    let before = text[..start]
-        .chars()
-        .rev()
-        .take(6_000)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>();
-    let after = text[end..].chars().take(3_000).collect::<String>();
+    let before = text[..start].to_string();
+    let after = text[end..].to_string();
     let context = format!("【直前】\n{before}\n\n【対象直後】\n{after}");
     let (settings, references) = {
         let current = state.borrow();

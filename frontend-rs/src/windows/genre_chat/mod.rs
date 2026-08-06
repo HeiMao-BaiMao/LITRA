@@ -200,11 +200,6 @@ async fn send(
     let history = document_data
         .messages
         .iter()
-        .rev()
-        .take(40)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
         .map(|message| format!("{}: {}", message.role, message.content))
         .collect::<Vec<_>>()
         .join("\n\n");

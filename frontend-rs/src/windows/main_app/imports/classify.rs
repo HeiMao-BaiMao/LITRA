@@ -29,21 +29,14 @@ The values episode, memo, and projectMemo DO NOT EXIST in this import. A fiction
 - relationship: relationships, emotions, roles, family ties, or correlations between multiple characters.
 - ignore: indexes, change logs, file lists, empty fragments, or material with no independent import value."#
     };
-    let content = if file.content.chars().count() <= 60_000 {
-        file.content.clone()
-    } else {
-        sample(&file.content, 18_000)
-    };
+    // 分類には全文を渡す(プロバイダー/モデル上限以上のサンプリングはしない)。
+    let content = file.content.clone();
     let metadata = format!(
         "path: {}\ninferred title: {}\ncharacter count: {}\nsource mode: {}\nimport mode: {}",
         file.path,
         file.title,
         file.content.chars().count(),
-        if file.content.chars().count() <= 60_000 {
-            "full text"
-        } else {
-            "sampled head/middle/tail"
-        },
+        "full text",
         if settings_only {
             "settingsOnly"
         } else {
@@ -192,25 +185,6 @@ fn infer_type(path: &str, settings_only: bool) -> &'static str {
 
 fn contains(value: &str, candidates: &[&str]) -> bool {
     candidates.iter().any(|candidate| value.contains(candidate))
-}
-
-fn sample(value: &str, limit: usize) -> String {
-    if value.chars().count() <= limit {
-        value.into()
-    } else {
-        let chars = value.chars().collect::<Vec<_>>();
-        let marker = "\n\n【中略】\n\n";
-        let chunk = (limit.saturating_sub(marker.chars().count() * 2)) / 3;
-        let middle = chars.len() / 2;
-        [
-            chars[..chunk].iter().collect::<String>(),
-            chars[middle.saturating_sub(chunk / 2)..(middle + chunk / 2).min(chars.len())]
-                .iter()
-                .collect(),
-            chars[chars.len() - chunk..].iter().collect(),
-        ]
-        .join(marker)
-    }
 }
 
 #[cfg(test)]

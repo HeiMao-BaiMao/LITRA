@@ -154,7 +154,7 @@ async fn rewrite_passage(
     let (settings, context, context_found, references) = {
         let current = state.borrow();
         let settings = current.ai_settings.clone();
-        let (context, context_found) = passage_context(&current.editor_text, passage, 5_000);
+        let (context, context_found) = passage_context(&current.editor_text, passage);
         (
             settings.clone(),
             context.clone(),
@@ -210,7 +210,7 @@ async fn line_edit(
     let (settings, context, context_found, references) = {
         let current = state.borrow();
         let settings = current.ai_settings.clone();
-        let (context, context_found) = passage_context(&current.editor_text, passage, 5_000);
+        let (context, context_found) = passage_context(&current.editor_text, passage);
         (
             settings.clone(),
             context.clone(),
@@ -531,10 +531,7 @@ fn tail(text: &str, limit: usize) -> String {
         .rev()
         .collect()
 }
-fn head(text: &str, limit: usize) -> String {
-    text.chars().take(limit).collect()
-}
-fn passage_context(editor_text: &str, passage: &str, side_budget: usize) -> (String, bool) {
+fn passage_context(editor_text: &str, passage: &str) -> (String, bool) {
     let Some(first_index) = editor_text.find(passage) else {
         return ("\n[選択部分]\n".into(), false);
     };
@@ -546,9 +543,10 @@ fn passage_context(editor_text: &str, passage: &str, side_budget: usize) -> (Str
     if editor_text[next_boundary..].find(passage).is_some() {
         return ("\n[選択部分]\n".into(), false);
     }
-    let before = tail(&editor_text[..first_index], side_budget);
+    // 前後文脈は全文を渡す(プロバイダー/モデル上限以上の切り詰めはしない)。
+    let before = &editor_text[..first_index];
     let after_start = first_index + passage.len();
-    let after = head(&editor_text[after_start..], side_budget);
+    let after = &editor_text[after_start..];
     (format!("{before}\n[選択部分]\n{after}"), true)
 }
 fn now() -> String {
@@ -616,20 +614,20 @@ mod tests {
     use super::passage_context;
 
     #[test]
-    fn passage_context_uses_unique_selection_and_bounded_sides() {
-        let (context, found) = passage_context("前の文。対象本文。後の文。", "対象本文", 3);
+    fn passage_context_uses_unique_selection_and_full_sides() {
+        let (context, found) = passage_context("前の文。対象本文。後の文。", "対象本文");
         assert!(found);
-        assert_eq!(context, "の文。\n[選択部分]\n。後の");
+        assert_eq!(context, "前の文。\n[選択部分]\n。後の文。");
     }
 
     #[test]
     fn passage_context_drops_context_when_selection_is_ambiguous_or_missing() {
         assert_eq!(
-            passage_context("対象。途中。対象。", "対象", 10),
+            passage_context("対象。途中。対象。", "対象"),
             ("\n[選択部分]\n".to_owned(), false)
         );
         assert_eq!(
-            passage_context("本文", "存在しない", 10),
+            passage_context("本文", "存在しない"),
             ("\n[選択部分]\n".to_owned(), false)
         );
     }
