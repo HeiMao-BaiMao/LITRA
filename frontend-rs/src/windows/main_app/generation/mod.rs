@@ -487,9 +487,9 @@ where
                     ),
                     quality::quality_schema(&[
                         "scene_entry",
-                        "alliance",
+                        "relationship",
                         "unconfirmed_fact",
-                        "affection_basis",
+                        "emotion_basis",
                     ]),
                     "findings",
                     &stage,
