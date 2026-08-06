@@ -56,6 +56,21 @@ const CHECKBOXES: &[(&str, &str, bool)] = &[
         "commonSensePlanCheckEnabled",
         false,
     ),
+    (
+        "setting-quality-density",
+        "craftQualityDensityEnabled",
+        false,
+    ),
+    (
+        "setting-quality-pov",
+        "craftQualityPovEnabled",
+        false,
+    ),
+    (
+        "setting-quality-logic",
+        "craftQualityLogicEnabled",
+        false,
+    ),
 ];
 
 pub fn populate(

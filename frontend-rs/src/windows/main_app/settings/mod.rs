@@ -139,6 +139,15 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
             "setting-common-sense-plan-check",
             "commonSensePlanCheckEnabled",
         ),
+        (
+            "setting-quality-density",
+            "craftQualityDensityEnabled",
+        ),
+        ("setting-quality-pov", "craftQualityPovEnabled"),
+        (
+            "setting-quality-logic",
+            "craftQualityLogicEnabled",
+        ),
     ] {
         if let Some(input) = document
             .get_element_by_id(id)

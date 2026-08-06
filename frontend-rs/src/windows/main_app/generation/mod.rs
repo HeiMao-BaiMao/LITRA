@@ -2,6 +2,7 @@ pub(crate) mod common_sense;
 pub(crate) mod craft;
 pub(crate) mod old_prompts;
 mod prompts;
+pub(crate) mod quality;
 pub(crate) mod review;
 
 use std::cell::RefCell;
@@ -362,10 +363,13 @@ where
             )
             .await?
         };
-        // craft 検証(初読読者・緩急・テーマ)を査読に重ねる。各トグルは独立。
+        // craft 検証(初読読者・緩急・テーマ・常識・品質)を査読に重ねる。
+        // 各トグルは独立。品質検査3系統は並列実行するため、ステージ通知は
+        // 共有参照(RefCell)にして監査間で分かち合う。
         let mut craft_findings = Vec::new();
+        let stage: Rc<RefCell<&mut dyn FnMut(&str)>> = Rc::new(RefCell::new(on_stage));
         if enabled(settings, "craftReaderSimEnabled") {
-            on_stage("初読読者の視点で検証中");
+            (stage.borrow_mut())("初読読者の視点で検証中");
             craft_findings.push(
                 run_craft_audit(
                     "初読読者",
@@ -373,13 +377,13 @@ where
                     craft::reader_sim(context, &selected.text),
                     craft::reader_sim_schema(),
                     "events",
-                    &mut *on_stage,
+                    &stage,
                 )
                 .await,
             );
         }
         if enabled(settings, "craftPacingAuditEnabled") {
-            on_stage("緩急と情報開示を監査中");
+            (stage.borrow_mut())("緩急と情報開示を監査中");
             craft_findings.push(
                 run_craft_audit(
                     "緩急",
@@ -387,13 +391,13 @@ where
                     craft::pacing_audit(context, &selected.text),
                     craft::pacing_audit_schema(),
                     "findings",
-                    &mut *on_stage,
+                    &stage,
                 )
                 .await,
             );
         }
         if enabled(settings, "craftThemeAuditEnabled") {
-            on_stage("テーマと約束を監査中");
+            (stage.borrow_mut())("テーマと約束を監査中");
             craft_findings.push(
                 run_craft_audit(
                     "テーマ",
@@ -406,7 +410,7 @@ where
                     ),
                     craft::theme_audit_schema(),
                     "findings",
-                    &mut *on_stage,
+                    &stage,
                 )
                 .await,
             );
@@ -414,7 +418,7 @@ where
         // 一般常識監査: 本文を現実世界の常識(学校制度・暦・季節・因果・
         // 社会通念)と照合する。設定資料が例外を許している領域は判定から外れる。
         if enabled(settings, "commonSenseAuditEnabled") {
-            on_stage("一般常識と照合中");
+            (stage.borrow_mut())("一般常識と照合中");
             craft_findings.push(
                 run_craft_audit(
                     "常識",
@@ -426,11 +430,92 @@ where
                     ),
                     common_sense::common_sense_schema(),
                     "findings",
-                    &mut *on_stage,
+                    &stage,
                 )
                 .await,
             );
         }
+        // 品質検査: 表現密度・視点識別・動機論理の3系統は独立なので
+        // 並列実行する(opencode はリクエスト開始のみ 1.5 秒間隔で、
+        // 実行自体は並列)。有効な系統だけを走らせる。
+        let density_enabled = enabled(settings, "craftQualityDensityEnabled");
+        let pov_enabled = enabled(settings, "craftQualityPovEnabled");
+        let logic_enabled = enabled(settings, "craftQualityLogicEnabled");
+        if density_enabled || pov_enabled || logic_enabled {
+            (stage.borrow_mut())("品質を検査中（表現・視点・論理）");
+            let mut audits: Vec<std::pin::Pin<Box<dyn std::future::Future<Output = String> + '_>>> =
+                Vec::new();
+            if density_enabled {
+                audits.push(Box::pin(run_craft_audit(
+                    "表現密度",
+                    quality::audit_system(),
+                    quality::density_audit(context, &selected.text),
+                    quality::quality_schema(&[
+                        "repetition",
+                        "paragraph_delta",
+                        "over_explanation",
+                        "vocabulary_density",
+                    ]),
+                    "findings",
+                    &stage,
+                )));
+            }
+            if pov_enabled {
+                audits.push(Box::pin(run_craft_audit(
+                    "視点識別",
+                    quality::audit_system(),
+                    quality::pov_audit(
+                        context,
+                        &selected.text,
+                        previous_episode_text,
+                        nonempty(&references.settings_context),
+                    ),
+                    quality::quality_schema(&["pov_style", "redescription"]),
+                    "findings",
+                    &stage,
+                )));
+            }
+            if logic_enabled {
+                audits.push(Box::pin(run_craft_audit(
+                    "動機論理",
+                    quality::audit_system(),
+                    quality::logic_audit(
+                        context,
+                        &selected.text,
+                        nonempty(&references.settings_context),
+                        references.related_scenes.as_deref(),
+                    ),
+                    quality::quality_schema(&[
+                        "scene_entry",
+                        "alliance",
+                        "unconfirmed_fact",
+                        "affection_basis",
+                    ]),
+                    "findings",
+                    &stage,
+                )));
+            }
+            let results = futures::future::join_all(audits).await;
+            let quality_findings = results
+                .into_iter()
+                .filter(|value| !value.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !quality_findings.trim().is_empty() {
+                findings.push_str("\n\n【品質検査による指摘】\n");
+                findings.push_str(&quality_findings);
+            }
+        }
+        // 監査の並列実行が終わったので、共有ステージ参照を通常の
+        // コールバックに戻す(以降の改稿ステージ表示は従来どおり)。
+        let on_stage = match Rc::try_unwrap(stage) {
+            Ok(inner) => inner.into_inner(),
+            Err(_) => {
+                return Err(JsValue::from_str(
+                    "品質監査が終了してもステージ参照が解放されませんでした",
+                ));
+            }
+        };
         let craft_findings = craft_findings
             .into_iter()
             .filter(|value| !value.trim().is_empty())
@@ -824,16 +909,17 @@ async fn optional_judgment(
     }
 }
 
-/// craft 検証(初読読者・緩急・テーマ・常識)の実行。構造化出力が返すリストを
+/// craft 検証(初読読者・緩急・テーマ・常識・品質)の実行。構造化出力が返すリストを
 /// 査読に追記できる1行ずつの指摘文に整形する。失敗したらスキップする
 /// (optional_judgment と同じ failure-tolerant 方針)。
+/// 品質検査3系統を並列実行できるよう、ステージ通知は共有参照を受け取る。
 async fn run_craft_audit(
     label: &str,
     system: String,
     prompt: String,
     schema: Value,
     list_key: &str,
-    on_stage: &mut dyn FnMut(&str),
+    on_stage: &Rc<RefCell<&mut dyn FnMut(&str)>>,
 ) -> String {
     let result = crate::ai::structured_output::generate_structured_object::<Value>(
         "judgment",
@@ -847,7 +933,7 @@ async fn run_craft_audit(
     let value = match result {
         Ok(value) => value,
         Err(_) => {
-            on_stage(&format!("{label}検証に失敗（スキップして続行）"));
+            (on_stage.borrow_mut())(&format!("{label}検証に失敗（スキップして続行）"));
             return String::new();
         }
     };
@@ -867,6 +953,8 @@ async fn run_craft_audit(
 }
 
 /// 監査結果の1要素を「- L{行} [{種別}] {理由}」の1行にする。
+/// 種別は既存監査の "type"、品質検査の "check" のどちらでも受け取り、
+/// severity があれば併記する(改稿側で issue/suggestion を使い分けるため)。
 /// 行番号・種別・理由のいずれかが欠けている要素は捨てる。
 fn format_craft_finding(item: &Value) -> Option<String> {
     let reason = item.get("reason").and_then(Value::as_str)?.trim();
@@ -878,8 +966,19 @@ fn format_craft_finding(item: &Value) -> Option<String> {
         .and_then(Value::as_i64)
         .map(|value| value.to_string())
         .unwrap_or_else(|| "?".into());
-    let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
-    Some(format!("- L{line} [{kind}] {reason}"))
+    let kind = item
+        .get("type")
+        .or_else(|| item.get("check"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let severity = item.get("severity").and_then(Value::as_str).unwrap_or("");
+    let tag = match (kind.is_empty(), severity.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => kind.to_string(),
+        (true, false) => severity.to_string(),
+        (false, false) => format!("{kind}|{severity}"),
+    };
+    Some(format!("- L{line} [{tag}] {reason}"))
 }
 
 fn enabled(settings: &Value, key: &str) -> bool {
