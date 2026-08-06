@@ -354,8 +354,10 @@ pub fn ai_runtime_config(
     let role_number = |key: &str| role_overrides.and_then(|value| value.get(key)?.as_f64());
 
     // Provider capacity cap (ported from TS applyProviderCapacityCap):
-    // OpenCode Go has strict usage limits – clamp max_output_tokens to the
-    // model's declared maxTokens so we never exceed the provider's quota.
+    // 設定値がモデルの宣言上限を超えている場合はモデル上限へクランプする。
+    // 旧実装は opencode/copilot のみに適用していたが、設定値が真の制約に
+    // なる教訓と同様、他プロバイダーでも上限超過の要求はプロバイダー
+    // エラーになるため全プロバイダーへ拡張する。
     let mut max_output_tokens = settings
         .get("maxTokens")
         .and_then(Value::as_u64)
@@ -366,15 +368,34 @@ pub fn ai_runtime_config(
                 .and_then(|item| item.max_output_tokens)
         })
         .unwrap_or(8192);
-    if matches!(provider_id, "opencode" | "github-copilot") {
-        if let Some(cap) = model.and_then(|item| item.max_tokens).or_else(|| {
+    let output_cap = model
+        .and_then(|item| item.max_tokens)
+        .or_else(|| {
             cached_copilot_model
                 .as_ref()
                 .and_then(|item| item.max_output_tokens)
-        }) {
-            max_output_tokens = max_output_tokens.min(cap);
-        }
-    }
+        });
+    max_output_tokens = clamp_to_cap(max_output_tokens, output_cap);
+
+    // コンテキスト上限も同様に、設定値がモデルの宣言上限を超えている場合は
+    // モデル上限へクランプする(プロンプト予算の過大算出と要求エラーを防ぐ)。
+    let mut max_context_tokens = settings
+        .get("maxContextTokens")
+        .and_then(Value::as_u64)
+        .or_else(|| model.and_then(|item| item.max_context_tokens))
+        .or_else(|| {
+            cached_copilot_model
+                .as_ref()
+                .and_then(|item| item.max_prompt_tokens)
+        });
+    let context_cap = model
+        .and_then(|item| item.max_context_tokens)
+        .or_else(|| {
+            cached_copilot_model
+                .as_ref()
+                .and_then(|item| item.max_prompt_tokens)
+        });
+    max_context_tokens = max_context_tokens.map(|value| clamp_to_cap(value, context_cap));
 
     Ok(RuntimeAiConfig {
         provider: provider_id.into(),
@@ -452,15 +473,7 @@ pub fn ai_runtime_config(
             "judgment" => model.and_then(|item| item.judgment.prompt_scaffold.clone()),
             _ => None,
         },
-        max_context_tokens: settings
-            .get("maxContextTokens")
-            .and_then(Value::as_u64)
-            .or_else(|| model.and_then(|item| item.max_context_tokens))
-            .or_else(|| {
-                cached_copilot_model
-                    .as_ref()
-                    .and_then(|item| item.max_prompt_tokens)
-            }),
+        max_context_tokens,
     })
 }
 
@@ -754,6 +767,13 @@ fn has_host(value: &str, host: &str) -> bool {
     value.contains(host)
 }
 
+/// 設定値(またはフォールバック)をモデルの宣言上限へクランプする。
+/// 上限が未宣言なら設定値のまま。設定値がモデル上限を超えていると
+/// プロバイダーエラーになるため、全プロバイダーで適用する。
+fn clamp_to_cap(value: u64, cap: Option<u64>) -> u64 {
+    cap.map_or(value, |cap| value.min(cap))
+}
+
 /// Detect and auto-correct stale cross-provider base URLs.
 ///
 /// If a provider's configured base URL still points at a *different*
@@ -871,5 +891,16 @@ mod tests {
             Some("none".into())
         );
         assert_eq!(preferred_copilot_reasoning_effort(&[]), None);
+    }
+
+    #[test]
+    fn settings_values_are_clamped_to_model_declared_limits() {
+        // 設定値がモデル上限を超えている場合はモデル上限へ落とす。
+        assert_eq!(clamp_to_cap(1_000_000, Some(384_000)), 384_000);
+        assert_eq!(clamp_to_cap(128_000, Some(1_000_000)), 128_000);
+        // 設定値がモデル上限以下ならそのまま。
+        assert_eq!(clamp_to_cap(8_192, Some(384_000)), 8_192);
+        // モデルが上限を宣言していない場合は設定値のまま。
+        assert_eq!(clamp_to_cap(64_000, None), 64_000);
     }
 }

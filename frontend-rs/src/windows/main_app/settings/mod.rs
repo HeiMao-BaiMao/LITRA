@@ -384,7 +384,24 @@ pub async fn switch_provider(
     {
         select.set_value(&model);
     }
+    // プロバイダー/モデル切替時はトークン欄をクリアする。旧モデル向けの値を
+    // そのまま保存すると別のモデルの上限を固定してしまう。空欄のまま保存
+    // するとキーが外れ、バックエンドがモデル既定へフォールバックする。
+    clear_token_fields(document);
     Ok(())
+}
+
+/// 「最大トークン数」「最大コンテキスト数」の入力欄を空にする。
+/// モデル切替時に古いモデルの値が新しいモデルの制約として保存される事故を防ぐ。
+pub(super) fn clear_token_fields(document: &Document) {
+    for id in ["setting-max-tokens", "setting-max-context-tokens"] {
+        if let Some(input) = document
+            .get_element_by_id(id)
+            .and_then(|item| item.dyn_into::<HtmlInputElement>().ok())
+        {
+            input.set_value("");
+        }
+    }
 }
 
 fn capture_provider(

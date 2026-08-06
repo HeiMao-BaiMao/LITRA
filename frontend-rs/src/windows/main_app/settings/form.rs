@@ -200,6 +200,8 @@ pub fn control_changed(
     match id {
         "setting-model-select" => {
             set_value(document, "setting-model", &value(document, id));
+            // モデル切替時はトークン欄をクリア(古いモデルの値の固定を防ぐ)。
+            super::clear_token_fields(document);
             Ok(())
         }
         "setting-background-provider" => {
