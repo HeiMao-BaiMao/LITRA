@@ -346,7 +346,7 @@
           "maxTokens": 384000,
           "maxContextTokens": 1000000,
           "topP": 1.0,
-          "deepseekReasoningEffort": "high",
+          "deepseekReasoningEffort": "max",
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": [
@@ -363,7 +363,7 @@
           },
           "judgment": {
             "deepseekThinkingEnabled": true,
-            "deepseekReasoningEffort": "high"
+            "deepseekReasoningEffort": "max"
           }
         },
         {
@@ -373,7 +373,7 @@
           "maxTokens": 384000,
           "maxContextTokens": 1000000,
           "topP": 1.0,
-          "deepseekReasoningEffort": "high",
+          "deepseekReasoningEffort": "max",
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": [
@@ -390,7 +390,7 @@
           },
           "judgment": {
             "deepseekThinkingEnabled": true,
-            "deepseekReasoningEffort": "high"
+            "deepseekReasoningEffort": "max"
           }
         }
       ]
@@ -1041,7 +1041,7 @@
           "topP": 0.95,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
-          "deepseekReasoningEffort": "high",
+          "deepseekReasoningEffort": "max",
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": [
@@ -1060,7 +1060,7 @@
           "topP": 0.95,
           "frequencyPenalty": 0,
           "presencePenalty": 0,
-          "deepseekReasoningEffort": "high",
+          "deepseekReasoningEffort": "max",
           "reasoningCapability": {
             "kind": "deepseek",
             "supportedEfforts": [
