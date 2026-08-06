@@ -1,3 +1,4 @@
+pub(crate) mod common_sense;
 pub(crate) mod craft;
 pub(crate) mod old_prompts;
 mod prompts;
@@ -179,6 +180,29 @@ where
         plan
     };
 
+    // 常識点検: 構想の時系列・季節・設定を現実の一般常識と照合する。
+    // 誤りを本文に書く前に構想の段階で潰す(commonSensePlanCheckEnabled のみで制御)。
+    let plan = if enabled(settings, "commonSensePlanCheckEnabled") && !plan.trim().is_empty() {
+        on_stage("構想の常識を点検中");
+        let check = optional_judgment(
+            &common_sense::audit_system(),
+            common_sense::plan_check(
+                context,
+                &plan,
+                nonempty(&references.settings_context),
+            ),
+            &mut *on_stage,
+        )
+        .await;
+        if check.trim().is_empty() {
+            plan
+        } else {
+            format!("{plan}\n\n【常識点検の報告】\n{check}")
+        }
+    } else {
+        plan
+    };
+
     // 文学目標カード: 構想を「読者への効果」の観点から設計カード化する。
     // ドラフト・査読・改稿へ基準として渡る(continuationCraftCardEnabled のみで制御)。
     let craft_card = if enabled(settings, "continuationCraftCardEnabled") {
@@ -345,6 +369,7 @@ where
             craft_findings.push(
                 run_craft_audit(
                     "初読読者",
+                    craft::full_system(),
                     craft::reader_sim(context, &selected.text),
                     craft::reader_sim_schema(),
                     "events",
@@ -358,6 +383,7 @@ where
             craft_findings.push(
                 run_craft_audit(
                     "緩急",
+                    craft::full_system(),
                     craft::pacing_audit(context, &selected.text),
                     craft::pacing_audit_schema(),
                     "findings",
@@ -371,6 +397,7 @@ where
             craft_findings.push(
                 run_craft_audit(
                     "テーマ",
+                    craft::full_system(),
                     craft::theme_audit(
                         context,
                         nonempty(&references.settings_context),
@@ -378,6 +405,26 @@ where
                         &selected.text,
                     ),
                     craft::theme_audit_schema(),
+                    "findings",
+                    &mut *on_stage,
+                )
+                .await,
+            );
+        }
+        // 一般常識監査: 本文を現実世界の常識(学校制度・暦・季節・因果・
+        // 社会通念)と照合する。設定資料が例外を許している領域は判定から外れる。
+        if enabled(settings, "commonSenseAuditEnabled") {
+            on_stage("一般常識と照合中");
+            craft_findings.push(
+                run_craft_audit(
+                    "常識",
+                    common_sense::audit_system(),
+                    common_sense::audit(
+                        context,
+                        &selected.text,
+                        nonempty(&references.settings_context),
+                    ),
+                    common_sense::common_sense_schema(),
                     "findings",
                     &mut *on_stage,
                 )
@@ -777,11 +824,12 @@ async fn optional_judgment(
     }
 }
 
-/// craft 検証(初読読者・緩急・テーマ)の実行。構造化出力が返すリストを
+/// craft 検証(初読読者・緩急・テーマ・常識)の実行。構造化出力が返すリストを
 /// 査読に追記できる1行ずつの指摘文に整形する。失敗したらスキップする
 /// (optional_judgment と同じ failure-tolerant 方針)。
 async fn run_craft_audit(
     label: &str,
+    system: String,
     prompt: String,
     schema: Value,
     list_key: &str,
@@ -789,7 +837,7 @@ async fn run_craft_audit(
 ) -> String {
     let result = crate::ai::structured_output::generate_structured_object::<Value>(
         "judgment",
-        Some(&craft::full_system()),
+        Some(&system),
         &prompt,
         schema,
         None,

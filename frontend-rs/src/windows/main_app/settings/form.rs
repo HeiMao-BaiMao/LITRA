@@ -46,6 +46,16 @@ const CHECKBOXES: &[(&str, &str, bool)] = &[
         "continuationBeatSplitEnabled",
         false,
     ),
+    (
+        "setting-common-sense-audit",
+        "commonSenseAuditEnabled",
+        false,
+    ),
+    (
+        "setting-common-sense-plan-check",
+        "commonSensePlanCheckEnabled",
+        false,
+    ),
 ];
 
 pub fn populate(

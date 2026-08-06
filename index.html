@@ -452,6 +452,16 @@
               <input id="setting-continuation-beat-split" type="checkbox" />
               <span>構想メモのビートごとに分割して執筆（構想ステップが有効な場合のみ動作します。ビート数だけAPI呼び出しが増えます。「本文案を2案生成して選定」が同時に有効な場合はそちらが優先され、ビート分割は休止します）</span>
             </label>
+
+            <label class="checkbox-label">
+              <input id="setting-common-sense-audit" type="checkbox" />
+              <span>続き生成の後に一般常識との整合を監査（卒業式から2週間後の大学など、現実の時系列・季節・学校制度・社会通念との矛盾を指摘して修正します。API呼び出しが1回増えます）</span>
+            </label>
+
+            <label class="checkbox-label">
+              <input id="setting-common-sense-plan-check" type="checkbox" />
+              <span>構想ステップの後に一般常識を点検（時系列・季節・設定の誤りを執筆前に防ぎます。「続き生成の前に構想ステップを実行」が有効な場合のみ動作します。API呼び出しが1回増えます）</span>
+            </label>
               </div>
             </div>
 

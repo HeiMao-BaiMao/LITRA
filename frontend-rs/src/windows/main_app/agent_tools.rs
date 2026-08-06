@@ -17,6 +17,7 @@ const MAX_TOOL_ROUNDS: usize = 16;
 /// 重複するツール呼び出しを検出した場合に中断するためのしきい値
 const MAX_DUPLICATE_CALLS: usize = 2;
 
+mod common_sense;
 mod craft;
 mod genre;
 mod project;
@@ -937,6 +938,10 @@ async fn execute(
         return craft::execute(state, project_id, current_episode, name, input, on_progress)
             .await;
     }
+    if common_sense::handles(name) {
+        return common_sense::execute(state, project_id, current_episode, name, input, on_progress)
+            .await;
+    }
     let mut input = input.as_object().cloned().unwrap_or_default();
     let value: Value = match name {
         "listEpisodes" => {
@@ -1312,6 +1317,7 @@ fn definitions() -> Vec<Value> {
     definitions.extend(genre::definitions());
     definitions.extend(writing::definitions());
     definitions.extend(craft::definitions());
+    definitions.extend(common_sense::definitions());
     definitions
 }
 
@@ -1572,6 +1578,15 @@ CRAFT NOTES (技法ノート):
 - Put the concrete facts into record: what was written, what the review said, what was adopted or rejected, and the outcome. The tool extracts reusable lessons and stores them in the project's craft notes.
 - Call getCraftNotes when the user asks about past craft lessons or when continuing work that previously had notes.
 - Never store plot facts or canon as craft notes; those belong to project data.
+"#);
+    }
+    if available.contains("checkCommonSense") {
+        s.push_str(r#"
+
+COMMON SENSE CHECK (checkCommonSense):
+- After writing or editing manuscript prose — especially in direct creative editing mode — call checkCommonSense with the written passage (or the changed range) before reporting completion.
+- Fix reported major findings (school calendar, seasons, causality, law, era contradictions) with editEpisode before finishing. Minor findings may be left only when the user explicitly overrides them.
+- It checks real-world plausibility, not canon. For canon consistency use checkConsistency.
 "#);
     }
 

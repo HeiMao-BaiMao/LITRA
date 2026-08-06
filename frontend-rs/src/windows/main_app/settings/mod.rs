@@ -134,6 +134,11 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
             "setting-continuation-beat-split",
             "continuationBeatSplitEnabled",
         ),
+        ("setting-common-sense-audit", "commonSenseAuditEnabled"),
+        (
+            "setting-common-sense-plan-check",
+            "commonSensePlanCheckEnabled",
+        ),
     ] {
         if let Some(input) = document
             .get_element_by_id(id)
