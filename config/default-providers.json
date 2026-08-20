@@ -1035,6 +1035,7 @@
         {
           "id": "deepseek-v4-flash",
           "label": "DeepSeek V4 Flash",
+          "connection": "responses",
           "temperature": 0.3,
           "maxTokens": 384000,
           "maxContextTokens": 1000000,
@@ -1093,10 +1094,24 @@
           "maxContextTokens": 500000
         },
         {
+          "id": "gpt-5.6-luna",
+          "label": "GPT-5.6 Luna",
+          "connection": "responses",
+          "maxTokens": 128000,
+          "maxContextTokens": 1050000
+        },
+        {
           "id": "hy3",
           "label": "Hy3",
           "maxTokens": 64000,
           "maxContextTokens": 256000
+        },
+        {
+          "id": "muse-spark-1.2-contributor",
+          "label": "Muse Spark 1.2 Contributor",
+          "connection": "responses",
+          "maxTokens": 131072,
+          "maxContextTokens": 1048576
         },
         {
           "id": "kimi-k2.5",
@@ -1209,7 +1224,6 @@
         {
           "id": "qwen3.7-plus",
           "label": "Qwen3.7 Plus",
-          "connection": "messages",
           "temperature": 0.7,
           "maxTokens": 65536,
           "maxContextTokens": 1000000,
@@ -1220,7 +1234,6 @@
         {
           "id": "qwen3.7-max",
           "label": "Qwen3.7 Max",
-          "connection": "messages",
           "temperature": 0.7,
           "maxTokens": 65536,
           "maxContextTokens": 1000000,
