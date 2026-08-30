@@ -24,6 +24,7 @@
     },
     "opener:default",
     "store:default",
+    "updater:default",
     "core:window:allow-create",
     "core:window:allow-get-all-windows",
     "core:window:allow-set-focus",

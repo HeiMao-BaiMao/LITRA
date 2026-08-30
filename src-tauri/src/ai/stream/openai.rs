@@ -147,22 +147,12 @@ pub fn parse_chat(
 ) -> Result<(), String> {
     if let Some(delta) = extract_chat_text_delta(value) {
         if !delta.is_empty() {
-            send(
-                channel,
-                AiStreamEvent::TextDelta {
-                    delta: delta.into(),
-                },
-            )?;
+            send(channel, AiStreamEvent::TextDelta { delta })?;
         }
     }
     if let Some(delta) = extract_chat_reasoning_delta(value) {
         if !delta.is_empty() {
-            send(
-                channel,
-                AiStreamEvent::ReasoningDelta {
-                    delta: delta.into(),
-                },
-            )?;
+            send(channel, AiStreamEvent::ReasoningDelta { delta })?;
         }
     }
     if let Some(usage) = value.get("usage") {

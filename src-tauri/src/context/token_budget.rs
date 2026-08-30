@@ -91,7 +91,7 @@ pub fn estimate_tokens(text: &str) -> usize {
         .count();
     let other_chars = text.chars().count() - japanese_chars;
     // Japanese: ~2 chars/token, others: ~4 chars/token
-    (japanese_chars + 1) / 2 + (other_chars + 3) / 4
+    japanese_chars.div_ceil(2) + other_chars.div_ceil(4)
 }
 
 /// Configuration for context window management.
@@ -167,7 +167,7 @@ impl ConversationHistory {
 
     /// Check if compaction is needed.
     pub fn needs_compaction(&self) -> bool {
-        self.budget.as_ref().map_or(false, |b| b.should_compact())
+        self.budget.as_ref().is_some_and(|b| b.should_compact())
     }
 
     /// Total tokens in history.
@@ -190,27 +190,30 @@ impl ConversationHistory {
         let total_before = self.total_tokens();
         let msg_count_before = self.messages.len();
 
-        // Keep recent messages up to preserved_recent_tokens
+        // Keep recent messages up to preserved_recent_tokens while always
+        // preserving the configured minimum number of messages.
         let mut preserved_tokens = 0;
         let mut split_idx = self.messages.len();
         for (i, msg) in self.messages.iter().enumerate().rev() {
-            if preserved_tokens + msg.tokens > self.config.preserved_recent_tokens
-                || (self.messages.len() - i) > self.config.min_preserved_messages
+            let recent_count = self.messages.len() - i;
+            if recent_count >= self.config.min_preserved_messages
+                && preserved_tokens + msg.tokens > self.config.preserved_recent_tokens
             {
-                if (self.messages.len() - i) >= self.config.min_preserved_messages {
-                    split_idx = i + 1;
-                    break;
-                }
+                split_idx = i + 1;
+                break;
             }
             preserved_tokens += msg.tokens;
         }
 
         // Build compacted history: summary + preserved recent
         let mut compacted = Vec::new();
-        compacted.push(TrackedMessage::new("user", format!(
-            "以下は以前の会話の要約:\n{}\n\nこの続きから執筆を続けます。",
-            summary
-        )));
+        compacted.push(TrackedMessage::new(
+            "user",
+            format!(
+                "以下は以前の会話の要約:\n{}\n\nこの続きから執筆を続けます。",
+                summary
+            ),
+        ));
         compacted.extend(self.messages[split_idx..].iter().cloned());
 
         let tokens_after = compacted.iter().map(|m| m.tokens).sum();
@@ -258,7 +261,7 @@ mod tests {
         let text = "Hello world, this is a test.";
         let tokens = estimate_tokens(text);
         // ~25 chars / 4 = ~6 tokens
-        assert!(tokens >= 4 && tokens <= 10);
+        assert!((4..=10).contains(&tokens));
     }
 
     #[test]
@@ -266,7 +269,7 @@ mod tests {
         let text = "こんにちは世界、これはテストです。";
         let tokens = estimate_tokens(text);
         // ~16 japanese chars / 2 = ~8 tokens
-        assert!(tokens >= 5 && tokens <= 12);
+        assert!((5..=12).contains(&tokens));
     }
 
     #[test]
@@ -290,8 +293,20 @@ mod tests {
 
         // Add many messages with enough content to trigger compaction
         for i in 0..40 {
-            history.add("user", format!("Message {} with some content to make it longer for testing", i));
-            history.add("assistant", format!("Response {} with some content to make it longer for testing", i));
+            history.add(
+                "user",
+                format!(
+                    "Message {} with some content to make it longer for testing",
+                    i
+                ),
+            );
+            history.add(
+                "assistant",
+                format!(
+                    "Response {} with some content to make it longer for testing",
+                    i
+                ),
+            );
         }
 
         assert!(history.needs_compaction());

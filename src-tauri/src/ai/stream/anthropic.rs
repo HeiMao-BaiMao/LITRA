@@ -115,9 +115,7 @@ pub fn parse(
                 }
                 return Ok(());
             }
-            let delta = value
-                .pointer("/delta/text")
-                .and_then(Value::as_str);
+            let delta = value.pointer("/delta/text").and_then(Value::as_str);
             if let Some(delta) = delta.filter(|delta| !delta.is_empty()) {
                 let event = if kind == Some("thinking_delta") {
                     AiStreamEvent::ReasoningDelta {

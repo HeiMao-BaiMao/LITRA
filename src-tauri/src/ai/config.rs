@@ -368,13 +368,11 @@ pub fn ai_runtime_config(
                 .and_then(|item| item.max_output_tokens)
         })
         .unwrap_or(8192);
-    let output_cap = model
-        .and_then(|item| item.max_tokens)
-        .or_else(|| {
-            cached_copilot_model
-                .as_ref()
-                .and_then(|item| item.max_output_tokens)
-        });
+    let output_cap = model.and_then(|item| item.max_tokens).or_else(|| {
+        cached_copilot_model
+            .as_ref()
+            .and_then(|item| item.max_output_tokens)
+    });
     max_output_tokens = clamp_to_cap(max_output_tokens, output_cap);
 
     // コンテキスト上限も同様に、設定値がモデルの宣言上限を超えている場合は
@@ -388,13 +386,11 @@ pub fn ai_runtime_config(
                 .as_ref()
                 .and_then(|item| item.max_prompt_tokens)
         });
-    let context_cap = model
-        .and_then(|item| item.max_context_tokens)
-        .or_else(|| {
-            cached_copilot_model
-                .as_ref()
-                .and_then(|item| item.max_prompt_tokens)
-        });
+    let context_cap = model.and_then(|item| item.max_context_tokens).or_else(|| {
+        cached_copilot_model
+            .as_ref()
+            .and_then(|item| item.max_prompt_tokens)
+    });
     max_context_tokens = max_context_tokens.map(|value| clamp_to_cap(value, context_cap));
 
     Ok(RuntimeAiConfig {

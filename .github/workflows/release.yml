@@ -88,7 +88,7 @@ jobs:
       - name: Build Tauri app
         shell: pwsh
         env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: cargo tauri build
 
       - name: Generate updater manifest
@@ -105,19 +105,17 @@ jobs:
           }
           $signature = Get-Content -Path $sigFile.FullName -Raw
           $sigFileName = $sigFile.Name
-          if ($sigFileName -match '(.+)\.sig$') {
-            $installerBase = $Matches[1]
-          } else {
-            $installerBase = $sigFileName -replace '\.sig$',''
-          }
-          $installerPattern = "$installerBase.*"
-          $installerFile = Get-ChildItem -Path $bundleRoot -Recurse -Filter $installerPattern |
-            Where-Object { $_.Extension -ne '.sig' } |
-            Select-Object -First 1
-          if (-not $installerFile) {
-            Write-Error "Installer file matching '$installerPattern' not found"
+          if ($sigFileName -notmatch '(.+)\.sig$') {
+            Write-Error "Invalid signature filename '$sigFileName'"
             exit 1
           }
+          $installerBase = $Matches[1]
+          $installerPath = Join-Path $sigFile.DirectoryName $installerBase
+          if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+            Write-Error "Installer file '$installerBase' not found beside signature"
+            exit 1
+          }
+          $installerFile = Get-Item -LiteralPath $installerPath
           $installerName = $installerFile.Name
           $version = "${{ needs.validate.outputs.version }}"
           $repo = "${{ github.repository }}"

@@ -3,6 +3,7 @@
 //! Each section implements `WorldStateSection` and contributes to the AI's system
 //! prompt. Sections are persisted as JSON alongside the project, and only
 //! *changed* sections are re-injected on subsequent turns (diff-based injection).
+#![allow(dead_code)]
 
 pub mod minimizer;
 pub mod project_context;
@@ -84,9 +85,7 @@ impl WorldState {
     pub fn render_all(&self) -> Vec<(String, String)> {
         self.sections
             .iter()
-            .filter_map(|(id, section)| {
-                section.render_diff(None).map(|text| (id.clone(), text))
-            })
+            .filter_map(|(id, section)| section.render_diff(None).map(|text| (id.clone(), text)))
             .collect()
     }
 

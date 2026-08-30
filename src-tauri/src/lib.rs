@@ -1,5 +1,6 @@
 mod ai;
 mod codex_oauth;
+mod context;
 mod genre_search;
 mod genre_store;
 mod genre_windows;
@@ -16,7 +17,6 @@ mod web_fetch;
 mod web_search;
 mod webdav_sync;
 mod window_state;
-mod context;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

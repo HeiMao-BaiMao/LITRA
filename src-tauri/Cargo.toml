@@ -37,7 +37,7 @@ futures-util = "0"
 html2text = "0"
 htmd = "0"
 base64 = "0"
-quick-xml = { version = "0.36", default-features = false }
+quick-xml = { version = "0.41", default-features = false }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 rand = { version = "0.10", features = ["thread_rng"] }
 sha2 = "0"

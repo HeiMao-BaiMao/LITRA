@@ -15,6 +15,7 @@
     "core:webview:allow-set-webview-zoom",
     "core:webview:allow-create-webview-window",
     "store:default",
+    "updater:default",
     "fs:default",
     "fs:allow-appconfig-read",
     "fs:allow-appconfig-write",

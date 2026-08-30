@@ -59,10 +59,7 @@ pub fn compact_output(input: &str, config: &MinimizerConfig) -> String {
         result.push_str(&truncate_line(line, config.max_line_length));
         result.push('\n');
     }
-    result.push_str(&format!(
-        "\n...[{} lines elided]...\n\n",
-        elided
-    ));
+    result.push_str(&format!("\n...[{} lines elided]...\n\n", elided));
     for line in &lines[lines.len() - tail_lines..] {
         result.push_str(&truncate_line(line, config.max_line_length));
         result.push('\n');
@@ -90,11 +87,7 @@ pub fn compact_search_results(results: &[SearchResult], max_results: usize) -> S
             "{}. **{}**\n   {}\n\n",
             i + 1,
             result.title,
-            result
-                .snippet
-                .chars()
-                .take(200)
-                .collect::<String>()
+            result.snippet.chars().take(200).collect::<String>()
         ));
     }
     output

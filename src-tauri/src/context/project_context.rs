@@ -10,30 +10,19 @@ use std::fs;
 use std::path::Path;
 
 use crate::context::sections::{
-    CharacterEntry, CharactersSection, EpisodeSummary, EpisodeSummarySection,
-    WritingRulesSection, WorldEntry, WorldSection,
+    CharacterEntry, CharactersSection, EpisodeSummary, EpisodeSummarySection, WorldEntry,
+    WorldSection, WritingRulesSection,
 };
-use crate::context::{
-    WorldState, WorldStateMeta,
-};
+use crate::context::{WorldState, WorldStateMeta};
 use serde_json::Value;
 
 /// The full persisted context for a project.
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct ProjectContext {
     #[serde(flatten)]
     pub sections: HashMap<String, Value>,
     #[serde(default)]
     pub meta: WorldStateMeta,
-}
-
-impl Default for ProjectContext {
-    fn default() -> Self {
-        Self {
-            sections: HashMap::new(),
-            meta: WorldStateMeta::default(),
-        }
-    }
 }
 
 /// Build a fresh WorldState from project data.
@@ -73,8 +62,7 @@ pub fn build_world_state(
 /// Save the world state to a project directory.
 pub fn save_context(project_dir: &Path, context: &ProjectContext) -> Result<(), String> {
     let context_dir = project_dir.join(".litra");
-    fs::create_dir_all(&context_dir)
-        .map_err(|e| format!("failed to create .litra dir: {e}"))?;
+    fs::create_dir_all(&context_dir).map_err(|e| format!("failed to create .litra dir: {e}"))?;
 
     let path = context_dir.join("context.json");
     let json = serde_json::to_string_pretty(context)
@@ -95,11 +83,10 @@ pub fn load_context(project_dir: &Path) -> Result<ProjectContext, String> {
         return Ok(ProjectContext::default());
     }
 
-    let json = fs::read_to_string(&path)
-        .map_err(|e| format!("failed to read context.json: {e}"))?;
+    let json =
+        fs::read_to_string(&path).map_err(|e| format!("failed to read context.json: {e}"))?;
 
-    serde_json::from_str(&json)
-        .map_err(|e| format!("failed to parse context.json: {e}"))
+    serde_json::from_str(&json).map_err(|e| format!("failed to parse context.json: {e}"))
 }
 
 /// Capture the current state of a WorldState for persistence.
@@ -139,10 +126,7 @@ pub fn render_context_for_ai(state: &WorldState, previous: Option<&ProjectContex
 }
 
 /// Check if context has changed since last save.
-pub fn has_context_changed(
-    state: &WorldState,
-    previous: &ProjectContext,
-) -> bool {
+pub fn has_context_changed(state: &WorldState, previous: &ProjectContext) -> bool {
     state.snapshot_all() != previous.sections
 }
 

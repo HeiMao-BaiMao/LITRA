@@ -5,70 +5,81 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | Ecosystem | Package | Version | License | Source |
 | --- | --- | --- | --- | --- |
 | cargo | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | [link](https://github.com/oyvindln/adler2) |
-| cargo | aho-corasick | 1.1.4 | Unlicense OR MIT | [link](https://github.com/BurntSushi/aho-corasick) |
 | cargo | aho-corasick | 1.1.5 | Unlicense OR MIT | [link](https://github.com/BurntSushi/aho-corasick) |
 | cargo | alloc-no-stdlib | 2.0.4 | BSD-3-Clause | [link](https://github.com/dropbox/rust-alloc-no-stdlib) |
 | cargo | alloc-stdlib | 0.2.4 | BSD-3-Clause | [link](https://github.com/dropbox/rust-alloc-no-stdlib) |
 | cargo | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 | [link](https://github.com/zakarumych/allocator-api2) |
 | cargo | ammonia | 4.1.3 | MIT OR Apache-2.0 | [link](https://github.com/rust-ammonia/ammonia) |
-| cargo | anyhow | 1.0.103 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/anyhow) |
+| cargo | anyhow | 1.0.104 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/anyhow) |
 | cargo | arc-swap | 1.9.2 | MIT OR Apache-2.0 | [link](https://github.com/vorner/arc-swap) |
-| cargo | async-trait | 0.1.89 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/async-trait) |
+| cargo | async-trait | 0.1.92 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/async-trait) |
 | cargo | atomic-waker | 1.1.2 | Apache-2.0 OR MIT | [link](https://github.com/smol-rs/atomic-waker) |
 | cargo | autocfg | 1.5.1 | Apache-2.0 OR MIT | [link](https://github.com/cuviper/autocfg) |
-| cargo | base64 | 0.21.7 | MIT OR Apache-2.0 | [link](https://github.com/marshallpierce/rust-base64) |
 | cargo | base64 | 0.22.1 | MIT OR Apache-2.0 | [link](https://github.com/marshallpierce/rust-base64) |
+| cargo | base64 | 0.23.1 | MIT OR Apache-2.0 | [link](https://github.com/marshallpierce/rust-base64) |
 | cargo | bit-set | 0.8.0 | Apache-2.0 OR MIT | [link](https://github.com/contain-rs/bit-set) |
 | cargo | bit-vec | 0.8.0 | Apache-2.0 OR MIT | [link](https://github.com/contain-rs/bit-vec) |
 | cargo | bitflags | 1.3.2 | MIT/Apache-2.0 | [link](https://github.com/bitflags/bitflags) |
 | cargo | bitflags | 2.13.0 | MIT OR Apache-2.0 | [link](https://github.com/bitflags/bitflags) |
+| cargo | bitflags | 2.13.1 | MIT OR Apache-2.0 | [link](https://github.com/bitflags/bitflags) |
 | cargo | bitpacking | 0.9.3 | MIT | [link](https://github.com/quickwit-oss/bitpacking) |
 | cargo | block-buffer | 0.10.4 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
-| cargo | bon-macros | 3.9.3 | MIT OR Apache-2.0 | [link](https://github.com/elastio/bon) |
-| cargo | bon | 3.9.3 | MIT OR Apache-2.0 | [link](https://github.com/elastio/bon) |
+| cargo | block-buffer | 0.12.1 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
+| cargo | bon-macros | 3.10.0 | MIT OR Apache-2.0 | [link](https://github.com/elastio/bon) |
+| cargo | bon | 3.10.0 | MIT OR Apache-2.0 | [link](https://github.com/elastio/bon) |
 | cargo | brotli-decompressor | 5.0.3 | BSD-3-Clause/MIT | [link](https://github.com/dropbox/rust-brotli-decompressor) |
 | cargo | brotli | 8.0.4 | BSD-3-Clause AND MIT | [link](https://github.com/dropbox/rust-brotli) |
 | cargo | bs58 | 0.5.1 | MIT/Apache-2.0 | [link](https://github.com/Nullus157/bs58-rs) |
 | cargo | bumpalo | 3.20.3 | MIT OR Apache-2.0 | [link](https://github.com/fitzgen/bumpalo) |
 | cargo | byteorder | 1.5.0 | Unlicense OR MIT | [link](https://github.com/BurntSushi/byteorder) |
-| cargo | bytes | 1.12.0 | MIT | [link](https://github.com/tokio-rs/bytes) |
-| cargo | camino | 1.2.4 | MIT OR Apache-2.0 | [link](https://github.com/camino-rs/camino) |
+| cargo | bytes | 1.12.1 | MIT | [link](https://github.com/tokio-rs/bytes) |
+| cargo | camino | 1.2.5 | MIT OR Apache-2.0 | [link](https://github.com/camino-rs/camino) |
 | cargo | cargo_metadata | 0.19.2 | MIT | [link](https://github.com/oli-obk/cargo_metadata) |
 | cargo | cargo_toml | 0.22.3 | Apache-2.0 OR MIT | [link](https://gitlab.com/lib.rs/cargo_toml) |
 | cargo | cargo-platform | 0.1.9 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/cargo) |
-| cargo | cc | 1.2.66 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/cc-rs) |
+| cargo | cc | 1.4.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/cc-rs) |
 | cargo | census | 0.4.2 | MIT | [link](https://github.com/quickwit-inc/census) |
 | cargo | cfb | 0.7.3 | MIT | [link](https://github.com/mdsteele/rust-cfb) |
-| cargo | cfg_aliases | 0.2.1 | MIT | [link](https://github.com/katharostech/cfg_aliases) |
+| cargo | cfg_aliases | 0.2.2 | MIT | [link](https://github.com/katharostech/cfg_aliases) |
 | cargo | cfg-if | 1.0.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/cfg-if) |
-| cargo | chacha20 | 0.10.1 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/stream-ciphers) |
+| cargo | chacha20 | 0.10.2 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/stream-ciphers) |
 | cargo | chrono | 0.4.45 | MIT OR Apache-2.0 | [link](https://github.com/chronotope/chrono) |
-| cargo | cookie | 0.18.1 | MIT OR Apache-2.0 | [link](https://github.com/SergioBenitez/cookie-rs) |
+| cargo | const-oid | 0.10.2 | Apache-2.0 OR MIT | [link](https://github.com/RustCrypto/formats) |
+| cargo | cookie | 0.18.2 | MIT OR Apache-2.0 | [link](https://github.com/SergioBenitez/cookie-rs) |
 | cargo | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
-| cargo | cpufeatures | 0.3.0 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
-| cargo | crc32fast | 1.5.0 | MIT OR Apache-2.0 | [link](https://github.com/srijs/rust-crc32fast) |
-| cargo | crossbeam-channel | 0.5.15 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
-| cargo | crossbeam-deque | 0.8.6 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | cpufeatures | 0.3.1 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/utils) |
+| cargo | crc32fast | 1.5.1 | MIT OR Apache-2.0 | [link](https://github.com/srijs/rust-crc32fast) |
+| cargo | crossbeam-channel | 0.5.16 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | crossbeam-deque | 0.8.7 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
 | cargo | crossbeam-epoch | 0.9.20 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
-| cargo | crossbeam-utils | 0.8.21 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
+| cargo | crossbeam-utils | 0.8.22 | MIT OR Apache-2.0 | [link](https://github.com/crossbeam-rs/crossbeam) |
 | cargo | crunchy | 0.2.4 | MIT | [link](https://github.com/eira-fransham/crunchy) |
 | cargo | crypto-common | 0.1.7 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/traits) |
+| cargo | crypto-common | 0.2.2 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/traits) |
 | cargo | cssparser-macros | 0.6.1 | MPL-2.0 | [link](https://github.com/servo/rust-cssparser) |
 | cargo | cssparser | 0.36.0 | MPL-2.0 | [link](https://github.com/servo/rust-cssparser) |
 | cargo | cssparser | 0.37.0 | MPL-2.0 | [link](https://github.com/servo/rust-cssparser) |
 | cargo | ctor-proc-macro | 0.0.7 | Apache-2.0 OR MIT | [link](https://github.com/mmastrac/rust-ctor) |
 | cargo | ctor | 0.8.0 | Apache-2.0 OR MIT | [link](https://github.com/mmastrac/rust-ctor) |
 | cargo | darling_core | 0.23.0 | MIT | [link](https://github.com/TedDriggs/darling) |
+| cargo | darling_core | 0.24.1 | MIT | [link](https://github.com/TedDriggs/darling) |
 | cargo | darling_macro | 0.23.0 | MIT | [link](https://github.com/TedDriggs/darling) |
+| cargo | darling_macro | 0.24.1 | MIT | [link](https://github.com/TedDriggs/darling) |
 | cargo | darling | 0.23.0 | MIT | [link](https://github.com/TedDriggs/darling) |
+| cargo | darling | 0.24.1 | MIT | [link](https://github.com/TedDriggs/darling) |
 | cargo | datasketches | 0.2.0 | Apache-2.0 | [link](https://github.com/apache/datasketches-rust) |
+| cargo | defmt-macros | 1.1.1 | MIT OR Apache-2.0 | [link](https://github.com/knurling-rs/defmt) |
+| cargo | defmt-parser | 1.0.0 | MIT OR Apache-2.0 | [link](https://github.com/knurling-rs/defmt) |
+| cargo | defmt | 1.1.1 | MIT OR Apache-2.0 | [link](https://github.com/knurling-rs/defmt) |
 | cargo | deranged | 0.5.8 | MIT OR Apache-2.0 | [link](https://github.com/jhpratt/deranged) |
 | cargo | derive_more-impl | 2.1.1 | MIT | [link](https://github.com/JelteF/derive_more) |
 | cargo | derive_more | 2.1.1 | MIT | [link](https://github.com/JelteF/derive_more) |
 | cargo | digest | 0.10.7 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/traits) |
+| cargo | digest | 0.11.3 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/traits) |
 | cargo | dirs-sys | 0.5.0 | MIT OR Apache-2.0 | [link](https://github.com/dirs-dev/dirs-sys-rs) |
 | cargo | dirs | 6.0.0 | MIT OR Apache-2.0 | [link](https://github.com/soc/dirs-rs) |
 | cargo | displaydoc | 0.2.6 | MIT OR Apache-2.0 | [link](https://github.com/yaahc/displaydoc) |
+| cargo | displaydoc | 0.2.7 | MIT OR Apache-2.0 | [link](https://github.com/yaahc/displaydoc) |
 | cargo | dom_query | 0.27.0 | MIT | [link](https://github.com/niklak/dom_query) |
 | cargo | downcast-rs | 2.0.2 | MIT OR Apache-2.0 | [link](https://github.com/marcianx/downcast-rs) |
 | cargo | dpi | 0.1.2 | Apache-2.0 AND MIT | [link](https://github.com/rust-windowing/winit) |
@@ -78,67 +89,89 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | dtor | 0.3.0 | Apache-2.0 OR MIT | [link](https://github.com/mmastrac/rust-ctor) |
 | cargo | dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 | [link](https://gitlab.com/kornelski/dunce) |
 | cargo | dyn-clone | 1.0.20 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/dyn-clone) |
-| cargo | either | 1.16.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/either) |
+| cargo | either | 1.18.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/either) |
 | cargo | embed-resource | 3.0.11 | MIT | [link](https://github.com/nabijaczleweli/rust-embed-resource) |
 | cargo | equivalent | 1.0.2 | Apache-2.0 OR MIT | [link](https://github.com/indexmap-rs/equivalent) |
 | cargo | erased-serde | 0.4.10 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/erased-serde) |
 | cargo | fastdivide | 0.4.2 | zlib-acknowledgement OR MIT | [link](https://github.com/fulmicoton/fastdivide) |
 | cargo | fastrand | 2.4.1 | Apache-2.0 OR MIT | [link](https://github.com/smol-rs/fastrand) |
+| cargo | fastrand | 2.5.0 | Apache-2.0 OR MIT | [link](https://github.com/smol-rs/fastrand) |
 | cargo | fdeflate | 0.3.7 | MIT OR Apache-2.0 | [link](https://github.com/image-rs/fdeflate) |
-| cargo | find-msvc-tools | 0.1.9 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/cc-rs) |
-| cargo | flate2 | 1.1.9 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/flate2-rs) |
+| cargo | find-msvc-tools | 0.1.11 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/cc-rs) |
+| cargo | flate2 | 1.1.10 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/flate2-rs) |
 | cargo | fnv | 1.0.7 | Apache-2.0 / MIT | [link](https://github.com/servo/rust-fnv) |
 | cargo | foldhash | 0.2.0 | Zlib | [link](https://github.com/orlp/foldhash) |
 | cargo | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 | [link](https://github.com/servo/rust-url) |
 | cargo | fs4 | 0.13.1 | MIT OR Apache-2.0 | [link](https://github.com/al8n/fs4-rs) |
-| cargo | futures-channel | 0.3.32 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
-| cargo | futures-core | 0.3.32 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
-| cargo | futures-io | 0.3.32 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
-| cargo | futures-macro | 0.3.32 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
-| cargo | futures-sink | 0.3.32 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
-| cargo | futures-task | 0.3.32 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
-| cargo | futures-util | 0.3.32 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-channel | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-channel | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-core | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-core | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-executor | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-io | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-io | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-macro | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-macro | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-sink | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-sink | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-task | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-task | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-util | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures-util | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
+| cargo | futures | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/futures-rs) |
 | cargo | generic-array | 0.14.7 | MIT | [link](https://github.com/fizyk20/generic-array.git) |
 | cargo | getopts | 0.2.24 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/getopts) |
 | cargo | getrandom | 0.2.17 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/getrandom) |
 | cargo | getrandom | 0.3.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/getrandom) |
 | cargo | getrandom | 0.4.3 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/getrandom) |
-| cargo | glob | 0.3.3 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/glob) |
+| cargo | glob | 0.3.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/glob) |
 | cargo | hashbrown | 0.12.3 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/hashbrown) |
 | cargo | hashbrown | 0.16.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/hashbrown) |
 | cargo | hashbrown | 0.17.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/hashbrown) |
 | cargo | heck | 0.5.0 | MIT OR Apache-2.0 | [link](https://github.com/withoutboats/heck) |
 | cargo | hex | 0.4.3 | MIT OR Apache-2.0 | [link](https://github.com/KokaKiwi/rust-hex) |
-| cargo | htmd | 0.5.4 | Apache-2.0 | [link](https://github.com/letmutex/htmd) |
+| cargo | htmd | 0.5.5 | Apache-2.0 | [link](https://github.com/letmutex/htmd) |
 | cargo | html2text | 0.17.1 | MIT | [link](https://github.com/jugglerchris/rust-html2text/) |
 | cargo | html5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | html5ever | 0.39.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | htmlescape | 0.3.1 | Apache-2.0 / MIT / MPL-2.0 | [link](https://github.com/veddan/rust-htmlescape) |
-| cargo | http-body-util | 0.1.3 | MIT | [link](https://github.com/hyperium/http-body) |
-| cargo | http-body | 1.0.1 | MIT | [link](https://github.com/hyperium/http-body) |
-| cargo | http | 1.4.2 | MIT OR Apache-2.0 | [link](https://github.com/hyperium/http) |
+| cargo | http-body-util | 0.1.5 | MIT | [link](https://github.com/hyperium/http-body) |
+| cargo | http-body | 1.1.0 | MIT | [link](https://github.com/hyperium/http-body) |
+| cargo | http | 1.5.0 | MIT OR Apache-2.0 | [link](https://github.com/hyperium/http) |
 | cargo | httparse | 1.10.1 | MIT OR Apache-2.0 | [link](https://github.com/seanmonstar/httparse) |
+| cargo | hybrid-array | 0.4.14 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/hybrid-array) |
 | cargo | hyper-rustls | 0.27.9 | Apache-2.0 OR ISC OR MIT | [link](https://github.com/rustls/hyper-rustls) |
 | cargo | hyper-util | 0.1.20 | MIT | [link](https://github.com/hyperium/hyper-util) |
-| cargo | hyper | 1.10.1 | MIT | [link](https://github.com/hyperium/hyper) |
+| cargo | hyper | 1.11.1 | MIT | [link](https://github.com/hyperium/hyper) |
 | cargo | ico | 0.5.0 | MIT | [link](https://github.com/mdsteele/rust-ico) |
 | cargo | icu_collections | 2.2.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | icu_collections | 2.3.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | icu_locale_core | 2.2.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | icu_locale_core | 2.3.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | icu_normalizer_data | 2.2.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | icu_normalizer_data | 2.3.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | icu_normalizer | 2.2.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | icu_normalizer | 2.3.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | icu_properties_data | 2.2.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | icu_properties_data | 2.3.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | icu_properties | 2.2.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | icu_properties | 2.3.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | icu_provider | 2.2.0 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | icu_provider | 2.3.1 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | ident_case | 1.0.1 | MIT/Apache-2.0 | [link](https://github.com/TedDriggs/ident_case) |
 | cargo | idna_adapter | 1.2.2 | Apache-2.0 OR MIT | [link](https://github.com/hsivonen/idna_adapter) |
 | cargo | idna | 1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/rust-url/) |
 | cargo | indexmap | 1.9.3 | Apache-2.0 OR MIT | [link](https://github.com/bluss/indexmap) |
-| cargo | indexmap | 2.14.0 | Apache-2.0 OR MIT | [link](https://github.com/indexmap-rs/indexmap) |
+| cargo | indexmap | 2.14.1 | Apache-2.0 OR MIT | [link](https://github.com/indexmap-rs/indexmap) |
 | cargo | infer | 0.19.0 | MIT | [link](https://github.com/bojand/infer) |
 | cargo | inventory | 0.3.24 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/inventory) |
-| cargo | ipnet | 2.12.0 | MIT OR Apache-2.0 | [link](https://github.com/krisprice/ipnet) |
+| cargo | ipnet | 2.12.1 | MIT OR Apache-2.0 | [link](https://github.com/krisprice/ipnet) |
 | cargo | itertools | 0.14.0 | MIT OR Apache-2.0 | [link](https://github.com/rust-itertools/itertools) |
 | cargo | itoa | 1.0.18 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/itoa) |
+| cargo | jiff-core | 0.1.0 | Unlicense OR MIT | [link](https://github.com/BurntSushi/jiff) |
+| cargo | jiff-tzdb-platform | 0.1.3 | Unlicense OR MIT | [link](https://github.com/BurntSushi/jiff) |
+| cargo | jiff-tzdb | 0.1.8 | Unlicense OR MIT | [link](https://github.com/BurntSushi/jiff) |
+| cargo | jiff | 0.2.35 | Unlicense OR MIT | [link](https://github.com/BurntSushi/jiff) |
 | cargo | jobserver | 0.1.35 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/jobserver-rs) |
 | cargo | js-sys | 0.3.103 | MIT OR Apache-2.0 | [link](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys) |
 | cargo | json-patch | 3.0.1 | MIT/Apache-2.0 | [link](https://github.com/idubrov/json-patch) |
@@ -146,10 +179,12 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | keyboard-types | 0.7.0 | MIT OR Apache-2.0 | [link](https://github.com/pyfisch/keyboard-types) |
 | cargo | keyring | 3.6.3 | MIT OR Apache-2.0 | [link](https://github.com/hwchen/keyring-rs.git) |
 | cargo | levenshtein_automata | 0.2.1 | MIT | [link](https://github.com/tantivy-search/levenshtein-automata) |
-| cargo | libc | 0.2.186 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/libc) |
+| cargo | libc | 0.2.189 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/libc) |
 | cargo | litemap | 0.8.2 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | litemap | 0.8.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | lock_api | 0.4.14 | MIT OR Apache-2.0 | [link](https://github.com/Amanieu/parking_lot) |
 | cargo | log | 0.4.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/log) |
+| cargo | log | 0.4.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/log) |
 | cargo | lru-slab | 0.1.2 | MIT OR Apache-2.0 OR Zlib | [link](https://github.com/Ralith/lru-slab) |
 | cargo | lru | 0.16.4 | MIT | [link](https://github.com/jeromefroe/lru-rs.git) |
 | cargo | lz4_flex | 0.13.1 | MIT | [link](https://github.com/pseitz/lz4_flex) |
@@ -158,13 +193,14 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | markup5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | markup5ever | 0.39.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | measure_time | 0.9.0 | MIT | [link](https://github.com/PSeitz/rust_measure_time) |
-| cargo | memchr | 2.8.2 | Unlicense OR MIT | [link](https://github.com/BurntSushi/memchr) |
 | cargo | memchr | 2.8.3 | Unlicense OR MIT | [link](https://github.com/BurntSushi/memchr) |
 | cargo | memmap2 | 0.9.11 | MIT OR Apache-2.0 | [link](https://github.com/RazrFalcon/memmap2-rs) |
 | cargo | mime | 0.3.17 | MIT OR Apache-2.0 | [link](https://github.com/hyperium/mime) |
 | cargo | minimal-lexical | 0.2.1 | MIT/Apache-2.0 | [link](https://github.com/Alexhuszagh/minimal-lexical) |
+| cargo | minisign-verify | 0.2.5 | MIT | [link](https://github.com/jedisct1/rust-minisign-verify) |
 | cargo | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | [link](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) |
-| cargo | mio | 1.2.1 | MIT | [link](https://github.com/tokio-rs/mio) |
+| cargo | miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | [link](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) |
+| cargo | mio | 1.2.2 | MIT | [link](https://github.com/tokio-rs/mio) |
 | cargo | muda | 0.19.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/muda) |
 | cargo | murmurhash32 | 0.3.1 | MIT | [link](https://github.com/quickwit-inc/murmurhash32) |
 | cargo | new_debug_unreachable | 1.0.6 | MIT | [link](https://github.com/mbrubeck/rust-debug-unreachable) |
@@ -173,9 +209,9 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | num-traits | 0.2.19 | MIT OR Apache-2.0 | [link](https://github.com/rust-num/num-traits) |
 | cargo | once_cell | 1.21.4 | MIT OR Apache-2.0 | [link](https://github.com/matklad/once_cell) |
 | cargo | oneshot | 0.1.13 | MIT OR Apache-2.0 | [link](https://github.com/faern/oneshot) |
-| cargo | open | 5.3.6 | MIT | [link](https://github.com/Byron/open-rs) |
+| cargo | open | 5.4.2 | MIT | [link](https://github.com/Byron/open-rs) |
 | cargo | option-ext | 0.2.0 | MPL-2.0 | [link](https://github.com/soc/option-ext.git) |
-| cargo | ordered-float | 5.3.0 | MIT | [link](https://github.com/reem/rust-ordered-float) |
+| cargo | ordered-float | 5.5.0 | MIT | [link](https://github.com/reem/rust-ordered-float) |
 | cargo | ownedbytes | 0.9.0 | MIT | [link](https://github.com/quickwit-oss/tantivy) |
 | cargo | parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | [link](https://github.com/Amanieu/parking_lot) |
 | cargo | parking_lot | 0.12.5 | MIT OR Apache-2.0 | [link](https://github.com/Amanieu/parking_lot) |
@@ -186,89 +222,93 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | phf_shared | 0.13.1 | MIT | [link](https://github.com/rust-phf/rust-phf) |
 | cargo | phf | 0.13.1 | MIT | [link](https://github.com/rust-phf/rust-phf) |
 | cargo | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT | [link](https://github.com/taiki-e/pin-project-lite) |
-| cargo | pkg-config | 0.3.33 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/pkg-config-rs) |
+| cargo | pkg-config | 0.3.34 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/pkg-config-rs) |
 | cargo | plist | 1.10.0 | MIT | [link](https://github.com/ebarnard/rust-plist/) |
 | cargo | png | 0.17.16 | MIT OR Apache-2.0 | [link](https://github.com/image-rs/image-png) |
 | cargo | potential_utf | 0.1.5 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | potential_utf | 0.1.6 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | powerfmt | 0.2.0 | MIT OR Apache-2.0 | [link](https://github.com/jhpratt/powerfmt) |
-| cargo | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 | [link](https://github.com/cryptocorrosion/cryptocorrosion) |
 | cargo | precomputed-hash | 0.1.1 | MIT | [link](https://github.com/emilio/precomputed-hash) |
-| cargo | prettyplease | 0.2.37 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/prettyplease) |
+| cargo | prettyplease | 0.3.0 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/prettyplease) |
 | cargo | proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/proc-macro2) |
+| cargo | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/proc-macro2) |
 | cargo | pulldown-cmark-escape | 0.11.0 | MIT | [link](https://github.com/raphlinus/pulldown-cmark) |
 | cargo | pulldown-cmark | 0.13.4 | MIT | [link](https://github.com/raphlinus/pulldown-cmark) |
 | cargo | quick-xml | 0.41.0 | MIT | [link](https://github.com/tafia/quick-xml) |
-| cargo | quinn-proto | 0.11.16 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
+| cargo | quinn-proto | 0.11.17 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
 | cargo | quinn-udp | 0.5.15 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
 | cargo | quinn | 0.11.11 | MIT OR Apache-2.0 | [link](https://github.com/quinn-rs/quinn) |
 | cargo | quote | 1.0.46 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/quote) |
-| cargo | rand_chacha | 0.3.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
+| cargo | quote | 1.0.47 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/quote) |
 | cargo | rand_core | 0.10.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand_core) |
-| cargo | rand_core | 0.6.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
 | cargo | rand_pcg | 0.10.2 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rngs) |
 | cargo | rand | 0.10.2 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
-| cargo | rand | 0.8.6 | MIT OR Apache-2.0 | [link](https://github.com/rust-random/rand) |
 | cargo | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib | [link](https://github.com/rust-windowing/raw-window-handle) |
 | cargo | rayon-core | 1.13.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/rayon) |
 | cargo | rayon | 1.12.0 | MIT OR Apache-2.0 | [link](https://github.com/rayon-rs/rayon) |
-| cargo | ref-cast-impl | 1.0.25 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/ref-cast) |
-| cargo | ref-cast | 1.0.25 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/ref-cast) |
-| cargo | regex-automata | 0.4.14 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
+| cargo | ref-cast-impl | 1.0.27 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/ref-cast) |
+| cargo | ref-cast | 1.0.27 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/ref-cast) |
 | cargo | regex-automata | 0.4.16 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
+| cargo | regex-automata | 0.4.18 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
 | cargo | regex-syntax | 0.8.11 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
-| cargo | regex | 1.12.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
 | cargo | regex | 1.13.1 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/regex) |
 | cargo | reqwest | 0.12.28 | MIT OR Apache-2.0 | [link](https://github.com/seanmonstar/reqwest) |
+| cargo | reqwest | 0.13.4 | MIT OR Apache-2.0 | [link](https://github.com/seanmonstar/reqwest) |
 | cargo | ring | 0.17.14 | Apache-2.0 AND ISC | [link](https://github.com/briansmith/ring) |
 | cargo | rust-stemmers | 1.2.0 | MIT/BSD-3-Clause | [link](https://github.com/CurrySoftware/rust-stemmers) |
 | cargo | rustc_version | 0.4.1 | MIT OR Apache-2.0 | [link](https://github.com/djc/rustc-version-rs) |
 | cargo | rustc-hash | 2.1.3 | Apache-2.0 OR MIT | [link](https://github.com/rust-lang/rustc-hash) |
-| cargo | rustls-pki-types | 1.15.0 | MIT OR Apache-2.0 | [link](https://github.com/rustls/pki-types) |
-| cargo | rustls-webpki | 0.103.13 | ISC | [link](https://github.com/rustls/webpki) |
-| cargo | rustls | 0.23.41 | Apache-2.0 OR ISC OR MIT | [link](https://github.com/rustls/rustls) |
-| cargo | rustversion | 1.0.22 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/rustversion) |
+| cargo | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 | [link](https://github.com/rustls/pki-types) |
+| cargo | rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 | [link](https://github.com/rustls/rustls-platform-verifier) |
+| cargo | rustls-webpki | 0.103.15 | ISC | [link](https://github.com/rustls/webpki) |
+| cargo | rustls | 0.23.43 | Apache-2.0 OR ISC OR MIT | [link](https://github.com/rustls/rustls) |
 | cargo | rustversion | 1.0.23 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/rustversion) |
 | cargo | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | [link](https://github.com/dtolnay/ryu) |
 | cargo | same-file | 1.0.6 | Unlicense/MIT | [link](https://github.com/BurntSushi/same-file) |
 | cargo | schemars_derive | 0.8.22 | MIT | [link](https://github.com/GREsau/schemars) |
 | cargo | schemars | 0.8.22 | MIT | [link](https://github.com/GREsau/schemars) |
 | cargo | schemars | 0.9.0 | MIT | [link](https://github.com/GREsau/schemars) |
-| cargo | schemars | 1.2.1 | MIT | [link](https://github.com/GREsau/schemars) |
+| cargo | schemars | 1.2.2 | MIT | [link](https://github.com/GREsau/schemars) |
 | cargo | scopeguard | 1.2.0 | MIT OR Apache-2.0 | [link](https://github.com/bluss/scopeguard) |
 | cargo | selectors | 0.36.1 | MPL-2.0 | [link](https://github.com/servo/stylo) |
 | cargo | semver | 1.0.28 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/semver) |
 | cargo | serde_core | 1.0.228 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/serde) |
+| cargo | serde_core | 1.0.229 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/serde) |
 | cargo | serde_derive_internals | 0.29.1 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/serde) |
 | cargo | serde_derive | 1.0.228 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/serde) |
+| cargo | serde_derive | 1.0.229 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/serde) |
 | cargo | serde_json | 1.0.150 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/json) |
-| cargo | serde_repr | 0.1.20 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/serde-repr) |
+| cargo | serde_json | 1.0.151 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/json) |
+| cargo | serde_repr | 0.1.21 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/serde-repr) |
 | cargo | serde_spanned | 1.1.1 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
 | cargo | serde_urlencoded | 0.7.1 | MIT/Apache-2.0 | [link](https://github.com/nox/serde_urlencoded) |
-| cargo | serde_with_macros | 3.21.0 | MIT OR Apache-2.0 | [link](https://github.com/jonasbb/serde_with/) |
-| cargo | serde_with | 3.21.0 | MIT OR Apache-2.0 | [link](https://github.com/jonasbb/serde_with/) |
+| cargo | serde_with_macros | 3.22.0 | MIT OR Apache-2.0 | [link](https://github.com/jonasbb/serde_with/) |
+| cargo | serde_with | 3.22.0 | MIT OR Apache-2.0 | [link](https://github.com/jonasbb/serde_with/) |
 | cargo | serde-untagged | 0.1.9 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/serde-untagged) |
 | cargo | serde-wasm-bindgen | 0.6.5 | MIT | [link](https://github.com/RReverser/serde-wasm-bindgen) |
 | cargo | serde | 1.0.228 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/serde) |
+| cargo | serde | 1.0.229 | MIT OR Apache-2.0 | [link](https://github.com/serde-rs/serde) |
 | cargo | serialize-to-javascript-impl | 0.1.2 | MIT OR Apache-2.0 | [link](https://github.com/chippers/serialize-to-javascript) |
 | cargo | serialize-to-javascript | 0.1.2 | MIT OR Apache-2.0 | [link](https://github.com/chippers/serialize-to-javascript) |
 | cargo | servo_arc | 0.4.3 | MIT OR Apache-2.0 | [link](https://github.com/servo/stylo) |
 | cargo | sha2 | 0.10.9 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/hashes) |
+| cargo | sha2 | 0.11.0 | MIT OR Apache-2.0 | [link](https://github.com/RustCrypto/hashes) |
 | cargo | shlex | 2.0.1 | MIT OR Apache-2.0 | [link](https://github.com/comex/rust-shlex) |
-| cargo | simd-adler32 | 0.3.9 | MIT | [link](https://github.com/mcountryman/simd-adler32) |
+| cargo | simd-adler32 | 0.3.10 | MIT | [link](https://github.com/mcountryman/simd-adler32) |
 | cargo | similar | 2.7.0 | Apache-2.0 | [link](https://github.com/mitsuhiko/similar) |
 | cargo | siphasher | 1.0.3 | MIT/Apache-2.0 | [link](https://github.com/jedisct1/rust-siphash) |
-| cargo | sketches-ddsketch | 0.4.0 | Apache-2.0 | [link](https://github.com/mheffner/rust-sketches-ddsketch) |
+| cargo | sketches-ddsketch | 0.4.1 | Apache-2.0 | [link](https://github.com/mheffner/rust-sketches-ddsketch) |
 | cargo | slab | 0.4.12 | MIT | [link](https://github.com/tokio-rs/slab) |
 | cargo | smallvec | 1.15.2 | MIT OR Apache-2.0 | [link](https://github.com/servo/rust-smallvec) |
-| cargo | socket2 | 0.6.4 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/socket2) |
+| cargo | socket2 | 0.6.5 | MIT OR Apache-2.0 | [link](https://github.com/rust-lang/socket2) |
 | cargo | softbuffer | 0.4.8 | MIT OR Apache-2.0 | [link](https://github.com/rust-windowing/softbuffer) |
 | cargo | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | [link](https://github.com/storyyeller/stable_deref_trait) |
 | cargo | string_cache_codegen | 0.6.1 | MIT OR Apache-2.0 | [link](https://github.com/servo/string-cache) |
 | cargo | string_cache | 0.9.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/string-cache) |
 | cargo | strsim | 0.11.1 | MIT | [link](https://github.com/rapidfuzz/strsim-rs) |
 | cargo | subtle | 2.6.1 | BSD-3-Clause | [link](https://github.com/dalek-cryptography/subtle) |
-| cargo | syn | 2.0.118 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/syn) |
 | cargo | syn | 2.0.119 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/syn) |
+| cargo | syn | 3.0.4 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/syn) |
 | cargo | sync_wrapper | 1.0.2 | Apache-2.0 | [link](https://github.com/Actyx/sync_wrapper) |
 | cargo | synstructure | 0.13.2 | MIT | [link](https://github.com/mystor/synstructure) |
 | cargo | tantivy-bitpacker | 0.10.0 | MIT | [link](https://github.com/quickwit-oss/tantivy) |
@@ -286,7 +326,8 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | tauri-macros | 2.6.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
 | cargo | tauri-plugin-fs | 2.5.1 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
 | cargo | tauri-plugin-opener | 2.5.4 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
-| cargo | tauri-plugin-store | 2.4.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
+| cargo | tauri-plugin-store | 2.4.4 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
+| cargo | tauri-plugin-updater | 2.10.1 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/plugins-workspace) |
 | cargo | tauri-plugin | 2.6.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
 | cargo | tauri-runtime-wry | 2.11.4 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
 | cargo | tauri-runtime | 2.11.3 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
@@ -294,28 +335,28 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | tauri-winres | 0.3.6 | MIT | [link](https://github.com/tauri-apps/winres) |
 | cargo | tauri | 2.11.5 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/tauri) |
 | cargo | tempfile | 3.27.0 | MIT OR Apache-2.0 | [link](https://github.com/Stebalien/tempfile) |
-| cargo | tendril | 0.5.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | tendril | 0.5.1 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | thiserror-impl | 1.0.69 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
-| cargo | thiserror-impl | 2.0.18 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
+| cargo | thiserror-impl | 2.0.20 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
 | cargo | thiserror | 1.0.69 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
-| cargo | thiserror | 2.0.18 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
+| cargo | thiserror | 2.0.20 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/thiserror) |
 | cargo | time-core | 0.1.9 | MIT OR Apache-2.0 | [link](https://github.com/time-rs/time) |
-| cargo | time-macros | 0.2.31 | MIT OR Apache-2.0 | [link](https://github.com/time-rs/time) |
-| cargo | time | 0.3.53 | MIT OR Apache-2.0 | [link](https://github.com/time-rs/time) |
+| cargo | time-macros | 0.2.32 | MIT OR Apache-2.0 | [link](https://github.com/time-rs/time) |
+| cargo | time | 0.3.55 | MIT OR Apache-2.0 | [link](https://github.com/time-rs/time) |
 | cargo | tinystr | 0.8.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | tinystr | 0.8.4 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib | [link](https://github.com/Soveu/tinyvec_macros) |
-| cargo | tinyvec | 1.11.0 | Zlib OR Apache-2.0 OR MIT | [link](https://github.com/Lokathor/tinyvec) |
-| cargo | tokio-macros | 2.7.0 | MIT | [link](https://github.com/tokio-rs/tokio) |
+| cargo | tinyvec | 1.12.0 | Zlib OR Apache-2.0 OR MIT | [link](https://github.com/Lokathor/tinyvec) |
+| cargo | tokio-macros | 2.7.2 | MIT | [link](https://github.com/tokio-rs/tokio) |
 | cargo | tokio-rustls | 0.26.4 | MIT OR Apache-2.0 | [link](https://github.com/rustls/tokio-rustls) |
-| cargo | tokio-util | 0.7.18 | MIT | [link](https://github.com/tokio-rs/tokio) |
-| cargo | tokio | 1.52.3 | MIT | [link](https://github.com/tokio-rs/tokio) |
+| cargo | tokio-util | 0.7.19 | MIT | [link](https://github.com/tokio-rs/tokio) |
+| cargo | tokio | 1.53.1 | MIT | [link](https://github.com/tokio-rs/tokio) |
 | cargo | toml_datetime | 0.7.5+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
 | cargo | toml_datetime | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
-| cargo | toml_parser | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
-| cargo | toml_writer | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
+| cargo | toml_parser | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
+| cargo | toml_writer | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
 | cargo | toml | 0.9.12+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
-| cargo | toml | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
+| cargo | toml | 1.1.4+spec-1.1.0 | MIT OR Apache-2.0 | [link](https://github.com/toml-rs/toml) |
 | cargo | tower-http | 0.6.11 | MIT | [link](https://github.com/tower-rs/tower-http) |
 | cargo | tower-layer | 0.3.3 | MIT | [link](https://github.com/tower-rs/tower) |
 | cargo | tower-service | 0.3.3 | MIT | [link](https://github.com/tower-rs/tower) |
@@ -323,13 +364,13 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | tracing-attributes | 0.1.31 | MIT | [link](https://github.com/tokio-rs/tracing) |
 | cargo | tracing-core | 0.1.36 | MIT | [link](https://github.com/tokio-rs/tracing) |
 | cargo | tracing | 0.1.44 | MIT | [link](https://github.com/tokio-rs/tracing) |
-| cargo | tray-icon | 0.24.1 | MIT OR Apache-2.0 | [link](https://github.com/tauri-apps/tray-icon) |
+| cargo | tray-icon | 0.24.2 | MIT OR Apache-2.0 | [link](https://github.com/tauri-apps/tray-icon) |
 | cargo | try-lock | 0.2.5 | MIT | [link](https://github.com/seanmonstar/try-lock) |
 | cargo | typeid | 1.0.3 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/typeid) |
 | cargo | typenum | 1.20.1 | MIT OR Apache-2.0 | [link](https://github.com/paholg/typenum) |
-| cargo | typetag-impl | 0.2.22 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/typetag) |
-| cargo | typetag | 0.2.22 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/typetag) |
-| cargo | ua_generator | 0.5.69 | MIT | [link](https://github.com/spider-rs/ua_generator) |
+| cargo | typetag-impl | 0.2.23 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/typetag) |
+| cargo | typetag | 0.2.23 | MIT OR Apache-2.0 | [link](https://github.com/dtolnay/typetag) |
+| cargo | ua_generator | 0.5.77 | MIT | [link](https://github.com/spider-rs/ua_generator) |
 | cargo | unic-char-property | 0.9.0 | MIT/Apache-2.0 | [link](https://github.com/open-i18n/rust-unic/) |
 | cargo | unic-char-range | 0.9.0 | MIT/Apache-2.0 | [link](https://github.com/open-i18n/rust-unic/) |
 | cargo | unic-common | 0.9.0 | MIT/Apache-2.0 | [link](https://github.com/open-i18n/rust-unic/) |
@@ -342,10 +383,9 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | untrusted | 0.9.0 | ISC | [link](https://github.com/briansmith/untrusted) |
 | cargo | url | 2.5.8 | MIT OR Apache-2.0 | [link](https://github.com/servo/rust-url) |
 | cargo | urlpattern | 0.3.0 | MIT | [link](https://github.com/denoland/rust-urlpattern) |
-| cargo | utf-8 | 0.7.6 | MIT OR Apache-2.0 | [link](https://github.com/SimonSapin/rust-utf8) |
 | cargo | utf8_iter | 1.0.4 | Apache-2.0 OR MIT | [link](https://github.com/hsivonen/utf8_iter) |
 | cargo | utf8-ranges | 1.0.5 | Unlicense/MIT | [link](https://github.com/BurntSushi/utf8-ranges) |
-| cargo | uuid | 1.23.4 | Apache-2.0 OR MIT | [link](https://github.com/uuid-rs/uuid) |
+| cargo | uuid | 1.26.0 | Apache-2.0 OR MIT | [link](https://github.com/uuid-rs/uuid) |
 | cargo | version_check | 0.9.5 | MIT/Apache-2.0 | [link](https://github.com/SergioBenitez/version_check) |
 | cargo | vswhom-sys | 0.1.3 | MIT | [link](https://github.com/nabijaczleweli/vswhom-sys.rs) |
 | cargo | vswhom | 0.1.0 | MIT | [link](https://github.com/nabijaczleweli/vswhom.rs) |
@@ -357,8 +397,9 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | wasm-bindgen-shared | 0.2.126 | MIT OR Apache-2.0 | [link](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/shared) |
 | cargo | wasm-bindgen | 0.2.126 | MIT OR Apache-2.0 | [link](https://github.com/wasm-bindgen/wasm-bindgen) |
 | cargo | web_atoms | 0.2.5 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
+| cargo | web_atoms | 0.2.6 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | web-sys | 0.3.103 | MIT OR Apache-2.0 | [link](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys) |
-| cargo | webpki-roots | 1.0.8 | CDLA-Permissive-2.0 | [link](https://github.com/rustls/webpki-roots) |
+| cargo | webpki-roots | 1.0.9 | CDLA-Permissive-2.0 | [link](https://github.com/rustls/webpki-roots) |
 | cargo | webview2-com-macros | 0.8.1 | MIT | [link](https://github.com/wravery/webview2-rs) |
 | cargo | webview2-com-sys | 0.38.2 | MIT | [link](https://github.com/wravery/webview2-rs) |
 | cargo | webview2-com | 0.38.2 | MIT | [link](https://github.com/wravery/webview2-rs) |
@@ -386,23 +427,27 @@ This file lists third-party dependencies used by LITRA. It is generated from Car
 | cargo | windows-version | 0.1.7 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | windows | 0.61.3 | MIT OR Apache-2.0 | [link](https://github.com/microsoft/windows-rs) |
 | cargo | winnow | 0.7.15 | MIT | [link](https://github.com/winnow-rs/winnow) |
-| cargo | winnow | 1.0.3 | MIT | [link](https://github.com/winnow-rs/winnow) |
+| cargo | winnow | 1.0.4 | MIT | [link](https://github.com/winnow-rs/winnow) |
 | cargo | winreg | 0.55.0 | MIT | [link](https://github.com/gentoo90/winreg-rs) |
 | cargo | writeable | 0.6.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | writeable | 0.6.4 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | wry | 0.55.1 | Apache-2.0 OR MIT | [link](https://github.com/tauri-apps/wry) |
 | cargo | xml5ever | 0.38.0 | MIT OR Apache-2.0 | [link](https://github.com/servo/html5ever) |
 | cargo | xxhash-rust | 0.8.18 | BSL-1.0 | [link](https://github.com/DoumanAsh/xxhash-rust) |
 | cargo | yoke-derive | 0.8.2 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | yoke | 0.8.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
-| cargo | zerocopy | 0.8.52 | BSD-2-Clause OR Apache-2.0 OR MIT | [link](https://github.com/google/zerocopy) |
 | cargo | zerofrom-derive | 0.1.7 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerofrom | 0.1.8 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zeroize_derive | 1.5.0 | Apache-2.0 OR MIT | [link](https://github.com/RustCrypto/utils) |
 | cargo | zeroize | 1.9.0 | Apache-2.0 OR MIT | [link](https://github.com/RustCrypto/utils) |
 | cargo | zerotrie | 0.2.4 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | zerotrie | 0.2.5 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerovec-derive | 0.11.3 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | zerovec-derive | 0.11.6 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
 | cargo | zerovec | 0.11.6 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
-| cargo | zmij | 1.0.21 | MIT | [link](https://github.com/dtolnay/zmij) |
+| cargo | zerovec | 0.11.8 | Unicode-3.0 | [link](https://github.com/unicode-org/icu4x) |
+| cargo | zip | 4.6.1 | MIT | [link](https://github.com/zip-rs/zip2.git) |
+| cargo | zlib-rs | 0.6.7 | Zlib | [link](https://github.com/trifectatechfoundation/zlib-rs) |
 | cargo | zmij | 1.0.23 | MIT | [link](https://github.com/dtolnay/zmij) |
 | cargo | zstd-safe | 7.2.4 | MIT OR Apache-2.0 | [link](https://github.com/gyscos/zstd-rs) |
 | cargo | zstd-sys | 2.0.16+zstd.1.5.7 | MIT/Apache-2.0 | [link](https://github.com/gyscos/zstd-rs) |
