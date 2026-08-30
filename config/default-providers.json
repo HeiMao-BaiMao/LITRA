@@ -1033,6 +1033,47 @@
       "modelSelection": "fixed",
       "models": [
         {
+          "id": "longcat-2.0",
+          "label": "LongCat 2.0",
+          "temperature": 0.3,
+          "maxTokens": 131072,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "canDisable": true
+          }
+        },
+        {
+          "id": "glm-5.3-flash",
+          "label": "GLM-5.3 Flash",
+          "temperature": 0.2,
+          "maxTokens": 131072,
+          "maxContextTokens": 1000000,
+          "topP": 0.95,
+          "frequencyPenalty": 0,
+          "presencePenalty": 0,
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultLevel": "max",
+            "requiresEffort": true
+          }
+        },
+        {
           "id": "deepseek-v4-flash",
           "label": "DeepSeek V4 Flash",
           "connection": "responses",
