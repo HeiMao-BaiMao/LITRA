@@ -728,11 +728,8 @@ fn parse_propfind_response(xml: &str) -> Result<Vec<RemoteEntry>, String> {
             Event::Text(e) => {
                 if in_response && in_href {
                     let decoded = e
-                        .decode()
+                        .unescape()
                         .map_err(|err| format!("XML decode failed: {err}"))?;
-                    let text =
-                        unescape(&decoded).map_err(|err| format!("XML unescape failed: {err}"))?;
-                    current_href.push_str(&text);
                 }
             }
             Event::End(e) => {

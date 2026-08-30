@@ -34,15 +34,15 @@ chrono = { version = "0", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0", default-features = false, features = ["rustls-tls", "json", "stream"] }
 futures-util = "0"
+html2text = "0"
+htmd = "0"
 base64 = "0"
-quick-xml = "0"
+quick-xml = { version = "0.36", default-features = false }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 rand = { version = "0.10", features = ["thread_rng"] }
 sha2 = "0"
 tokio = { version = "1", features = ["sync", "time"] }
 tokio-util = "0"
-html2text = "0"
-htmd = "0"
 ua_generator = { version = "0", default-features = false }
 
 
