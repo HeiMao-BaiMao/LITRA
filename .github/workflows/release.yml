@@ -87,7 +87,54 @@ jobs:
 
       - name: Build Tauri app
         shell: pwsh
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: cargo tauri build
+
+      - name: Generate updater manifest
+        id: manifest
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $bundleRoot = Join-Path $PWD "src-tauri\target\release\bundle"
+          $sigFile = Get-ChildItem -Path $bundleRoot -Recurse -Filter "*.sig" | Select-Object -First 1
+          if (-not $sigFile) {
+            Write-Error "No .sig file found under $bundleRoot"
+            exit 1
+          }
+          $signature = Get-Content -Path $sigFile.FullName -Raw
+          $sigFileName = $sigFile.Name
+          if ($sigFileName -match '(.+)\.sig$') {
+            $installerBase = $Matches[1]
+          } else {
+            $installerBase = $sigFileName -replace '\.sig$',''
+          }
+          $installerPattern = "$installerBase.*"
+          $installerFile = Get-ChildItem -Path $bundleRoot -Recurse -Filter $installerPattern |
+            Where-Object { $_.Extension -ne '.sig' } |
+            Select-Object -First 1
+          if (-not $installerFile) {
+            Write-Error "Installer file matching '$installerPattern' not found"
+            exit 1
+          }
+          $installerName = $installerFile.Name
+          $version = "${{ needs.validate.outputs.version }}"
+          $repo = "${{ github.repository }}"
+          $date = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+          $manifest = @{
+            version = $version
+            notes = "LITRA v$version"
+            pub_date = $date
+            platforms = @{
+              "windows-x86_64" = @{
+                url = "https://github.com/$repo/releases/download/$env:TAG_NAME/$installerName"
+                signature = $signature
+              }
+            }
+          } | ConvertTo-Json -Depth 5
+          $manifest | Out-File -FilePath "latest.json" -Encoding utf8
+          Write-Output "manifest=latest.json" >> $env:GITHUB_OUTPUT
 
       - name: Create GitHub release
         shell: pwsh
@@ -103,7 +150,7 @@ jobs:
 
           gh release view $env:TAG_NAME *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:TAG_NAME @releaseArgs
+            gh release create $env:TAG_NAME @$releaseArgs
           } elseif ($env:IS_PRERELEASE -eq "true") {
             gh release edit $env:TAG_NAME --prerelease
           }
@@ -126,3 +173,11 @@ jobs:
           foreach ($artifact in $artifacts) {
             gh release upload $env:TAG_NAME $artifact.FullName --clobber
           }
+
+      - name: Upload updater manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release upload $env:TAG_NAME latest.json --clobber

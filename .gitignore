@@ -44,5 +44,8 @@ session_*.zip
 
 /.pi-subagents/
 
+
+# Updater signing keys (private key must never be committed)
+/.updater/
 # Legacy TypeScript reference archive (frozen snapshot for porting reference)
 /legacy-ts-archive/

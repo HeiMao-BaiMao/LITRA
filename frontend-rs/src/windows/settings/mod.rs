@@ -58,6 +58,7 @@ async fn mount_editor(document: &Document, bind_tabs: bool) -> Result<(), JsValu
             "relationships",
             Rc::clone(&state),
         )?;
+        bind_tab(document, "#tab-update", "update", Rc::clone(&state))?;
     }
     events::bind(document, &container, state)?;
     bind_resizer(document)?;

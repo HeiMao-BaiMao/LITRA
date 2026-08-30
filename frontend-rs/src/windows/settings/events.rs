@@ -3,6 +3,8 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use js_sys::{Object, Reflect};
 use serde_json::{json, Value};
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use pulldown_cmark::{html, Options, Parser};
+use wasm_bindgen_futures::spawn_local;
 use web_sys::{Document, Element, Event};
 
 use crate::runtime::tauri;
@@ -117,6 +119,96 @@ fn bind_clicks(
                     emit_relationships(&state.borrow().relationships_map);
                     let _ = render::render(&document, &state.borrow());
                 }
+            }
+            "update-check" => {
+                let status_el = document.get_element_by_id("update-status");
+                let detail_el = document.get_element_by_id("update-detail");
+                let install_row = document.get_element_by_id("update-install-row");
+                if let Some(el) = status_el.as_ref() {
+                    el.set_text_content(Some("確認中..."));
+                }
+                if let Some(el) = detail_el.as_ref() {
+                    el.set_inner_html("");
+                }
+                if let Some(el) = install_row.as_ref() {
+                    let _ = el.set_attribute("style", "display:none;");
+                }
+                let document = document.clone();
+                spawn_local(async move {
+                    match crate::runtime::updater::check_update().await {
+                        Ok(info) => {
+                            if !info.available {
+                                if let Some(el) = document.get_element_by_id("update-status") {
+                                    el.set_text_content(Some("最新バージョンです"));
+                                }
+                                return;
+                            }
+                            if let Some(el) = document.get_element_by_id("update-status") {
+                                el.set_text_content(Some(&format!(
+                                    "新しいバージョンがあります: {}",
+                                    info.version
+                                )));
+                            }
+                            if let Some(el) = document.get_element_by_id("update-detail") {
+                                let body_html = if info.body.is_empty() {
+                                    String::new()
+                                } else {
+                                    let mut md = String::new();
+                                    let opts = Options::empty();
+                                    let parser = Parser::new_ext(&info.body, opts);
+                                    html::push_html(&mut md, parser);
+                                    md
+                                };
+                                let date_str = if info.date.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("<p class=\"update-date\">リリース日: {}</p>", info.date)
+                                };
+                                el.set_inner_html(&format!("{}{}", date_str, body_html));
+                            }
+                            if let Some(el) = document.get_element_by_id("update-install-row") {
+                                let _ = el.set_attribute("style", "");
+                            }
+                        }
+                        Err(e) => {
+                            if let Some(el) = document.get_element_by_id("update-status") {
+                                el.set_text_content(Some(&format!("確認失敗: {}", e)));
+                            }
+                        }
+                    }
+                });
+            }
+            "update-install" => {
+                let status_el = document.get_element_by_id("update-status");
+                if let Some(el) = status_el.as_ref() {
+                    el.set_text_content(Some("ダウンロード中..."));
+                }
+                let document = document.clone();
+                spawn_local(async move {
+                    match crate::runtime::updater::install().await {
+                        Ok(result) => {
+                            if result.success {
+                                if let Some(el) = document.get_element_by_id("update-status") {
+                                    el.set_text_content(Some("インストール完了。再起動します..."));
+                                }
+                                // On success, the updater plugin handles process restart automatically.
+                                // No additional action needed here.
+                            } else {
+                                if let Some(el) = document.get_element_by_id("update-status") {
+                                    el.set_text_content(Some(&format!(
+                                        "インストール失敗: {}",
+                                        result.error
+                                    )));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if let Some(el) = document.get_element_by_id("update-status") {
+                                el.set_text_content(Some(&format!("エラー: {}", e)));
+                            }
+                        }
+                    }
+                });
             }
             _ => {}
         }

@@ -1,6 +1,6 @@
 [package]
 name = "litra"
-version = "2.1.0"
+version = "2.1.1"
 description = "AI-assisted Japanese fiction writing workspace"
 authors = ["rumia"]
 license = "BSD-2-Clause"
@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -36,7 +37,7 @@ futures-util = "0"
 base64 = "0"
 quick-xml = "0"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
-rand = "0"
+rand = { version = "0", features = ["thread_rng"] }
 sha2 = "0"
 tokio = { version = "1", features = ["sync", "time"] }
 tokio-util = "0"

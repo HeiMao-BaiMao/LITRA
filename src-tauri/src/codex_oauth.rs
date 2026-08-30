@@ -10,7 +10,7 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64URL;
 use base64::Engine;
-use rand::Rng;
+use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
@@ -64,10 +64,10 @@ struct PkceCodes {
 /// cryptographically secure PKCE verifier (43 chars) + base64url(SHA-256(verifier))
 fn generate_pkce() -> PkceCodes {
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let verifier: String = (0..43)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
+            let idx = rng.random_range(0..CHARSET.len());
             CHARSET[idx] as char
         })
         .collect();
@@ -83,7 +83,7 @@ fn generate_pkce() -> PkceCodes {
 /// cryptographically secure CSRF state (32 random bytes, base64url)
 fn generate_state() -> String {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill(&mut bytes);
+    rand::rng().fill(&mut bytes);
     BASE64URL.encode(bytes)
 }
 

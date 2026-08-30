@@ -3195,3 +3195,78 @@ textarea.genre-form-input {
   color: var(--text-color, #f3f4f6);
   box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 30%);
 }
+
+.update-view {
+  padding: 1.5rem;
+  max-width: 36rem;
+}
+
+.update-section h3 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+}
+
+.update-current-version {
+  color: var(--text-secondary, #9ca3af);
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+}
+
+.update-actions {
+  margin-bottom: 1rem;
+}
+
+.update-check-button,
+.update-install-button {
+  padding: 0.5rem 1.25rem;
+  font-size: 0.85rem;
+  background-color: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+
+.update-check-button:hover:not(:disabled),
+.update-install-button:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.update-check-button:disabled,
+.update-install-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.update-status {
+  margin: 0.75rem 0;
+  font-size: 0.9rem;
+  min-height: 1.25rem;
+}
+
+.update-detail {
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.update-detail h1,
+.update-detail h2,
+.update-detail h3 {
+  font-size: 0.9rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.update-detail p {
+  margin: 0.25rem 0;
+}
+
+.update-date {
+  font-size: 0.8rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.update-install-row {
+  margin-top: 1rem;
+}

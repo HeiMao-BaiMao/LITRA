@@ -97,10 +97,31 @@ pub fn render(document: &Document, state: &SettingsState) -> Result<(), wasm_bin
             WORLD_SECTIONS,
         ),
         "relationships" => render_relationships(state),
+        "update" => render_update(),
         _ => String::new(),
     };
     panel.set_inner_html(&html);
     Ok(())
+}
+
+fn render_update() -> String {
+    format!(
+        r#"<div class="update-view">
+          <div class="update-section">
+            <h3>アップデートの確認</h3>
+            <p class="update-current-version">現在のバージョン: <span id="update-current-version">{}</span></p>
+            <div class="update-actions">
+              <button type="button" class="update-check-button" data-action="update-check">更新を確認</button>
+            </div>
+            <div class="update-status" id="update-status"></div>
+            <div class="update-detail" id="update-detail"></div>
+            <div class="update-install-row" id="update-install-row" style="display:none;">
+              <button type="button" class="update-install-button" data-action="update-install">ダウンロードして再起動</button>
+            </div>
+          </div>
+        </div>"#,
+        env!("CARGO_PKG_VERSION")
+    )
 }
 
 pub fn update_tabs(document: &Document, view: &str) -> Result<(), wasm_bindgen::JsValue> {
@@ -108,6 +129,7 @@ pub fn update_tabs(document: &Document, view: &str) -> Result<(), wasm_bindgen::
         ("#tab-characters", "characters"),
         ("#tab-world", "world"),
         ("#tab-relationships", "relationships"),
+        ("#tab-update", "update"),
     ] {
         if let Some(tab) = document.query_selector(id)? {
             let _ = tab.class_list().toggle_with_force("active", view == name);

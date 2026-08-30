@@ -16,6 +16,7 @@ mod web_fetch;
 mod web_search;
 mod webdav_sync;
 mod window_state;
+mod context;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ai::AiRequestRegistry::default())
         .manage(ai::oauth::copilot::CopilotOAuthCancelFlag::new())
         .manage(codex_oauth::OAuthCancelFlag::new())
