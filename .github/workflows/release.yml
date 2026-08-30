@@ -148,7 +148,7 @@ jobs:
 
           gh release view $env:TAG_NAME *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:TAG_NAME @$releaseArgs
+            gh release create $env:TAG_NAME @releaseArgs
           } elseif ($env:IS_PRERELEASE -eq "true") {
             gh release edit $env:TAG_NAME --prerelease
           }
