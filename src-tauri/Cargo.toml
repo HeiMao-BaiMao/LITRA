@@ -37,7 +37,7 @@ futures-util = "0"
 base64 = "0"
 quick-xml = "0"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
-rand = { version = "0", features = ["thread_rng"] }
+rand = { version = "0.10", features = ["thread_rng"] }
 sha2 = "0"
 tokio = { version = "1", features = ["sync", "time"] }
 tokio-util = "0"
