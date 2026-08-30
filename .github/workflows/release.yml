@@ -88,16 +88,8 @@ jobs:
       - name: Build Tauri app
         shell: pwsh
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-        run: |
-          $signingKey = $env:TAURI_SIGNING_PRIVATE_KEY
-          if ($signingKey -match '-----BEGIN [^-]+-----') {
-            $signingKey = $signingKey -replace '(?s).*?-----BEGIN [^-]+-----', ''
-            $signingKey = $signingKey -replace '-----END [^-]+-----.*', ''
-            $signingKey = $signingKey -replace '\s', ''
-            $env:TAURI_SIGNING_PRIVATE_KEY = $signingKey
-          }
-          cargo tauri build
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: cargo tauri build
 
       - name: Generate updater manifest
         id: manifest
