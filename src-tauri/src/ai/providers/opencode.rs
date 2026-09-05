@@ -13,10 +13,18 @@ const RETRY_DELAYS: [Duration; 4] = [
 ];
 static NEXT_REQUEST_AT: LazyLock<Mutex<Option<Instant>>> = LazyLock::new(|| Mutex::new(None));
 
-pub(super) fn apply_request(builder: RequestBuilder) -> RequestBuilder {
+pub(super) fn apply_request(
+    builder: RequestBuilder,
+    request: &crate::ai::types::AiTextRequest,
+) -> RequestBuilder {
+    // oh-my-pi `applyInferenceHeaders` port: the gateways use
+    // `x-opencode-session` for observability/request tracking. LITRA has no
+    // conversation-scoped session id, so the per-request id is propagated
+    // (matches upstream "auto-generate at the inference boundary" behavior).
     builder
         .header("x-opencode-client", "litra")
         .header(header::USER_AGENT, "litra/1.0")
+        .header("x-opencode-session", request.request_id.clone())
 }
 
 pub(super) async fn wait_for_request_slot() {

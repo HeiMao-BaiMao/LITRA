@@ -227,7 +227,9 @@ pub fn get_model_capability(
             let model = model_id.to_ascii_lowercase();
             let mut supported_efforts =
                 vec!["low".into(), "medium".into(), "high".into(), "xhigh".into()];
-            if model.starts_with("gpt-5.6") {
+            // GPT-5.6 generation added "max"; GPT-6 / Daybreak carry it too
+            // (oh-my-pi openai-codex catalog: low..max).
+            if model.starts_with("gpt-5.6") || model.starts_with("gpt-6") || model.starts_with("gpt-daybreak") {
                 supported_efforts.push("max".into());
             }
             Some(ReasoningCapability {
@@ -302,7 +304,7 @@ pub fn get_model_capability(
             if is_deepseek_v4_model(model_id) {
                 Some(ReasoningCapability {
                     kind: "deepseek".into(),
-                    supported_efforts: vec!["high".into(), "max".into()],
+                    supported_efforts: vec!["low".into(), "high".into(), "max".into()],
                     can_disable: false,
                     ..Default::default()
                 })
@@ -485,6 +487,9 @@ mod tests {
         let cap = get_model_capability("codex", "gpt-5.6-sol", None).unwrap();
         assert!(cap.supported_efforts.contains(&"max".to_string()));
         assert!(!cap.supported_efforts.contains(&"none".to_string()));
+
+        let cap = get_model_capability("codex", "gpt-6-astra", None).unwrap();
+        assert!(cap.supported_efforts.contains(&"max".to_string()));
 
         let cap = get_model_capability("codex", "gpt-5.5", None).unwrap();
         assert!(!cap.supported_efforts.contains(&"max".to_string()));

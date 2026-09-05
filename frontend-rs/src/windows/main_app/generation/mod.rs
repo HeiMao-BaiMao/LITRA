@@ -795,6 +795,7 @@ async fn draft(
             Vec::new(),
             None,
             None,
+            None,
         ).await?;
         result.text.push_str(&turn.text);
         result.finish_reason = turn.finish_reason;

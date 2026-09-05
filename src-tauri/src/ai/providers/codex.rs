@@ -32,6 +32,7 @@ struct RefreshResponse {
 
 pub async fn apply_request(
     builder: RequestBuilder,
+    request: &crate::ai::types::AiTextRequest,
     client: &Client,
 ) -> Result<RequestBuilder, String> {
     let mut credential = store::read_json::<CodexCredential>("codex")
@@ -56,13 +57,22 @@ pub async fn apply_request(
             header::AUTHORIZATION,
             format!("Bearer {}", credential.access),
         )
-        .header("originator", "opencode")
+        .header("originator", "omp")
         .header(header::USER_AGENT, "opencode/1.17.18")
-        .header("session-id", format!("ses_{}", Uuid::new_v4().simple()));
+        .header("session-id", format!("ses_{}", Uuid::new_v4().simple()))
+        .header("x-codex-routing-hint", codex_routing_hint(&request.model));
     if let Some(account_id) = credential.account_id.filter(|value| !value.is_empty()) {
         builder = builder.header("ChatGPT-Account-Id", account_id);
     }
     Ok(builder)
+}
+
+/// Build the `x-codex-routing-hint` value (oh-my-pi `codexRoutingHint` port):
+/// `model=<slug>`. LITRA sends no explicit service tier, so the tier suffix
+/// is omitted. codex-rs sends this on every ChatGPT-OAuth request; without it
+/// the backend cannot route version-gated models such as `gpt-6-astra`.
+fn codex_routing_hint(model: &str) -> String {
+    format!("model={}", model.trim())
 }
 
 async fn refresh(client: &Client, previous: CodexCredential) -> Result<CodexCredential, String> {

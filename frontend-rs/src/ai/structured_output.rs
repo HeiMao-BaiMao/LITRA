@@ -58,6 +58,7 @@ pub async fn generate_structured_object<T: DeserializeOwned>(
             vec![tool.clone()],
             provider_override,
             model_override,
+            None,
         )
         .await?;
 

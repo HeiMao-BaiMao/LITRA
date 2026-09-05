@@ -17,9 +17,9 @@ pub async fn apply_request(
     client: &reqwest::Client,
 ) -> Result<RequestBuilder, String> {
     match request.provider.as_str() {
-        "codex" => codex::apply_request(builder, client).await,
+        "codex" => codex::apply_request(builder, request, client).await,
         "github-copilot" => copilot::apply_request(builder, request).await,
-        "opencode" => Ok(opencode::apply_request(builder)),
+        "opencode" => Ok(opencode::apply_request(builder, request)),
         _ => Ok(builder),
     }
 }

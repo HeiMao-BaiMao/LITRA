@@ -41,6 +41,10 @@ pub struct AiTextRequest {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    /// Stable conversation scope for stateful wire planning (GPT-6 Astra
+    /// stable effort). Absent for single-shot generations, which stand alone.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
     #[serde(default)]
     pub system: String,
     #[serde(default)]
@@ -181,10 +185,15 @@ impl AiTextRequest {
     /// Codex added `reasoning.context` support to the GPT-5.4 generation.
     /// Older Codex models reject the field, so keep the compatibility gate
     /// local to the wire builder instead of applying it to every Responses
-    /// provider.
+    /// provider. GPT-6 and Daybreak are newer than 5.6 (oh-my-pi revision
+    /// ">=5.4" rule), so they stay inside the gate.
     fn supports_codex_reasoning_context(&self) -> bool {
         let model = self.model.trim().to_lowercase();
-        model.starts_with("gpt-5.4") || model.starts_with("gpt-5.5") || model.starts_with("gpt-5.6")
+        model.starts_with("gpt-5.4")
+            || model.starts_with("gpt-5.5")
+            || model.starts_with("gpt-5.6")
+            || model.starts_with("gpt-6")
+            || model.starts_with("gpt-daybreak")
     }
 
     /// Resolve the Anthropic thinking block from model name + flat settings fields.
@@ -277,6 +286,7 @@ impl AiTextRequest {
             }
             body.insert("reasoning".into(), Value::Object(reasoning));
         }
+        self.apply_stable_effort(&mut body);
         let native_search = self.native_search_tool();
         let has_custom_tools = self.has_wire_custom_tools();
         if let Some(native_search) = native_search {
@@ -297,6 +307,40 @@ impl AiTextRequest {
             }
         }
         Value::Object(body)
+    }
+
+    /// GPT-6 Astra stable-effort planning (oh-my-pi `planStableOpenAIEffort`
+    /// port). Pins request-level `reasoning.effort` to the conversation
+    /// baseline and carries later changes as `configuration_update` items so
+    /// the cached prompt prefix survives effort switches. Only `gpt-6-astra`
+    /// accepts the item type (anything else 400s), so the gate stays on the
+    /// exact model id; without a conversation scope every request stands
+    /// alone and sends its own effort.
+    fn apply_stable_effort(&self, body: &mut Map<String, Value>) {
+        if !self.model.trim().eq_ignore_ascii_case("gpt-6-astra") {
+            return;
+        }
+        let requested = match self.reasoning_effort.as_deref().map(str::trim) {
+            Some(effort) if !effort.is_empty() && !effort.eq_ignore_ascii_case("none") => effort,
+            _ => return,
+        };
+        let conversation = match self.conversation_id.as_deref().map(str::trim) {
+            Some(id) if !id.is_empty() => id,
+            _ => return,
+        };
+        let Some(input) = body.get_mut("input").and_then(Value::as_array_mut) else {
+            return;
+        };
+        let key = format!(
+            "{}\0{}\0{}",
+            self.provider,
+            self.model.trim().to_lowercase(),
+            conversation
+        );
+        let send = super::effort_control::plan_stable_effort(&key, input, requested);
+        if let Some(reasoning) = body.get_mut("reasoning").and_then(Value::as_object_mut) {
+            reasoning.insert("effort".into(), json!(send));
+        }
     }
 
     fn chat_body(&self) -> Value {

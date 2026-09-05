@@ -66,6 +66,7 @@ pub async fn run(
             model,
             search_priority.clone(),
             None,
+            Some(&format!("thread:{thread_id}")),
             move |update| {
                 if let Some(msg) = progress_state.borrow_mut().messages.get_mut(pending_index) {
                     match update {

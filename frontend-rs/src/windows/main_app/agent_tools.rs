@@ -154,6 +154,9 @@ pub async fn run(
         }
         let progress_document = document.clone();
         let progress_state = Rc::clone(state);
+        let conversation_key = current_episode
+            .as_deref()
+            .map(|episode| format!("episode:{project_id}:{episode}"));
         let turn_result = ai::agent_turn_observed(
             "chat",
             system.clone(),
@@ -163,6 +166,7 @@ pub async fn run(
             model.as_deref(),
             search_priority.clone(),
             forced_tool_choice.clone(),
+            conversation_key.as_deref(),
             move |update| {
                 if let Some(message) = progress_state.borrow_mut().chat.get_mut(progress_index) {
                     match update {

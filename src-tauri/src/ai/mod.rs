@@ -1,5 +1,6 @@
 pub(crate) mod auth;
 pub(crate) mod config;
+pub(crate) mod effort_control;
 mod messages;
 pub(crate) mod models;
 pub(crate) mod oauth;
@@ -186,7 +187,7 @@ fn truncate(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::types::{AiInputMessage, AiTextRequest, AiToolDefinition, ProviderApiType};
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     #[test]
     fn endpoint_is_selected_by_configured_api_type() {
@@ -314,6 +315,7 @@ mod tests {
             api_key: "key".into(),
             base_url: "https://gateway.example/v1".into(),
             model: "model".into(),
+            conversation_id: None,
             system: String::new(),
             messages: Vec::new(),
             tools: Vec::new(),
@@ -334,6 +336,104 @@ mod tests {
             anthropic_thinking_effort: None,
             thinking_level: None,
         }
+    }
+
+    fn user_message(content: &str) -> AiInputMessage {
+        AiInputMessage {
+            role: "user".into(),
+            content: json!(content),
+            attribution: None,
+            responses_items: Vec::new(),
+        }
+    }
+
+    fn assistant_message(content: &str) -> AiInputMessage {
+        AiInputMessage {
+            role: "assistant".into(),
+            content: json!(content),
+            attribution: None,
+            responses_items: Vec::new(),
+        }
+    }
+
+    fn astra_request(conversation: &str, effort: &str) -> AiTextRequest {
+        let mut request = sample_request();
+        request.provider = "codex".into();
+        request.api_type = ProviderApiType::OpenaiResponses;
+        request.model = "gpt-6-astra".into();
+        request.conversation_id = Some(conversation.into());
+        request.reasoning_effort = Some(effort.into());
+        request
+    }
+
+    #[test]
+    fn astra_pins_effort_and_inserts_update_before_new_user_turn() {
+        let conversation = "test-astra-pin";
+        let mut first = astra_request(conversation, "medium");
+        first.messages = vec![user_message("hello")];
+        let body = first.body();
+        assert_eq!(body["reasoning"]["effort"], json!("medium"));
+        assert!(
+            body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update"))
+        );
+
+        let mut second = astra_request(conversation, "high");
+        second.messages = vec![
+            user_message("hello"),
+            assistant_message("hi"),
+            user_message("again"),
+        ];
+        let body = second.body();
+        // Request level stays pinned to the baseline.
+        assert_eq!(body["reasoning"]["effort"], json!("medium"));
+        let input = body["input"].as_array().unwrap();
+        let updates: Vec<_> = input
+            .iter()
+            .filter(|item| item.get("type").and_then(Value::as_str) == Some("configuration_update"))
+            .collect();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["reasoning"]["effort"], json!("high"));
+    }
+
+    #[test]
+    fn non_astra_model_sends_changed_effort_at_request_level() {
+        let mut first = astra_request("test-non-astra", "medium");
+        first.model = "gpt-5.6-sol".into();
+        first.messages = vec![user_message("hello")];
+        assert_eq!(first.body()["reasoning"]["effort"], json!("medium"));
+
+        let mut second = astra_request("test-non-astra", "high");
+        second.model = "gpt-5.6-sol".into();
+        second.messages = vec![user_message("hello"), user_message("again")];
+        let body = second.body();
+        assert_eq!(body["reasoning"]["effort"], json!("high"));
+        assert!(
+            body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update"))
+        );
+    }
+
+    #[test]
+    fn astra_without_conversation_scope_sends_own_effort() {
+        let mut request = astra_request("test-astra-solo", "high");
+        request.conversation_id = None;
+        request.messages = vec![user_message("hello")];
+        let body = request.body();
+        assert_eq!(body["reasoning"]["effort"], json!("high"));
+        assert!(
+            body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update"))
+        );
     }
 
     #[test]

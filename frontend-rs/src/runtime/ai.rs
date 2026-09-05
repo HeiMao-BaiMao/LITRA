@@ -171,6 +171,8 @@ struct Request {
     api_key: String,
     base_url: String,
     model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    conversation_id: Option<String>,
     system: String,
     messages: Vec<serde_json::Value>,
     tools: Vec<serde_json::Value>,
@@ -374,6 +376,7 @@ pub async fn generate_with(
         api_key: config.api_key,
         base_url: config.base_url,
         model: config.model,
+        conversation_id: None,
         system,
         messages: Vec::new(),
         tools: Vec::new(),
@@ -553,6 +556,7 @@ where
         api_key: config.api_key,
         base_url: config.base_url,
         model: config.model,
+        conversation_id: None,
         system,
         messages: Vec::new(),
         tools: Vec::new(),
@@ -692,6 +696,7 @@ pub async fn agent_turn(
     tools: Vec<serde_json::Value>,
     provider_override: Option<&str>,
     model_override: Option<&str>,
+    conversation_id: Option<&str>,
 ) -> Result<AgentTurn, JsValue> {
     let tool_choice = if tools.iter().any(|tool| {
         tool.get("name").and_then(serde_json::Value::as_str) == Some("submit_structured_output")
@@ -709,6 +714,7 @@ pub async fn agent_turn(
         model_override,
         Vec::new(),
         tool_choice,
+        conversation_id,
         |_| {},
     )
     .await
@@ -723,6 +729,7 @@ pub async fn agent_turn_observed<F>(
     model_override: Option<&str>,
     search_priority: Vec<String>,
     tool_choice: Option<String>,
+    conversation_id: Option<&str>,
     on_update: F,
 ) -> Result<AgentTurn, JsValue>
 where
@@ -772,6 +779,7 @@ where
         api_key: config.api_key,
         base_url: config.base_url,
         model: config.model,
+        conversation_id: conversation_id.map(str::to_owned),
         system,
         messages,
         tools,
