@@ -7,7 +7,6 @@ LITRA は、長編小説および連作の制作を支援する執筆アプリ�
 GitHub Releases から最新版をダウンロードしてインストールします。
 
 - `LITRA_x64-setup.exe`（NSIS インストーラ）
-- `LITRA_x64_en-US.msi`（MSI パッケージ）
 
 インストール後、スタートメニューから LITRA を起動します。
 

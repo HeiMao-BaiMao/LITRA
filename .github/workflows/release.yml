@@ -5,6 +5,7 @@ on:
     tags:
       - "v*"
       - "[0-9]*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -43,6 +44,7 @@ jobs:
     name: Build Windows release
     needs: validate
     runs-on: windows-latest
+    environment: code-signing
     steps:
       - uses: actions/checkout@v5
 
@@ -85,11 +87,37 @@ jobs:
         with:
           tool: wasm-bindgen-cli@${{ steps.bindgen.outputs.version }}
 
+      - name: Setup Certum SimplySign
+        # Setup-only (files省略): 署名タイミングはTauriのbundle pipelineに任せ、二重署名を避ける。
+        # 安定運用では @main ではなく確認済みcommit SHAにpinすること。
+        uses: Rumia-Channel/windows-certum-signin@main
+        with:
+          certum-username: ${{ secrets.CERTUM_USERNAME }}
+          certum-otp-uri: ${{ secrets.CERTUM_OTP_URI }}
+          certum-key-id: ${{ vars.CERTUM_KEY_ID }}
+
+      - name: Create Tauri signing config
+        shell: pwsh
+        env:
+          CERTUM_KEY_ID: ${{ vars.CERTUM_KEY_ID }}
+        run: |
+          @{
+            bundle = @{
+              windows = @{
+                certificateThumbprint = $env:CERTUM_KEY_ID
+                digestAlgorithm = "sha256"
+                timestampUrl = "http://timestamp.certum.pl"
+              }
+            }
+          } |
+            ConvertTo-Json -Depth 10 |
+            Set-Content -Encoding utf8 src-tauri/tauri.signing.conf.json
+
       - name: Build Tauri app
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: cargo tauri build
+        run: cargo tauri build --config src-tauri/tauri.signing.conf.json
 
       - name: Generate updater manifest
         id: manifest
