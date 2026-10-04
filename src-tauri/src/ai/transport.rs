@@ -29,6 +29,7 @@ pub async fn send_request(
     client: &Client,
     request: &AiTextRequest,
 ) -> Result<AiHttpResponse, String> {
+    request.validate_model_options()?;
     for attempt in 0.. {
         providers::wait_for_request_slot(request).await;
         let body = providers::normalize_body(request, request.body());

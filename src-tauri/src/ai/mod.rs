@@ -344,6 +344,138 @@ mod tests {
         }
     }
 
+    fn request_with_tool(provider: &str, model: &str, api_type: ProviderApiType) -> AiTextRequest {
+        let mut request = sample_request();
+        request.provider = provider.into();
+        request.model = model.into();
+        request.api_type = api_type;
+        request.tools.push(AiToolDefinition {
+            name: "readEpisode".into(),
+            description: "Read an episode".into(),
+            input_schema: json!({"type":"object","properties":{}}),
+        });
+        request
+    }
+
+    #[test]
+    fn latest_openai_responses_supports_tools_and_valid_effort_without_sampling() {
+        for model in ["gpt-6.1-sol", "gpt-6-luna"] {
+            let mut request = request_with_tool("openai", model, ProviderApiType::OpenaiResponses);
+            request.temperature = Some(0.5);
+            request.top_p = Some(0.9);
+            for effort in ["low", "medium", "high", "xhigh", "max"] {
+                request.reasoning_effort = Some(effort.into());
+                assert!(request.validate_model_options().is_ok());
+                let body = request.body();
+                assert_eq!(body["reasoning"]["effort"], effort);
+                assert_eq!(body["tools"][0]["name"], "readEpisode");
+                assert_eq!(body["max_output_tokens"], 100);
+                assert!(body.get("temperature").is_none());
+                assert!(body.get("top_p").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn latest_openai_blocks_incompatible_effort_and_chat_tools_locally() {
+        let mut sol = request_with_tool("openai", "gpt-6.1-sol", ProviderApiType::OpenaiResponses);
+        for effort in ["none", "minimal", "ultra"] {
+            sol.reasoning_effort = Some(effort.into());
+            assert!(sol.validate_model_options().is_err());
+        }
+        sol.reasoning_effort = Some("low".into());
+        sol.api_type = ProviderApiType::OpenaiChat;
+        assert!(sol.validate_model_options().is_err());
+        sol.tools.clear();
+        assert!(sol.validate_model_options().is_ok());
+        assert_eq!(sol.body()["max_completion_tokens"], 100);
+        assert!(sol.body().get("max_tokens").is_none());
+        let mut luna = request_with_tool("openai", "gpt-6-luna", ProviderApiType::OpenaiChat);
+        assert!(luna.validate_model_options().is_err()); // omitted = medium
+        luna.reasoning_effort = Some("low".into());
+        assert!(luna.validate_model_options().is_err());
+        luna.reasoning_effort = Some("none".into());
+        luna.temperature = Some(0.4);
+        assert!(luna.validate_model_options().is_ok());
+        assert_eq!(luna.body()["reasoning_effort"], "none");
+        assert_eq!(luna.body()["temperature"], 0.4);
+    }
+
+    #[test]
+    fn latest_model_guards_do_not_rewrite_custom_providers_or_models() {
+        let mut request = request_with_tool("custom", "gpt-6.1-sol", ProviderApiType::OpenaiChat);
+        request.reasoning_effort = Some("custom-effort".into());
+        assert!(request.validate_model_options().is_ok());
+        assert_eq!(request.body()["max_tokens"], 100);
+        request.provider = "openai".into();
+        request.model = "my-private-model".into();
+        assert!(request.validate_model_options().is_ok());
+    }
+
+    #[test]
+    fn gemini38_rejects_minimal_without_changing_other_models() {
+        let mut request = request_with_tool(
+            "google",
+            "gemini-3.8-flash",
+            ProviderApiType::GoogleGenerateContent,
+        );
+        for effort in ["low", "medium", "high"] {
+            request.thinking_level = Some(effort.into());
+            assert!(request.validate_model_options().is_ok());
+            assert_eq!(
+                request.body()["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+                effort
+            );
+        }
+        request.thinking_level = Some("minimal".into());
+        assert!(request.validate_model_options().is_err());
+        request.model = "gemini-3.5-flash-lite".into();
+        assert!(request.validate_model_options().is_ok());
+    }
+
+    #[test]
+    fn canonical_deepseek_flash_keeps_thinking_and_replays_reasoning_for_tools() {
+        let mut request =
+            request_with_tool("deepseek", "deepseek-flash", ProviderApiType::OpenaiChat);
+        request.reasoning_effort = Some("low".into());
+        request.thinking_enabled = Some(false); // preserve LITRA Japanese-output workaround
+        request.messages.push(AiInputMessage {
+            role: "assistant".into(),
+            attribution: None,
+            responses_items: vec![],
+            content: json!([
+                {"type":"reasoning","text":"preserved reasoning"},
+                {"type":"tool-call","toolCallId":"call-1","toolName":"readEpisode","input":{}}
+            ]),
+        });
+        request.tool_choice = Some("auto".into());
+        assert!(request.validate_model_options().is_ok());
+        let body = request.body();
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["reasoning_effort"], "low");
+        assert_eq!(
+            body["messages"][0]["reasoning_content"],
+            "preserved reasoning"
+        );
+        assert!(body.get("max_completion_tokens").is_none());
+        request.tool_choice = Some("required".into());
+        assert!(request.validate_model_options().is_err());
+        request.tool_choice = None;
+        request.tool_choice_name = Some("readEpisode".into());
+        assert!(request.validate_model_options().is_err());
+    }
+
+    #[tokio::test]
+    async fn invalid_model_options_fail_before_any_http_or_credentials() {
+        let mut request = request_with_tool("openai", "gpt-6.1-sol", ProviderApiType::OpenaiChat);
+        request.base_url = "invalid-url".into();
+        let result = super::transport::send_request(&reqwest::Client::new(), &request).await;
+        let Err(error) = result else {
+            panic!("invalid combination must fail")
+        };
+        assert!(error.contains("Responses"), "{error}");
+    }
+
     fn user_message(content: &str) -> AiInputMessage {
         AiInputMessage {
             role: "user".into(),

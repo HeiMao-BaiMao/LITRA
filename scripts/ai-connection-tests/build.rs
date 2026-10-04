@@ -10,8 +10,10 @@ fn main() {
     let mut modules = String::new();
     for name in [
         "auth",
+        "config",
         "effort_control",
         "messages",
+        "models",
         "oauth",
         "providers",
         "stream",

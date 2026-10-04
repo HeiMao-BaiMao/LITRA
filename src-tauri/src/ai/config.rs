@@ -56,6 +56,8 @@ struct Connection {
 #[serde(rename_all = "camelCase")]
 struct Model {
     id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
     connection: Option<String>,
     temperature: Option<f64>,
     max_tokens: Option<u64>,
@@ -76,6 +78,10 @@ struct Model {
     writing: RoleProfile,
     #[serde(default)]
     judgment: RoleProfile,
+    /// Preserve capability metadata and custom provider fields when writing
+    /// first-run config and returning the model catalog.
+    #[serde(flatten)]
+    extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -83,6 +89,8 @@ struct Model {
 struct RoleProfile {
     #[serde(default)]
     prompt_scaffold: Option<String>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -104,6 +112,10 @@ pub(crate) struct Provider {
     models: Vec<Model>,
     #[serde(default)]
     model_selection: String,
+    #[serde(default)]
+    models_policy: String,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, Value>,
 }
 
 fn default_requires_api_key() -> bool {
@@ -241,9 +253,7 @@ pub fn ai_runtime_config(
     let specific = settings
         .get("providerConfigs")
         .and_then(|value| value.get(provider_id));
-    let specific_model = specific
-        .and_then(|value| string(value, "model"))
-        .map(str::to_owned);
+    let specific_model = saved_model_id(&settings, provider_id);
     let provider_default_model = if provider.default_model.trim().is_empty() {
         fallback
             .map(|item| item.default_model.clone())
@@ -251,18 +261,22 @@ pub fn ai_runtime_config(
     } else {
         provider.default_model.clone()
     };
-    let model_id = model_override
-        .filter(|value| !value.trim().is_empty())
-        .or(configured_role_model)
-        .or(specific_model)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(provider_default_model);
+    let model_id = selected_model_id(
+        model_override,
+        configured_role_model,
+        specific_model,
+        provider_default_model,
+    );
     let model = provider
         .models
         .iter()
         .find(|item| item.id == model_id)
         .or_else(|| {
-            fallback.and_then(|item| item.models.iter().find(|model| model.id == model_id))
+            (provider.models_policy != "replace")
+                .then(|| {
+                    fallback.and_then(|item| item.models.iter().find(|model| model.id == model_id))
+                })
+                .flatten()
         });
     let connection_id = model
         .and_then(|item| item.connection.as_deref())
@@ -393,6 +407,8 @@ pub fn ai_runtime_config(
     });
     max_context_tokens = max_context_tokens.map(|value| clamp_to_cap(value, context_cap));
 
+    let configured_effort =
+        configured_reasoning_effort(provider_id, &model_id, &settings, role_overrides);
     Ok(RuntimeAiConfig {
         provider: provider_id.into(),
         api_type: connection
@@ -416,9 +432,7 @@ pub fn ai_runtime_config(
             .or_else(|| model.and_then(|item| item.frequency_penalty)),
         presence_penalty: setting_number("presencePenalty")
             .or_else(|| model.and_then(|item| item.presence_penalty)),
-        reasoning_effort: string(&settings, "openaiReasoningEffort")
-            .map(str::to_owned)
-            .or_else(|| string(&settings, "deepseekReasoningEffort").map(str::to_owned))
+        reasoning_effort: configured_effort
             .or_else(|| {
                 model.and_then(|item| {
                     item.openai_reasoning_effort
@@ -525,16 +539,7 @@ pub fn ai_provider_catalog(app: AppHandle) -> Result<Vec<ProviderCatalogEntry>, 
             .providers
             .iter()
             .find(|item| item.id == default.id);
-        let mut models = default.models.clone();
-        if let Some(custom) = custom {
-            for model in &custom.models {
-                if let Some(position) = models.iter().position(|item| item.id == model.id) {
-                    models[position] = model.clone();
-                } else {
-                    models.push(model.clone());
-                }
-            }
-        }
+        let mut models = merged_models(default, custom);
         if default.id == "github-copilot" {
             let base_url = super::auth::store::read_json_sync::<Value>("github-copilot")
                 .ok()
@@ -811,9 +816,256 @@ fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
+fn selected_model_id(
+    explicit: Option<String>,
+    role: Option<String>,
+    saved: Option<String>,
+    default: String,
+) -> String {
+    [explicit, role, saved]
+        .into_iter()
+        .flatten()
+        .find(|value| !value.trim().is_empty())
+        .unwrap_or(default)
+}
+
+fn configured_reasoning_effort(
+    provider: &str,
+    model: &str,
+    settings: &Value,
+    overrides: Option<&Value>,
+) -> Option<String> {
+    let key =
+        if provider == "deepseek" || (provider == "opencode" && model.starts_with("deepseek-")) {
+            "deepseekReasoningEffort"
+        } else {
+            "openaiReasoningEffort"
+        };
+    overrides
+        .and_then(|value| string(value, key))
+        .or_else(|| string(settings, key))
+        .map(str::to_owned)
+}
+
+fn saved_model_id(settings: &Value, provider: &str) -> Option<String> {
+    settings
+        .get("providerConfigs")
+        .and_then(|configs| configs.get(provider))
+        .and_then(|specific| string(specific, "model"))
+        .or_else(|| {
+            // Older settings can store the main selection only at the root.
+            // Never carry that model to another provider/role by accident.
+            (string(settings, "provider").unwrap_or("openai") == provider)
+                .then(|| string(settings, "model"))
+                .flatten()
+        })
+        .map(str::to_owned)
+}
+
+fn merged_models(default: &Provider, custom: Option<&Provider>) -> Vec<Model> {
+    if let Some(custom) = custom.filter(|item| item.models_policy == "replace") {
+        return custom.models.clone();
+    }
+    let mut models = default.models.clone();
+    if let Some(custom) = custom {
+        for model in &custom.models {
+            if let Some(position) = models.iter().position(|item| item.id == model.id) {
+                models[position] = model.clone();
+            } else {
+                models.push(model.clone());
+            }
+        }
+    }
+    models
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_root_selection_is_preserved_without_leaking_to_other_providers() {
+        let mut settings = serde_json::json!({"provider":"openai","model":"gpt-5.6-sol"});
+        assert_eq!(
+            saved_model_id(&settings, "openai").as_deref(),
+            Some("gpt-5.6-sol")
+        );
+        assert_eq!(saved_model_id(&settings, "google"), None);
+        settings["providerConfigs"] = serde_json::json!({"openai":{"model":"custom-model"}});
+        assert_eq!(
+            saved_model_id(&settings, "openai").as_deref(),
+            Some("custom-model")
+        );
+    }
+
+    #[test]
+    fn provider_reasoning_settings_do_not_leak_across_providers() {
+        let settings =
+            serde_json::json!({"openaiReasoningEffort":"medium","deepseekReasoningEffort":"low"});
+        let role = serde_json::json!({"deepseekReasoningEffort":"max"});
+        assert_eq!(
+            configured_reasoning_effort("deepseek", "deepseek-flash", &settings, None).as_deref(),
+            Some("low")
+        );
+        assert_eq!(
+            configured_reasoning_effort("deepseek", "deepseek-flash", &settings, Some(&role))
+                .as_deref(),
+            Some("max")
+        );
+        assert_eq!(
+            configured_reasoning_effort("openai", "gpt-6.1-sol", &settings, Some(&role)).as_deref(),
+            Some("medium")
+        );
+        let only_openai = serde_json::json!({"openaiReasoningEffort":"medium"});
+        assert_eq!(
+            configured_reasoning_effort("deepseek", "deepseek-flash", &only_openai, None),
+            None
+        );
+    }
+
+    #[test]
+    fn catalog_roundtrip_preserves_labels_capabilities_and_custom_fields() {
+        let document: ProviderDocument = serde_json::from_str(DEFAULT_PROVIDERS).unwrap();
+        let value = serde_json::to_value(document).unwrap();
+        let original: Value = serde_json::from_str(DEFAULT_PROVIDERS).unwrap();
+        for (provider, source) in value["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(original["providers"].as_array().unwrap())
+        {
+            for (model, original_model) in provider["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(source["models"].as_array().unwrap())
+            {
+                for (key, field) in original_model.as_object().unwrap() {
+                    if key == "writing" || key == "judgment" {
+                        for (role_key, role_value) in field.as_object().unwrap() {
+                            assert_eq!(&model[key][role_key], role_value);
+                        }
+                    } else if field.is_number() {
+                        assert_eq!(
+                            model[key].as_f64(),
+                            field.as_f64(),
+                            "model={} key={key}",
+                            model["id"]
+                        );
+                    } else {
+                        assert_eq!(&model[key], field, "model={} key={key}", model["id"]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn catalog_additions_keep_explicit_saved_and_custom_choices() {
+        let document: ProviderDocument = serde_json::from_str(DEFAULT_PROVIDERS).unwrap();
+        let default = document
+            .providers
+            .iter()
+            .find(|p| p.id == "openai")
+            .unwrap();
+        let mut custom = default.clone();
+        custom.default_model = "custom-proxy-model".into();
+        custom.models = vec![Model {
+            id: "custom-proxy-model".into(),
+            max_tokens: Some(777),
+            ..Default::default()
+        }];
+        let merged = merged_models(default, Some(&custom));
+        assert!(merged.iter().any(|m| m.id == "gpt-6.1-sol"));
+        assert!(merged.iter().any(|m| m.id == "gpt-5.6-sol"));
+        assert_eq!(
+            merged
+                .iter()
+                .find(|m| m.id == "custom-proxy-model")
+                .unwrap()
+                .max_tokens,
+            Some(777)
+        );
+        assert_eq!(
+            selected_model_id(
+                None,
+                None,
+                Some("saved-model".into()),
+                default.default_model.clone()
+            ),
+            "saved-model"
+        );
+        assert_eq!(
+            selected_model_id(
+                None,
+                Some("role-model".into()),
+                Some("saved-model".into()),
+                default.default_model.clone()
+            ),
+            "role-model"
+        );
+        assert_eq!(
+            selected_model_id(
+                Some("explicit-model".into()),
+                Some("role-model".into()),
+                Some("saved-model".into()),
+                default.default_model.clone()
+            ),
+            "explicit-model"
+        );
+        assert_eq!(
+            selected_model_id(None, None, None, custom.default_model.clone()),
+            "custom-proxy-model"
+        );
+        custom.models_policy = "replace".into();
+        assert_eq!(merged_models(default, Some(&custom)).len(), 1);
+        custom.models.clear();
+        assert!(merged_models(default, Some(&custom)).is_empty());
+    }
+
+    #[test]
+    fn curated_new_defaults_have_verified_protocols_and_conservative_effort() {
+        let document: ProviderDocument = serde_json::from_str(DEFAULT_PROVIDERS).unwrap();
+        for (provider_id, model_id, connection_id, effort) in [
+            ("openai", "gpt-6.1-sol", "responses", "medium"),
+            ("deepseek", "deepseek-flash", "chat", "high"),
+            ("google", "gemini-3.8-flash", "generate-content", "medium"),
+        ] {
+            let provider = document
+                .providers
+                .iter()
+                .find(|p| p.id == provider_id)
+                .unwrap();
+            assert_eq!(provider.default_model, model_id);
+            let model = provider.models.iter().find(|m| m.id == model_id).unwrap();
+            assert_eq!(
+                model
+                    .connection
+                    .as_deref()
+                    .or(provider.default_connection.as_deref()),
+                Some(connection_id)
+            );
+            let selected_effort = model
+                .openai_reasoning_effort
+                .as_deref()
+                .or(model.deepseek_reasoning_effort.as_deref())
+                .or(model.google_thinking_level.as_deref());
+            assert_eq!(selected_effort, Some(effort));
+            assert!(model.extra["reasoningCapability"]["supportedEfforts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e == effort));
+        }
+        // Public API models must not be copied into account-specific catalogs.
+        for provider in document
+            .providers
+            .iter()
+            .filter(|p| matches!(p.id.as_str(), "codex" | "github-copilot"))
+        {
+            assert!(!provider.models.iter().any(|m| m.id == "gpt-6.1-sol"));
+        }
+    }
 
     // Ported from legacy-ts-archive/src/ai/__tests__/tools.test.ts
 

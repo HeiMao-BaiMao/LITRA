@@ -48,7 +48,20 @@ pub fn build_provider_options(
                 return None;
             }
             // GPT-5.1 以降 "minimal" は API から削除済み（"none" が後継）。旧設定を救済する。
-            let effort = if effort == "minimal" { "none" } else { effort };
+            let effort = if effort == "minimal"
+                && cap
+                    .as_ref()
+                    .is_some_and(|c| c.supported_efforts.iter().any(|e| e == "none"))
+            {
+                "none"
+            } else {
+                effort
+            };
+            if cap.as_ref().is_some_and(|c| {
+                !c.supported_efforts.is_empty() && !c.supported_efforts.iter().any(|e| e == effort)
+            }) {
+                return None;
+            }
             let mut opts = Map::new();
             opts.insert("reasoningEffort".into(), Value::String(effort.into()));
             opts.insert("reasoningSummary".into(), Value::String("auto".into()));
@@ -159,11 +172,11 @@ pub fn build_provider_options(
                 .get("deepseekReasoningEffort")
                 .and_then(Value::as_str)
             {
-                if effort == "high" || effort == "max" {
-                    opts.insert(
-                        "reasoningEffort".into(),
-                        Value::String(effort.into()),
-                    );
+                if effort == "high"
+                    || effort == "max"
+                    || (effort == "low" && capability::is_deepseek_v4_model(model_id))
+                {
+                    opts.insert("reasoningEffort".into(), Value::String(effort.into()));
                 }
             }
             let mut result = Map::new();
@@ -435,6 +448,34 @@ mod tests {
         assert_eq!(
             opts["deepseek"]["thinking"]["type"].as_str().unwrap(),
             "enabled"
+        );
+    }
+
+    #[test]
+    fn sol_does_not_emit_none_or_map_minimal_to_none() {
+        for effort in ["none", "minimal"] {
+            let settings =
+                json!({"provider":"openai","model":"gpt-6.1-sol","openaiReasoningEffort":effort});
+            assert!(build_provider_options(&settings, None).is_none());
+        }
+    }
+
+    #[test]
+    fn canonical_flash_supports_low_and_preserves_thinking_workaround() {
+        let settings = json!({"provider":"deepseek","model":"deepseek-flash","deepseekReasoningEffort":"low","deepseekThinkingEnabled":false});
+        let options = build_provider_options(&settings, None).unwrap();
+        assert_eq!(options["deepseek"]["reasoningEffort"], "low");
+        assert_eq!(options["deepseek"]["thinking"]["type"], "enabled");
+    }
+
+    #[test]
+    fn gemini38_options_do_not_emit_removed_minimal_level() {
+        let settings =
+            json!({"provider":"google","model":"gemini-3.8-flash","googleThinkingLevel":"minimal"});
+        assert_eq!(
+            build_provider_options(&settings, None).unwrap()["google"]["thinkingConfig"]
+                ["thinkingLevel"],
+            "low"
         );
     }
 

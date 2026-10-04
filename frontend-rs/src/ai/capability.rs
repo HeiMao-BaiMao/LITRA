@@ -62,7 +62,9 @@ pub enum ControlType {
 /// DeepSeek V4 は非 Thinking 出力で日本語が破損するため、接続先によらず Thinking 固定。
 pub fn is_deepseek_v4_model(model_id: &str) -> bool {
     let model_id = model_id.trim().to_lowercase();
-    model_id.starts_with("deepseek-v4-") || model_id == "deepseek-v4"
+    model_id.starts_with("deepseek-v4-")
+        || model_id.starts_with("deepseek-v4.1-")
+        || matches!(model_id.as_str(), "deepseek-v4" | "deepseek-flash")
 }
 
 /// Copilot キャッシュエントリの能力情報を ReasoningCapability に変換する。
@@ -185,12 +187,16 @@ pub fn get_model_capability(
         }
         "deepseek" => Some(ReasoningCapability {
             kind: "deepseek".into(),
-            supported_efforts: vec!["high".into(), "max".into()],
-            can_disable: true,
+            supported_efforts: if is_deepseek_v4_model(model_id) {
+                vec!["low".into(), "high".into(), "max".into()]
+            } else {
+                vec!["high".into(), "max".into()]
+            },
+            can_disable: !is_deepseek_v4_model(model_id),
             ..Default::default()
         }),
         "google" => {
-            if model_id.starts_with("gemini-3.1-pro") {
+            if model_id.starts_with("gemini-3.1-pro") || model_id == "gemini-3.8-flash" {
                 Some(ReasoningCapability {
                     kind: "google".into(),
                     supported_efforts: vec!["low".into(), "medium".into(), "high".into()],
@@ -211,6 +217,23 @@ pub fn get_model_capability(
             } else {
                 None
             }
+        }
+        "openai" if matches!(model_id, "gpt-6.1-sol" | "gpt-6-luna") => {
+            let mut efforts = vec![
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "xhigh".into(),
+                "max".into(),
+            ];
+            if model_id == "gpt-6-luna" {
+                efforts.insert(0, "none".into());
+            }
+            Some(ReasoningCapability {
+                kind: "openai".into(),
+                supported_efforts: efforts,
+                ..Default::default()
+            })
         }
         "openai" => Some(ReasoningCapability {
             kind: "openai".into(),
@@ -406,7 +429,7 @@ pub fn resolve_forced_tool_choice(
         return None;
     }
     if provider == "deepseek" {
-        let thinking = deepseek_thinking_enabled.unwrap_or(true);
+        let thinking = is_deepseek_v4_model(model_id) || deepseek_thinking_enabled.unwrap_or(true);
         return if thinking {
             Some("auto".into())
         } else {
@@ -451,6 +474,8 @@ mod tests {
         assert!(is_deepseek_v4_model("deepseek-v4-0324"));
         assert!(is_deepseek_v4_model("DEEPSEEK-V4-latest "));
         assert!(!is_deepseek_v4_model("deepseek-v3"));
+        assert!(is_deepseek_v4_model("deepseek-flash"));
+        assert!(is_deepseek_v4_model("deepseek-v4.1-flash"));
     }
 
     #[test]
@@ -480,6 +505,38 @@ mod tests {
         let cap = cap.unwrap();
         assert_eq!(cap.kind, "openai");
         assert!(!cap.supported_efforts.contains(&"minimal".to_string()));
+    }
+
+    #[test]
+    fn latest_direct_models_have_distinct_capabilities() {
+        let sol = get_model_capability("openai", "gpt-6.1-sol", None).unwrap();
+        assert!(!sol.supported_efforts.contains(&"none".into()));
+        assert!(sol.supported_efforts.contains(&"max".into()));
+        let luna = get_model_capability("openai", "gpt-6-luna", None).unwrap();
+        assert!(luna.supported_efforts.contains(&"none".into()));
+        let flash = get_model_capability("google", "gemini-3.8-flash", None).unwrap();
+        assert_eq!(flash.supported_efforts, vec!["low", "medium", "high"]);
+        let lite = get_model_capability("google", "gemini-3.5-flash-lite", None).unwrap();
+        assert!(lite.supported_efforts.contains(&"minimal".into()));
+        let deepseek = get_model_capability("deepseek", "deepseek-flash", None).unwrap();
+        assert!(!deepseek.can_disable);
+        assert!(deepseek.supported_efforts.contains(&"low".into()));
+        assert_eq!(
+            resolve_forced_tool_choice("deepseek", "deepseek-flash", Some(false)),
+            Some("auto".into())
+        );
+    }
+
+    #[test]
+    fn explicit_custom_capability_still_wins() {
+        let custom = ReasoningCapability {
+            kind: "custom".into(),
+            supported_efforts: vec!["custom-effort".into()],
+            ..Default::default()
+        };
+        let resolved = get_model_capability("openai", "gpt-6.1-sol", Some(&custom)).unwrap();
+        assert_eq!(resolved.kind, "custom");
+        assert_eq!(resolved.supported_efforts, custom.supported_efforts);
     }
 
     #[test]

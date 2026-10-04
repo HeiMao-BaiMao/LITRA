@@ -10,10 +10,53 @@
         { "id": "responses", "apiType": "openai-responses", "baseUrl": "https://api.openai.com/v1" },
         { "id": "chat", "apiType": "openai-chat", "baseUrl": "https://api.openai.com/v1" }
       ],
-      "defaultModel": "gpt-5.6-sol",
+      "defaultModel": "gpt-6.1-sol",
       "requiresApiKey": true,
       "modelSelection": "fetch",
       "models": [
+        {
+          "id": "gpt-6.1-sol",
+          "label": "GPT-6.1 Sol · 推奨 / 品質と費用",
+          "connection": "responses",
+          "maxTokens": 128000,
+          "maxContextTokens": 1050000,
+          "openaiReasoningEffort": "medium",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gpt-6-luna",
+          "label": "GPT-6 Luna · 低コスト / 要約・補助",
+          "connection": "responses",
+          "maxTokens": 128000,
+          "maxContextTokens": 1050000,
+          "openaiReasoningEffort": "low",
+          "reasoningCapability": {
+            "kind": "openai",
+            "supportedEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
         {
           "id": "gpt-5.6-sol",
           "label": "GPT-5.6 Sol",
@@ -165,7 +208,7 @@
       "connections": [
         { "id": "messages", "apiType": "anthropic-messages", "baseUrl": "https://api.anthropic.com" }
       ],
-      "defaultModel": "claude-fable-5",
+      "defaultModel": "claude-sonnet-5",
       "requiresApiKey": true,
       "modelSelection": "fetch",
       "models": [
@@ -241,7 +284,7 @@
         },
         {
           "id": "claude-sonnet-5",
-          "label": "Claude Sonnet 5",
+          "label": "Claude Sonnet 5 · 互換性優先 / バランス",
           "temperature": 1.0,
           "maxTokens": 128000,
           "maxContextTokens": 1000000,
@@ -335,10 +378,35 @@
       "connections": [
         { "id": "chat", "apiType": "openai-chat", "baseUrl": "https://api.deepseek.com" }
       ],
-      "defaultModel": "deepseek-v4-flash",
+      "defaultModel": "deepseek-flash",
       "requiresApiKey": true,
       "modelSelection": "fixed",
       "models": [
+        {
+          "id": "deepseek-flash",
+          "label": "DeepSeek V4.1 Flash · 低コスト",
+          "connection": "chat",
+          "maxTokens": 384000,
+          "maxContextTokens": 1000000,
+          "deepseekReasoningEffort": "high",
+          "reasoningCapability": {
+            "kind": "deepseek",
+            "supportedEfforts": [
+              "low",
+              "high",
+              "max"
+            ],
+            "canDisable": false
+          },
+          "writing": {
+            "deepseekThinkingEnabled": true,
+            "promptScaffold": "light"
+          },
+          "judgment": {
+            "deepseekThinkingEnabled": true,
+            "deepseekReasoningEffort": "high"
+          }
+        },
         {
           "id": "deepseek-v4-flash",
           "label": "DeepSeek-V4 Flash",
@@ -404,10 +472,44 @@
       "connections": [
         { "id": "generate-content", "apiType": "google-generate-content", "baseUrl": "https://generativelanguage.googleapis.com/v1beta" }
       ],
-      "defaultModel": "gemini-3.6-flash",
+      "defaultModel": "gemini-3.8-flash",
       "requiresApiKey": true,
       "modelSelection": "fixed",
       "models": [
+        {
+          "id": "gemini-3.8-flash",
+          "label": "Gemini 3.8 Flash · 推奨 / 最新Flash",
+          "maxTokens": 65536,
+          "maxContextTokens": 1048576,
+          "googleThinkingLevel": "medium",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "writing": {
+            "promptScaffold": "light"
+          }
+        },
+        {
+          "id": "gemini-3.5-flash-lite",
+          "label": "Gemini 3.5 Flash-Lite · 低コスト / 要約・補助",
+          "maxTokens": 65536,
+          "maxContextTokens": 1048576,
+          "googleThinkingLevel": "low",
+          "reasoningCapability": {
+            "kind": "google",
+            "supportedEfforts": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        },
         {
           "id": "gemini-3.6-flash",
           "label": "Gemini 3.6 Flash",
@@ -444,22 +546,6 @@
           },
           "writing": {
             "promptScaffold": "light"
-          }
-        },
-        {
-          "id": "gemini-3.5-flash-lite",
-          "label": "Gemini 3.5 Flash-Lite",
-          "maxTokens": 65536,
-          "maxContextTokens": 1048576,
-          "googleThinkingLevel": "high",
-          "reasoningCapability": {
-            "kind": "google",
-            "supportedEfforts": [
-              "minimal",
-              "low",
-              "medium",
-              "high"
-            ]
           }
         },
         {

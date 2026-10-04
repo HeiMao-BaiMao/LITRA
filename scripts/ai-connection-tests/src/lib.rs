@@ -6,6 +6,29 @@ extern crate self as tauri_plugin_opener;
 pub use tauri_command::command;
 
 pub struct AppHandle;
+pub struct PathResolver;
+pub trait Manager {
+    fn path(&self) -> PathResolver {
+        PathResolver
+    }
+}
+impl Manager for AppHandle {}
+impl PathResolver {
+    pub fn app_data_dir(&self) -> Result<std::path::PathBuf, String> {
+        Err("App paths disabled in headless tests".into())
+    }
+    pub fn app_config_dir(&self) -> Result<std::path::PathBuf, String> {
+        Err("App paths disabled in headless tests".into())
+    }
+    pub fn resource_dir(&self) -> Result<std::path::PathBuf, String> {
+        Err("App paths disabled in headless tests".into())
+    }
+}
+pub mod webdav_sync {
+    pub fn save_webdav_sync_config(_: ()) -> Result<(), String> {
+        panic!("WebDAV settings disabled in headless tests")
+    }
+}
 pub struct State<'a, T> {
     inner: &'a T,
 }
@@ -62,18 +85,12 @@ pub mod secrets {
     pub fn delete_secret(_: &str) -> Result<(), String> {
         panic!("Live credential deletes disabled")
     }
+    pub fn set_or_delete_secret(_: &str, _: Option<&str>) -> Result<(), String> {
+        panic!("Live credential writes disabled")
+    }
 }
 pub mod ai {
     include!(concat!(env!("OUT_DIR"), "/ai.rs"));
-    pub mod models {
-        // Endpoint normalization is unrelated to the connection fixes. The
-        // full app owns its existing model-catalog tests.
-        pub(crate) fn normalize_copilot_api_endpoint(value: &str) -> Option<String> {
-            let url = reqwest::Url::parse(value).ok()?;
-            (url.scheme() == "https" && url.host_str().is_some())
-                .then(|| value.trim_end_matches('/').into())
-        }
-    }
 }
 #[path = "../../../src-tauri/src/codex_oauth.rs"]
 pub mod codex_oauth;
