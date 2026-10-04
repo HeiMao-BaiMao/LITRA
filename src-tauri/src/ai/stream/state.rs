@@ -33,10 +33,24 @@ pub struct StreamState {
     pending: HashMap<String, PendingToolCall>,
     pending_server_blocks: HashMap<String, PendingServerBlock>,
     pending_thinking_blocks: HashMap<String, PendingThinkingBlock>,
+    pending_order: Vec<String>,
     next_generated_id: u64,
+    finished: bool,
 }
 
 impl StreamState {
+    pub fn mark_finished(&mut self) -> bool {
+        !std::mem::replace(&mut self.finished, true)
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    pub fn has_pending_tools(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     pub fn start(&mut self, key: String, id: String, name: String) -> bool {
         if let Some(pending) = self.pending.get_mut(&key) {
             if !id.is_empty() {
@@ -47,6 +61,7 @@ impl StreamState {
             }
             return false;
         }
+        self.pending_order.push(key.clone());
         self.pending.insert(
             key,
             PendingToolCall {
@@ -144,21 +159,35 @@ impl StreamState {
             .map(|pending| (pending.id.as_str(), pending.name.as_str()))
     }
 
-    pub fn finish(&mut self, key: &str, arguments: Option<&str>) -> Option<CompletedToolCall> {
-        let mut pending = self.pending.remove(key)?;
+    pub fn finish(
+        &mut self,
+        key: &str,
+        arguments: Option<&str>,
+    ) -> Result<Option<CompletedToolCall>, String> {
+        let Some(mut pending) = self.pending.remove(key) else {
+            return Ok(None);
+        };
+        self.pending_order.retain(|item| item != key);
         if let Some(arguments) = arguments {
             pending.arguments = arguments.to_owned();
         }
         let input = if pending.arguments.trim().is_empty() {
             Value::Object(Default::default())
         } else {
-            serde_json::from_str(&pending.arguments).unwrap_or(Value::String(pending.arguments))
+            serde_json::from_str(&pending.arguments)
+                .map_err(|error| format!("AI ツール引数の JSON が不正です: {error}"))?
         };
-        Some(CompletedToolCall {
+        if pending.id.trim().is_empty() || pending.name.trim().is_empty() {
+            return Err("AI ツール呼び出しの ID または名前がありません。".into());
+        }
+        if !input.is_object() {
+            return Err("AI ツール引数は JSON オブジェクトである必要があります。".into());
+        }
+        Ok(Some(CompletedToolCall {
             id: pending.id,
             name: pending.name,
             input,
-        })
+        }))
     }
 
     pub fn generated_id(&mut self, prefix: &str) -> String {
@@ -166,11 +195,15 @@ impl StreamState {
         format!("{prefix}-{}", self.next_generated_id)
     }
 
-    pub fn finish_all(&mut self) -> Vec<CompletedToolCall> {
-        let keys = self.pending.keys().cloned().collect::<Vec<_>>();
-        keys.iter()
-            .filter_map(|key| self.finish(key, None))
-            .collect()
+    pub fn finish_all(&mut self) -> Result<Vec<CompletedToolCall>, String> {
+        let keys = std::mem::take(&mut self.pending_order);
+        let mut calls = Vec::new();
+        for key in keys {
+            if let Some(call) = self.finish(&key, None)? {
+                calls.push(call);
+            }
+        }
+        Ok(calls)
     }
 }
 
@@ -184,7 +217,10 @@ mod tests {
         assert!(state.start("0".into(), "call-1".into(), "lookup".into()));
         state.append("0", "{\"id\":");
         state.append("0", "\"42\"}");
-        let call = state.finish("0", None).expect("completed tool call");
+        let call = state
+            .finish("0", None)
+            .unwrap()
+            .expect("completed tool call");
         assert_eq!(call.id, "call-1");
         assert_eq!(call.name, "lookup");
         assert_eq!(call.input["id"], "42");
@@ -208,5 +244,21 @@ mod tests {
         assert_eq!(block["type"], "server_tool_use");
         assert_eq!(block["input"]["query"], "latest");
         assert!(!state.is_server_block("1"));
+    }
+    #[test]
+    fn completed_parallel_calls_preserve_wire_order() {
+        let mut state = StreamState::default();
+        for (key, id) in [("9", "first"), ("1", "second"), ("4", "third")] {
+            state.start(key.into(), id.into(), "lookup".into());
+            state.append(key, "{}");
+        }
+        let calls = state.finish_all().unwrap();
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second", "third"]
+        );
     }
 }

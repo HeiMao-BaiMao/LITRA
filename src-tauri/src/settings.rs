@@ -5,13 +5,8 @@ use crate::storage::{
 use serde_json::{json, Map, Value};
 use tauri::AppHandle;
 
-fn merge_updates(target: &mut Value, updates: Map<String, Value>) {
-    if let Some(obj) = target.as_object_mut() {
-        for (key, value) in updates {
-            obj.insert(key, value);
-        }
-    }
-}
+mod updates;
+use updates::merge_updates;
 
 #[tauri::command]
 pub fn list_characters(project_id: String) -> Result<Value, String> {
@@ -90,7 +85,7 @@ pub fn update_character(req: UpdateCharacterRequest) -> Result<Value, String> {
         .find(|c| c["id"].as_str() == Some(&req.character_id))
         .ok_or_else(|| format!("Character {} not found", req.character_id))?;
 
-    merge_updates(target, req.updates);
+    merge_updates(target, req.updates)?;
     write_json(&path, &data)?;
     Ok(data)
 }
@@ -277,7 +272,7 @@ pub fn update_world_entry(req: UpdateWorldEntryRequest) -> Result<Value, String>
         .find(|e| e["id"].as_str() == Some(&req.entry_id))
         .ok_or_else(|| format!("World entry {} not found", req.entry_id))?;
 
-    merge_updates(target, req.updates);
+    merge_updates(target, req.updates)?;
     write_json(&path, &data)?;
     Ok(data)
 }

@@ -23,13 +23,7 @@ mod genre;
 mod project;
 mod writing;
 
-pub async fn run(
-    document: &Document,
-    state: &Rc<RefCell<State>>,
-    mut system: String,
-    mut messages: Vec<Value>,
-    direct_creative_edit: bool,
-) -> Result<ai::GeneratedText, JsValue> {
+fn available_definitions(direct_creative_edit: bool, has_episode: bool) -> Vec<Value> {
     let mut definitions = definitions();
     if direct_creative_edit {
         // npm版 createAiTools({ directCreativeEdit: true }) と同様、
@@ -41,7 +35,7 @@ pub async fn run(
             )
         });
     }
-    if current_episode_id(state).is_none() {
+    if !has_episode {
         // npm版はエピソードが開かれていない間は本文編集ツールを登録しない。
         definitions.retain(|definition| {
             !matches!(
@@ -50,6 +44,19 @@ pub async fn run(
             )
         });
     }
+    definitions
+}
+
+pub async fn run(
+    document: &Document,
+    state: &Rc<RefCell<State>>,
+    mut system: String,
+    mut messages: Vec<Value>,
+    direct_creative_edit: bool,
+) -> Result<ai::GeneratedText, JsValue> {
+    let cancellation_epoch = ai::cancellation_epoch();
+    let definitions =
+        available_definitions(direct_creative_edit, current_episode_id(state).is_some());
     let tool_names = definitions
         .iter()
         .filter_map(|d| d["name"].as_str().map(str::to_owned))
@@ -61,13 +68,11 @@ pub async fn run(
         super::prompt_context::build_settings_context(&current, &current.ai_settings)
     };
     if !settings_context.trim().is_empty() {
-        system.push_str("\n\nSTORY REFERENCE DATA — this project's established facts (worldbuilding, characters, relationships, memos, recent synopses):\n1. BEFORE writing fiction or answering anything about this story → look up every character, place, and term of the current scene in the data below.\n2. Facts recorded there are true. Use them exactly as recorded. NEVER contradict or restyle them.\n3. IF a fact is not recorded there → it is unknown. NEVER state it as established canon.\n4. The data does NOT expand what the viewpoint character knows.\n5. Derive plausible knowledge and experience from recorded social attributes.\n6. 設定資料に記録された事実は必ず記録通りに使うこと。\n\n<reference_data name=\"story_reference\">\n");
-        system.push_str(
-            &settings_context
-                .replace("<reference_data", "＜reference_data")
-                .replace("</reference_data", "＜/reference_data"),
-        );
-        system.push_str("\n</reference_data>");
+        system.push_str("\n\nSTORY REFERENCE DATA — this project's established facts (worldbuilding, characters, relationships, memos, recent synopses):\n1. BEFORE writing fiction or answering anything about this story → look up every character, place, and term of the current scene in the data below.\n2. Use recorded facts as canon unless the current author request explicitly changes them. Apply only the requested canon change; preserve all unrelated facts.\n3. IF a fact is not recorded there → it is unknown. NEVER state it as established canon.\n4. The data does NOT expand what the viewpoint character knows.\n5. Derive plausible knowledge and experience from recorded social attributes.\n6. 作者が今回明示的に変更を依頼した設定以外は、資料に記録された事実を記録通りに使うこと。\n\n");
+        system.push_str(&crate::ai::prompt_data::format_reference_data(
+            "story_reference",
+            &settings_context,
+        ));
     }
     let (project_id, current_episode, provider, model) = {
         let current = state.borrow();
@@ -134,6 +139,7 @@ pub async fn run(
     // 1回だけ同じ会話で再試行する(reasoning モデルが思考だけで停止する事象への保険)。
     let mut empty_answer_retries = 0usize;
     for _ in 0..MAX_TOOL_ROUNDS {
+        ai::ensure_not_cancelled(cancellation_epoch)?;
         let progress_index = {
             let mut current = state.borrow_mut();
             current.chat.push(ChatMessage {
@@ -181,6 +187,7 @@ pub async fn run(
             },
         )
         .await;
+        ai::ensure_not_cancelled(cancellation_epoch)?;
         let turn = match turn_result {
             Ok(turn) => turn,
             Err(error) => {
@@ -190,13 +197,10 @@ pub async fn run(
             }
         };
         if turn.tool_calls.is_empty() {
-            let has_tool_result = messages.iter().any(|message| {
-                message.get("role").and_then(Value::as_str) == Some("tool")
-            });
-            if turn.text.trim().is_empty()
-                && has_tool_result
-                && tool_result_continuations == 0
-            {
+            let has_tool_result = messages
+                .iter()
+                .any(|message| message.get("role").and_then(Value::as_str) == Some("tool"));
+            if turn.text.trim().is_empty() && has_tool_result && tool_result_continuations == 0 {
                 tool_result_continuations += 1;
                 if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
                     message.content = "（ツール結果を確認し、最終回答を生成中…）".into();
@@ -261,9 +265,7 @@ pub async fn run(
                 //   ツール結果肥大による要求サイズ超過が原因と確定できる。
                 let tool_result_chars: usize = messages
                     .iter()
-                    .filter(|message| {
-                        message.get("role").and_then(Value::as_str) == Some("tool")
-                    })
+                    .filter(|message| message.get("role").and_then(Value::as_str) == Some("tool"))
                     .map(|message| {
                         message
                             .get("content")
@@ -284,9 +286,7 @@ pub async fn run(
             }
             if let Some(message) = state.borrow_mut().chat.get_mut(progress_index) {
                 if message.content.trim().is_empty() {
-                    message.content = if direct_creative_edit {
-                        "本文を編集しました。".into()
-                    } else if has_tool_result {
+                    message.content = if has_tool_result {
                         "（ツールの実行結果を受け取りましたが、応答の生成に失敗しました。もう一度送信してください。）"
                             .into()
                     } else {
@@ -341,13 +341,9 @@ pub async fn run(
                     call.name
                 )));
             }
+            // Count calls in this batch too, before any side effects execute.
+            recent_calls.push(signature);
         }
-        recent_calls.extend(turn.tool_calls.iter().map(|c| {
-            (
-                c.name.clone(),
-                serde_json::to_string(&c.input).unwrap_or_default(),
-            )
-        }));
         if recent_calls.len() > 8 {
             let drop_count = recent_calls.len() - 8;
             recent_calls.drain(0..drop_count);
@@ -374,6 +370,7 @@ pub async fn run(
         );
         let mut results = Vec::new();
         for call in turn.tool_calls {
+            ai::ensure_not_cancelled(cancellation_epoch)?;
             web_sys::console::log_1(
                 &format!(
                     "[litra-tool] start callId={} name={} provider={} model={}",
@@ -413,15 +410,27 @@ pub async fn run(
                 );
                 render_progress(document, state);
             };
-            let execution = execute(
-                state,
-                &project_id,
-                current_episode.as_deref(),
+            // A model can return an unadvertised name or malformed arguments even
+            // when the provider accepts our schema. Enforce the local catalog.
+            let execution = match crate::ai::tool_validation::validate_call(
+                &definitions,
                 &call.name,
-                call.input.clone(),
-                &mut report_tool_progress,
-            )
-            .await;
+                &call.input,
+            ) {
+                Ok(()) => {
+                    execute(
+                        state,
+                        &project_id,
+                        current_episode.as_deref(),
+                        &call.name,
+                        call.input.clone(),
+                        &mut report_tool_progress,
+                    )
+                    .await
+                }
+                Err(error) => Ok(json!({"error": error})),
+            };
+            ai::ensure_not_cancelled(cancellation_epoch)?;
             let (status, output) = match execution {
                 Ok(output) if output.get("error").is_none() => {
                     web_sys::console::log_1(
@@ -728,12 +737,11 @@ fn summarize_tool_input(name: &str, input: &Value) -> Vec<String> {
             }
             chips
         }
-        "editEpisodeBatch" => {
-            obj.get("edits")
-                .and_then(Value::as_array)
-                .map(|edits| vec![format!("{}範囲", edits.len())])
-                .unwrap_or_default()
-        }
+        "editEpisodeBatch" => obj
+            .get("edits")
+            .and_then(Value::as_array)
+            .map(|edits| vec![format!("{}範囲", edits.len())])
+            .unwrap_or_default(),
         "searchEpisodes" | "findEpisodeLines" => {
             let query = obj.get("query").and_then(Value::as_str).unwrap_or("");
             if query.is_empty() {
@@ -939,8 +947,7 @@ async fn execute(
         return project::execute(state, project_id, current_episode, name, input).await;
     }
     if craft::handles(name) {
-        return craft::execute(state, project_id, current_episode, name, input, on_progress)
-            .await;
+        return craft::execute(state, project_id, current_episode, name, input, on_progress).await;
     }
     if common_sense::handles(name) {
         return common_sense::execute(state, project_id, current_episode, name, input, on_progress)
@@ -1106,12 +1113,9 @@ async fn execute(
                 }
             }
             let search_index_updated = if success {
-                invoke::invoke::<_, Value>(
-                    "rebuild_search_index",
-                    &json!({"projectId":project_id}),
-                )
-                .await
-                .is_ok()
+                invoke::invoke::<_, Value>("rebuild_search_index", &json!({"projectId":project_id}))
+                    .await
+                    .is_ok()
             } else {
                 false
             };
@@ -1147,10 +1151,7 @@ async fn execute(
                 "editedLineRanges".into(),
                 Value::Array(edited_line_ranges.clone()),
             );
-            output.insert(
-                "failedLineRanges".into(),
-                Value::Array(failed_line_ranges),
-            );
+            output.insert("failedLineRanges".into(), Value::Array(failed_line_ranges));
             output.insert(
                 "editSummary".into(),
                 Value::String(if success {
@@ -1633,6 +1634,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dispatch_rejects_tools_hidden_by_mode_and_episode_selection() {
+        use crate::ai::tool_validation::validate_call;
+        let direct = available_definitions(true, true);
+        assert!(
+            validate_call(&direct, "continuePassage", &json!({"instruction":"続けて"})).is_err()
+        );
+        let no_episode = available_definitions(false, false);
+        assert!(validate_call(
+            &no_episode,
+            "editEpisode",
+            &json!({"input":"patch","reason":"修正"})
+        )
+        .is_err());
+        assert!(validate_call(
+            &available_definitions(false, true),
+            "editEpisode",
+            &json!({"input":"patch","reason":"修正"})
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn batch_edit_validation_runs_before_dispatch() {
+        use crate::ai::tool_validation::validate_call;
+        let tools = available_definitions(false, true);
+        assert!(validate_call(&tools, "editEpisodeBatch", &json!({"edits":[]})).is_err());
+        assert!(validate_call(
+            &tools,
+            "editEpisodeBatch",
+            &json!({"edits":[{
+                "startLine":0,"endLine":1,"expectedText":"a","replacementText":"b","reason":"修正"
+            }]})
+        )
+        .is_err());
+    }
+
+    #[test]
     fn tool_schemas_reject_missing_or_unknown_arguments() {
         let tools = definitions();
         let edit = tools
@@ -1659,7 +1697,9 @@ mod tests {
             .find(|tool| tool["name"] == "retrieveEpisode")
             .expect("retrieveEpisode definition");
         assert!(retrieve["inputSchema"]["properties"].get("type").is_some());
-        assert!(retrieve["inputSchema"]["properties"].get("contentType").is_none());
+        assert!(retrieve["inputSchema"]["properties"]
+            .get("contentType")
+            .is_none());
 
         let web_search = tools
             .iter()

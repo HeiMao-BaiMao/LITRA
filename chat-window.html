@@ -18,15 +18,15 @@
 <body class="detachable-window" data-rust-window="chat">
   <aside class="chat-panel detached">
     <div class="chat-panel-header">
-      <h3>リトラチャット</h3>
+      <div class="chat-heading"><span class="chat-heading-mark" aria-hidden="true">L</span><div><h3>リトラ</h3><p>物語をいっしょに考える</p></div></div>
     </div>
     <div class="chat-settings-row">
-      <select id="chat-provider" title="プロバイダー"></select>
-      <select id="chat-model" title="モデル"></select>
+      <label for="chat-provider"><span>プロバイダー</span><select id="chat-provider" title="プロバイダー"></select></label>
+      <label for="chat-model"><span>モデル</span><select id="chat-model" title="モデル"></select></label>
     </div>
-    <div id="chat-messages" class="chat-messages"></div>
+    <div id="chat-messages" class="chat-messages" role="log" aria-label="リトラとの会話"></div>
     <form id="chat-form" class="chat-form">
-      <textarea id="chat-input" class="chat-input" placeholder="リトラと自由に話す..." rows="2"></textarea>
+      <textarea id="chat-input" class="chat-input" aria-label="リトラへのメッセージ" placeholder="リトラと自由に話す..." rows="2"></textarea>
       <div class="chat-controls">
         <button id="btn-direct-writing" type="button" class="direct-writing-toggle" aria-pressed="false" title="多段生成を省略し、チャットモデルから本文へ直接書き込みます">⚡ 直接執筆 OFF</button>
         <button id="btn-send" type="submit">送信</button>

@@ -47,7 +47,9 @@ pub(super) fn normalize_body(mut body: Value) -> Value {
         .and_then(Value::as_str)
         .is_some_and(|model| {
             let model = model.to_ascii_lowercase();
-            model.starts_with("deepseek-v4-") || model == "deepseek-v4"
+            model.starts_with("deepseek-v4-")
+                || model.starts_with("deepseek-v4.1-")
+                || model == "deepseek-v4"
         });
     if is_deepseek_v4 {
         // OpenCode Go's DeepSeek V4 route rejects tool_choice while thinking

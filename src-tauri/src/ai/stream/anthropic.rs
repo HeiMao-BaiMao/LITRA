@@ -1,7 +1,7 @@
 use serde_json::Value;
 use tauri::ipc::Channel;
 
-use super::{send, StreamState};
+use super::{finish, send, StreamState};
 use crate::ai::types::AiStreamEvent;
 
 pub fn parse(
@@ -143,7 +143,7 @@ pub fn parse(
                 send(channel, AiStreamEvent::AnthropicToolContext { block })?;
                 return Ok(());
             }
-            if let Some(call) = state.finish(&key, None) {
+            if let Some(call) = state.finish(&key, None)? {
                 send(
                     channel,
                     AiStreamEvent::ToolCall {
@@ -168,14 +168,10 @@ pub fn parse(
                 .and_then(Value::as_str)
                 .map(str::to_string);
             if reason.is_some() {
-                send(
-                    channel,
-                    AiStreamEvent::Finished {
-                        finish_reason: reason,
-                    },
-                )?;
+                finish(channel, state, reason)?;
             }
         }
+        Some("message_stop") => finish(channel, state, None)?,
         Some("error") => {
             let message = value
                 .pointer("/error/message")

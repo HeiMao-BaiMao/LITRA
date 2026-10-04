@@ -30,7 +30,9 @@ pub async fn run(
     provider: Option<&str>,
     model: Option<&str>,
     pending_index: usize,
+    cancellation_epoch: u64,
 ) -> Result<ai::GeneratedText, JsValue> {
+    ai::ensure_not_cancelled(cancellation_epoch)?;
     system.push_str(GUIDANCE);
     let mut messages = vec![json!({"role":"user","content":prompt})];
     let definitions = definitions();
@@ -48,6 +50,7 @@ pub async fn run(
         })
         .unwrap_or_default();
     for round in 0..MAX_TOOL_ROUNDS {
+        ai::ensure_not_cancelled(cancellation_epoch)?;
         // Reset pending message content for subsequent rounds (tool rounds produce intermediate text)
         if round > 0 {
             if let Some(msg) = state.borrow_mut().messages.get_mut(pending_index) {
@@ -84,6 +87,7 @@ pub async fn run(
             },
         )
         .await?;
+        ai::ensure_not_cancelled(cancellation_epoch)?;
         if turn.tool_calls.is_empty() {
             return Ok(ai::GeneratedText {
                 text: turn.text,
@@ -111,9 +115,18 @@ pub async fn run(
         );
         let mut results = Vec::new();
         for call in turn.tool_calls {
-            let output = execute(state, genre_id, thread_id, &call.name, call.input)
-                .await
-                .unwrap_or_else(|error| json!({"error":js_error(&error)}));
+            ai::ensure_not_cancelled(cancellation_epoch)?;
+            let output = match crate::ai::tool_validation::validate_call(
+                &definitions,
+                &call.name,
+                &call.input,
+            ) {
+                Ok(()) => execute(state, genre_id, thread_id, &call.name, call.input)
+                    .await
+                    .unwrap_or_else(|error| json!({"error":js_error(&error)})),
+                Err(error) => json!({"error": error}),
+            };
+            ai::ensure_not_cancelled(cancellation_epoch)?;
             results.push(json!({
                 "type":"tool-result", "toolCallId":call.id, "toolName":call.name,
                 "output":{"type":"json","value":output},
@@ -288,10 +301,17 @@ async fn execute(
         }
         "listGenreKnowledge" => {
             let category = optional_str(&input, "category");
-            let items = knowledge::load(genre_id).await?.items.into_iter()
-                .filter(|item| item.status == "active" && category.is_none_or(|value| item.category == value))
-                .map(|item| json!({"id":item.id,"category":item.category,"title":item.title,
-                    "statement":item.statement,"importance":item.importance}))
+            let items = knowledge::load(genre_id)
+                .await?
+                .items
+                .into_iter()
+                .filter(|item| {
+                    item.status == "active" && category.is_none_or(|value| item.category == value)
+                })
+                .map(|item| {
+                    json!({"id":item.id,"category":item.category,"title":item.title,
+                    "statement":item.statement,"importance":item.importance})
+                })
                 .collect::<Vec<_>>();
             Ok(json!({"items":items}))
         }

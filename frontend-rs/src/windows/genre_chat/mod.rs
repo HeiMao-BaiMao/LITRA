@@ -36,6 +36,7 @@ struct State {
     /// ストリーミング中の再描画をフレーム単位にまとめるための状態。
     render_scheduled: bool,
     is_streaming: bool,
+    chat_in_flight: bool,
     catalog: Vec<ai::CatalogProvider>,
     selected_provider: Option<String>,
     selected_model: Option<String>,
@@ -133,7 +134,9 @@ async fn send(
     document: &Document,
     state: &Rc<RefCell<State>>,
     content: String,
+    cancellation_epoch: u64,
 ) -> Result<(), JsValue> {
+    ai::ensure_not_cancelled(cancellation_epoch)?;
     let (genre_id, genre) = {
         let current = state.borrow();
         (current.genre_id.clone(), current.genre.clone())
@@ -197,6 +200,7 @@ async fn send(
     }
     render::all(document, &state.borrow())?;
     let knowledge = knowledge::load(&genre_id).await?;
+    ai::ensure_not_cancelled(cancellation_epoch)?;
     let history = document_data
         .messages
         .iter()
@@ -258,6 +262,7 @@ async fn send(
             provider.as_deref(),
             model.as_deref(),
             pending_index,
+            cancellation_epoch,
         )
         .await;
         match generated {

@@ -170,10 +170,67 @@ impl AiTextRequest {
             ProviderApiType::GoogleGenerateContent => self.google_body(),
         }
     }
+
+    /// Reject documented incompatible choices before authentication or HTTP.
+    /// Keep this scoped to verified direct-API models, not subscription catalogs
+    /// or unknown/custom model IDs whose capabilities belong to their provider.
+    pub(crate) fn validate_model_options(&self) -> Result<(), String> {
+        if self.provider == "openai" && matches!(self.model.as_str(), "gpt-6.1-sol" | "gpt-6-luna")
+        {
+            if let Some(effort) = self.reasoning_effort.as_deref() {
+                let valid = matches!(effort, "low" | "medium" | "high" | "xhigh" | "max")
+                    || (self.model == "gpt-6-luna" && effort == "none");
+                if !valid {
+                    return Err(format!("{} は reasoning effort '{}' に対応していません。設定で対応する値を選択してください。", self.model, effort));
+                }
+            }
+            if self.api_type == ProviderApiType::OpenaiChat
+                && self.has_wire_custom_tools()
+                && (self.model == "gpt-6.1-sol" || self.reasoning_effort.as_deref() != Some("none"))
+            {
+                return Err(format!("{} のこの設定でのツール呼び出しには Responses 接続が必要です。providers.json の connection を responses にしてください。", self.model));
+            }
+        }
+        if self.provider == "google"
+            && self.model.trim_start_matches("models/") == "gemini-3.8-flash"
+            && self
+                .thinking_level
+                .as_deref()
+                .is_some_and(|level| !matches!(level, "low" | "medium" | "high"))
+        {
+            return Err("Gemini 3.8 Flash の thinkingLevel は low / medium / high のみです。設定を変更してください。".into());
+        }
+        if self.provider == "deepseek" && self.is_deepseek_v4() {
+            if self
+                .reasoning_effort
+                .as_deref()
+                .is_some_and(|effort| !matches!(effort, "low" | "high" | "max"))
+            {
+                return Err(
+                    "DeepSeek V4 / V4.1 の reasoning effort は low / high / max のみです。".into(),
+                );
+            }
+            if self.has_wire_custom_tools()
+                && (self.tool_choice.as_deref() == Some("required")
+                    || self.tool_choice_name.is_some())
+            {
+                return Err("DeepSeek の Thinking 有効時はツールの強制指定に対応していません。tool_choice を auto にしてください。".into());
+            }
+        }
+        Ok(())
+    }
     /// DeepSeek V4 is thinking-fixed (non-thinking output corrupts Japanese).
     fn is_deepseek_v4(&self) -> bool {
         let m = self.model.trim().to_lowercase();
-        m.starts_with("deepseek-v4-") || m == "deepseek-v4"
+        m.starts_with("deepseek-v4-")
+            || m.starts_with("deepseek-v4.1-")
+            || matches!(m.as_str(), "deepseek-v4" | "deepseek-flash")
+    }
+
+    fn is_openai6_reasoning(&self) -> bool {
+        self.provider == "openai"
+            && matches!(self.model.as_str(), "gpt-6.1-sol" | "gpt-6-luna")
+            && self.reasoning_effort.as_deref() != Some("none")
     }
 
     /// Whether this is a Gemini 3 series model.
@@ -259,7 +316,7 @@ impl AiTextRequest {
             body.insert("max_output_tokens".into(), json!(self.max_output_tokens));
         }
         insert_nonempty(&mut body, "instructions", &self.system);
-        if !matches!(self.provider.as_str(), "opencode" | "codex") {
+        if !matches!(self.provider.as_str(), "opencode" | "codex") && !self.is_openai6_reasoning() {
             insert_option(&mut body, "temperature", self.temperature);
             insert_option(&mut body, "top_p", self.top_p);
         }
@@ -356,7 +413,24 @@ impl AiTextRequest {
             ("stream".into(), json!(true)),
             ("max_tokens".into(), json!(self.max_output_tokens)),
         ]);
-        if self.provider != "opencode" && self.thinking_enabled != Some(true) {
+        if self.provider == "openai" && matches!(self.model.as_str(), "gpt-6.1-sol" | "gpt-6-luna")
+        {
+            body.remove("max_tokens");
+            body.insert(
+                "max_completion_tokens".into(),
+                json!(self.max_output_tokens),
+            );
+            insert_option(
+                &mut body,
+                "reasoning_effort",
+                self.reasoning_effort.as_deref(),
+            );
+        }
+        if self.provider != "opencode"
+            && self.thinking_enabled != Some(true)
+            && !self.is_deepseek_v4()
+            && !self.is_openai6_reasoning()
+        {
             insert_option(&mut body, "temperature", self.temperature);
             insert_option(&mut body, "top_p", self.top_p);
         }
@@ -373,7 +447,7 @@ impl AiTextRequest {
             body.insert("thinking".into(), json!({ "type": thinking_type }));
         }
         if self.provider == "deepseek" || self.provider == "opencode" {
-            if let Some(effort @ ("high" | "max")) = self.reasoning_effort.as_deref() {
+            if let Some(effort @ ("low" | "high" | "max")) = self.reasoning_effort.as_deref() {
                 body.insert("reasoning_effort".into(), json!(effort));
             }
         }

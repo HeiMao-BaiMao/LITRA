@@ -2,11 +2,13 @@ pub mod cache_observability;
 pub mod capability;
 pub mod draft_checks;
 pub mod plan_beats;
+pub mod prompt_data;
 pub mod provider_options;
 pub mod role_settings;
 pub mod structured_output;
 pub mod style_fingerprint;
 pub mod text_stats;
+pub mod tool_validation;
 
 use serde::Serialize;
 

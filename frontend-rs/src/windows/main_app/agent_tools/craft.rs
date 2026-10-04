@@ -14,11 +14,7 @@ use serde_json::{json, Map, Value};
 use wasm_bindgen::JsValue;
 
 use super::super::{generation, prompt_context, State};
-use crate::{
-    ai::structured_output,
-    data::projects,
-    runtime::ai,
-};
+use crate::{ai::structured_output, data::projects, runtime::ai};
 
 const NAMES: &[&str] = &["craftAdvice", "recordCraftNote", "getCraftNotes"];
 /// 技法ノートの保存上限(この件数を超えると新しいノートは捨てられる)。
@@ -72,6 +68,7 @@ async fn craft_advice(
     input: &Map<String, Value>,
     on_progress: &mut dyn FnMut(&str),
 ) -> Result<Value, JsValue> {
+    let cancellation_epoch = ai::cancellation_epoch();
     let consultation = required(input, "consultation")?;
     // 現在のエピソード本文の末尾を相談の文脈として渡す(continuePassage と同じ
     // スライス予算。コンテキスト上限が取れなければ 24,000 字)。
@@ -107,7 +104,10 @@ async fn craft_advice(
     );
     let mut attempt = 0;
     loop {
-        match ai::generate("judgment", system.clone(), prompt.clone()).await {
+        ai::ensure_not_cancelled(cancellation_epoch)?;
+        let result = ai::generate("judgment", system.clone(), prompt.clone()).await;
+        ai::ensure_not_cancelled(cancellation_epoch)?;
+        match result {
             Ok(result) => {
                 return Ok(json!({
                     "success": true,
@@ -116,6 +116,7 @@ async fn craft_advice(
                     "model": result.model,
                 }));
             }
+            Err(error) if ai::is_cancelled_error(&error) => return Err(error),
             Err(_) if attempt == 0 => {
                 attempt += 1;
                 on_progress("回答の生成に失敗。再試行中");
@@ -134,12 +135,11 @@ async fn craft_advice(
     }
 }
 
-async fn record_craft_note(
-    project_id: &str,
-    input: &Map<String, Value>,
-) -> Result<Value, JsValue> {
+async fn record_craft_note(project_id: &str, input: &Map<String, Value>) -> Result<Value, JsValue> {
+    let cancellation_epoch = ai::cancellation_epoch();
     let record = required(input, "record")?;
     let document = load_notes(project_id).await?;
+    ai::ensure_not_cancelled(cancellation_epoch)?;
     let existing = document["notes"].as_array().cloned().unwrap_or_default();
     let existing_text = if existing.is_empty() {
         None
@@ -165,6 +165,7 @@ async fn record_craft_note(
         None,
     )
     .await?;
+    ai::ensure_not_cancelled(cancellation_epoch)?;
     let notes = extracted
         .get("notes")
         .and_then(Value::as_array)
@@ -202,11 +203,9 @@ async fn get_craft_notes(project_id: &str) -> Result<Value, JsValue> {
 }
 
 async fn load_notes(project_id: &str) -> Result<Value, JsValue> {
-    Ok(
-        projects::read_document(project_id, "craft-notes")
-            .await?
-            .unwrap_or_else(|| json!({"notes": []})),
-    )
+    Ok(projects::read_document(project_id, "craft-notes")
+        .await?
+        .unwrap_or_else(|| json!({"notes": []})))
 }
 
 fn record_craft_note_schema() -> Value {
@@ -274,10 +273,7 @@ mod tests {
             .iter()
             .find(|definition| definition["name"] == "craftAdvice")
             .unwrap();
-        assert_eq!(
-            tool["inputSchema"]["required"],
-            json!(["consultation"])
-        );
+        assert_eq!(tool["inputSchema"]["required"], json!(["consultation"]));
         assert_eq!(tool["inputSchema"]["additionalProperties"], false);
     }
 

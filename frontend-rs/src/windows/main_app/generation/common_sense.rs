@@ -28,11 +28,11 @@ pub fn audit_system() -> String {
 }
 
 fn expand(template: &str, pairs: &[(&str, String)]) -> String {
-    let mut out = template.to_string();
-    for (key, value) in pairs {
-        out = out.replace(key, value);
-    }
-    out
+    let pairs = pairs
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect::<Vec<_>>();
+    crate::ai::prompt_data::render_template(template, &pairs)
 }
 
 /// ドラフト本文の常識監査プロンプト。
@@ -49,7 +49,10 @@ pub fn audit(context: &str, draft: &str, settings_context: Option<&str>) -> Stri
                 "{{reference_block}}",
                 old_prompts::build_story_reference_section(settings_context),
             ),
-            ("{{draft_block}}", old_prompts::format_data_block("draft_to_review", draft)),
+            (
+                "{{draft_block}}",
+                old_prompts::format_data_block("draft_to_review", draft),
+            ),
         ],
     )
 }
@@ -67,7 +70,10 @@ pub fn plan_check(context: &str, plan: &str, settings_context: Option<&str>) -> 
                 "{{context_block}}",
                 old_prompts::format_data_block("text_immediately_before_continuation", context),
             ),
-            ("{{plan_block}}", old_prompts::format_data_block("plan", plan)),
+            (
+                "{{plan_block}}",
+                old_prompts::format_data_block("plan", plan),
+            ),
         ],
     )
 }
@@ -138,11 +144,13 @@ mod tests {
     #[test]
     fn schema_matches_prompt_contract() {
         assert_eq!(
-            common_sense_schema()["properties"]["findings"]["items"]["properties"]["category"]["enum"],
+            common_sense_schema()["properties"]["findings"]["items"]["properties"]["category"]
+                ["enum"],
             json!(["calendar", "season", "causality", "society", "era"])
         );
         assert_eq!(
-            common_sense_schema()["properties"]["findings"]["items"]["properties"]["severity"]["enum"],
+            common_sense_schema()["properties"]["findings"]["items"]["properties"]["severity"]
+                ["enum"],
             json!(["major", "minor"])
         );
         assert!(common_sense_schema()["required"].as_array().is_some());

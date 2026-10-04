@@ -38,6 +38,7 @@ pub async fn generate_structured_object<T: DeserializeOwned>(
     provider_override: Option<&str>,
     model_override: Option<&str>,
 ) -> Result<T, JsValue> {
+    let cancellation_epoch = ai::cancellation_epoch();
     let tool = serde_json::json!({
         "name": STRUCTURED_OUTPUT_TOOL_NAME,
         "description": "Submit the structured output. Call this tool exactly once with the response that matches the required schema. Do not include any other text.",
@@ -51,6 +52,7 @@ pub async fn generate_structured_object<T: DeserializeOwned>(
 
     let mut last_error = None;
     for attempt in 0..MAX_ATTEMPTS {
+        ai::ensure_not_cancelled(cancellation_epoch)?;
         let turn = ai::agent_turn(
             role,
             system.unwrap_or("").to_string(),
@@ -61,6 +63,7 @@ pub async fn generate_structured_object<T: DeserializeOwned>(
             None,
         )
         .await?;
+        ai::ensure_not_cancelled(cancellation_epoch)?;
 
         let call = turn
             .tool_calls
@@ -185,16 +188,17 @@ mod tests {
     #[test]
     fn parses_fenced_json_with_preamble() {
         assert_eq!(
-            parse_structured_text::<serde_json::Value>(
-                "結果です。\n```json\n{\"ok\":true}\n```"
-            ),
+            parse_structured_text::<serde_json::Value>("結果です。\n```json\n{\"ok\":true}\n```"),
             Some(json!({"ok": true}))
         );
     }
 
     #[test]
     fn rejects_non_json_text() {
-        assert_eq!(parse_structured_text::<serde_json::Value>("結果だけです"), None);
+        assert_eq!(
+            parse_structured_text::<serde_json::Value>("結果だけです"),
+            None
+        );
     }
 
     #[test]
