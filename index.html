@@ -20,24 +20,23 @@
 
 <body data-rust-window="main">
   <div id="app" class="app">
-    <header class="toolbar">
+    <header class="toolbar workspace-toolbar">
       <div class="toolbar-left">
-        <div class="toolbar-title">LITRA</div>
+        <div class="toolbar-title" aria-label="LITRA">LITRA<span class="toolbar-subtitle">小説を書く、物語を育てる。</span></div>
         <span id="toolbar-project-name" class="toolbar-project-name">プロジェクト未選択</span>
       </div>
-      <div class="toolbar-actions">
-        <button id="btn-projects" type="button">プロジェクト</button>
+      <div class="toolbar-actions" aria-label="ワークスペース操作">
+        <button id="btn-projects" type="button" class="toolbar-projects">プロジェクト</button>
         <button id="btn-import" type="button">取り込み</button>
-        <button id="btn-continue" type="button">続きを書く</button>
-        <button id="btn-rewrite" type="button">選択部分を書き直す</button>
-        <button id="btn-feedback" type="button">選択部分へのフィードバック</button>
-        <button id="btn-settings" type="button">設定</button>
+        <span class="toolbar-divider" aria-hidden="true"></span>
         <button id="btn-genre-library" type="button">ジャンル</button>
+        <button id="btn-settings" type="button">AI 設定</button>
       </div>
     </header>
 
     <main class="main">
-      <nav id="project-nav" class="project-nav">
+      <nav id="project-nav" class="project-nav" aria-label="作品の構成と資料">
+        <div class="nav-overline">作品のワークスペース</div>
         <div class="nav-section">
           <h3>エピソード</h3>
           <div id="episode-list" class="episode-list"></div>
@@ -47,12 +46,12 @@
           <div class="nav-section-header">
             <h3>エピソード要約</h3>
             <div class="header-actions">
-              <button id="btn-popout-summary" type="button" class="btn-popout" title="別ウィンドウで開く">
+              <button id="btn-popout-summary" type="button" aria-label="エピソード要約を別ウィンドウで開く" class="btn-popout" title="別ウィンドウで開く">
                 ↗
               </button>
             </div>
           </div>
-          <textarea id="episode-summary" class="episode-summary" placeholder="エピソードを選択してください..." rows="4"
+          <textarea id="episode-summary" class="episode-summary" aria-label="エピソード要約" placeholder="エピソードを選択してください..." rows="4"
             disabled></textarea>
           <button id="btn-generate-summary" type="button" class="btn-inline" disabled>
             リトラに書かせる
@@ -62,24 +61,24 @@
           <div class="nav-section-header">
             <h3>エピソード覚え書き</h3>
             <div class="header-actions">
-              <button id="btn-popout-memo" type="button" class="btn-popout" title="別ウィンドウで開く">
+              <button id="btn-popout-memo" type="button" aria-label="覚え書きを別ウィンドウで開く" class="btn-popout" title="別ウィンドウで開く">
                 ↗
               </button>
-              <button id="btn-toggle-memo" type="button" class="btn-toggle" aria-expanded="true">
+              <button id="btn-toggle-memo" type="button" aria-label="覚え書きの表示を切り替える" class="btn-toggle" aria-expanded="true">
                 −
               </button>
             </div>
           </div>
           <div class="collapsible-body">
-            <textarea id="episode-memo" class="episode-memo" placeholder="エピソードを選択してください..." rows="6"
+            <textarea id="episode-memo" class="episode-memo" aria-label="エピソード覚え書き" placeholder="エピソードを選択してください..." rows="6"
               disabled></textarea>
           </div>
         </div>
         <div id="settings-section" class="nav-section">
           <div class="nav-section-header">
-            <h3>設定</h3>
+            <h3>作品設定</h3>
             <div class="header-actions">
-              <button id="btn-popout-settings" type="button" class="btn-popout" title="別ウィンドウで開く">
+              <button id="btn-popout-settings" type="button" aria-label="作品設定を別ウィンドウで開く" class="btn-popout" title="別ウィンドウで開く">
                 ↗
               </button>
             </div>
@@ -92,7 +91,7 @@
           <div class="nav-section-header">
             <h3>メモ</h3>
             <div class="header-actions">
-              <button id="btn-popout-memos" type="button" class="btn-popout" title="別ウィンドウで開く">
+              <button id="btn-popout-memos" type="button" aria-label="メモを別ウィンドウで開く" class="btn-popout" title="別ウィンドウで開く">
                 ↗
               </button>
             </div>
@@ -101,8 +100,19 @@
         </div>
       </nav>
 
-      <section id="editor-section" class="editor-section">
-        <textarea id="editor" class="editor" placeholder="ここから小説を書き始めましょう..." spellcheck="false"></textarea>
+      <section id="editor-section" class="editor-section manuscript-section" aria-labelledby="manuscript-title">
+        <div class="manuscript-toolbar">
+          <h2 id="manuscript-title">原稿</h2>
+          <div class="manuscript-actions" role="group" aria-label="本文の執筆支援">
+            <button id="btn-feedback" type="button" title="選択部分へのフィードバック">講評</button>
+            <button id="btn-rewrite" type="button" title="選択部分を書き直す">書き直す</button>
+            <button id="btn-continue" type="button" class="button-writing">続きを書く</button>
+          </div>
+        </div>
+        <div class="manuscript-surface">
+          <textarea id="editor" class="editor" aria-label="エピソード本文" placeholder="ここから、物語を。" spellcheck="false"></textarea>
+        </div>
+        <div class="manuscript-footer"><span>選択した文章を、リトラと磨く。</span><span class="manuscript-footer-mark" aria-hidden="true">LITRA</span></div>
       </section>
 
       <section id="settings-panel" class="settings-panel hidden">
@@ -116,24 +126,24 @@
 
       <aside id="chat-panel" class="chat-panel collapsible">
         <div class="chat-panel-header">
-          <h3>リトラチャット</h3>
+          <div class="chat-heading"><span class="chat-heading-mark" aria-hidden="true">L</span><div><h3>リトラ</h3><p>物語をいっしょに考える</p></div></div>
           <div class="header-actions">
-            <button id="btn-popout-chat" type="button" class="btn-popout" title="別ウィンドウで開く">
+            <button id="btn-popout-chat" type="button" aria-label="リトラを別ウィンドウで開く" class="btn-popout" title="別ウィンドウで開く">
               ↗
             </button>
-            <button id="btn-toggle-chat" type="button" class="btn-toggle" aria-expanded="true">
+            <button id="btn-toggle-chat" type="button" aria-label="チャットの表示を切り替える" class="btn-toggle" aria-expanded="true">
               −
             </button>
           </div>
         </div>
         <div class="collapsible-body">
           <div class="chat-settings-row">
-            <select id="chat-provider" title="プロバイダー"></select>
-            <select id="chat-model" title="モデル"></select>
+            <label for="chat-provider"><span>プロバイダー</span><select id="chat-provider" title="プロバイダー"></select></label>
+            <label for="chat-model"><span>モデル</span><select id="chat-model" title="モデル"></select></label>
           </div>
-          <div id="chat-messages" class="chat-messages"></div>
+          <div id="chat-messages" class="chat-messages" role="log" aria-label="リトラとの会話"></div>
           <form id="chat-form" class="chat-form">
-            <textarea id="chat-input" class="chat-input" placeholder="リトラと自由に話す..." rows="1"></textarea>
+            <textarea id="chat-input" class="chat-input" aria-label="リトラへのメッセージ" placeholder="次の展開や、気になる表現を相談…" rows="3"></textarea>
             <div class="chat-controls">
               <button id="btn-direct-writing" type="button" class="direct-writing-toggle" aria-pressed="false" title="多段生成を省略し、チャットモデルから本文へ直接書き込みます">⚡ 直接執筆 OFF</button>
               <button id="btn-send" type="submit">送信</button>
@@ -151,7 +161,7 @@
       <div class="modal-dialog settings-dialog">
         <div class="settings-modal-header">
           <div>
-            <h2 id="settings-title">設定</h2>
+            <h2 id="settings-title">AI とアプリの設定</h2>
             <p>モデル、生成方法、外部サービスを用途ごとに管理します。</p>
           </div>
         </div>
@@ -183,15 +193,6 @@
               <option value="github-copilot">GitHub Copilot</option>
             </select>
           </label>
-          <label class="chat-provider-row">
-            <span>バックグラウンドタスク用プロバイダー</span>
-            <select id="setting-background-provider">
-              <option value="">チャット欄に同期</option>
-            </select>
-            <select id="setting-background-model">
-              <option value="">チャット欄に同期</option>
-            </select>
-          </label>
           <label id="setting-api-key-row">
             <span>API キー</span>
             <input id="setting-api-key" type="password" autocomplete="off" />
@@ -216,12 +217,26 @@
             <span>モデル名</span>
             <div class="model-input-row">
               <input id="setting-model" type="text" list="setting-model-list" placeholder="モデルを選択または入力" />
-              <select id="setting-model-select" class="hidden"></select>
+              <select id="setting-model-select" class="hidden" aria-label="メインモデル"></select>
               <datalist id="setting-model-list"></datalist>
               <button id="btn-fetch-models" type="button">取得</button>
             </div>
-            <small>continuePassage のモデルは「生成・執筆支援の詳細」→「用途別モデル」→「執筆系モデル」で変更できます。</small>
+            <small>本文生成に使うモデルは「執筆支援」の「用途別モデル」で個別に指定できます。</small>
           </label>
+          <fieldset class="background-model-fields">
+            <legend>バックグラウンドタスク</legend>
+            <p class="settings-group-description">要約などの裏側で行う処理に使う接続先です。</p>
+            <div class="settings-field-grid">
+            <label><span>プロバイダー</span>
+            <select id="setting-background-provider">
+              <option value="">チャット欄に同期</option>
+            </select>
+            </label>
+            <label><span>モデル</span><select id="setting-background-model">
+              <option value="">チャット欄に同期</option>
+            </select></label>
+            </div>
+          </fieldset>
           </section>
 
           <section id="settings-generation" class="settings-card" aria-labelledby="settings-basics-title">
@@ -394,10 +409,10 @@
 
             <label class="writing-provider-row hidden">
               <span>執筆系プロバイダーとモデル（個別指定時のみ）</span>
-              <select id="setting-writing-provider">
+              <select id="setting-writing-provider" aria-label="執筆系プロバイダー">
                 <option value="">本文モデルと同じ</option>
               </select>
-              <select id="setting-writing-model">
+              <select id="setting-writing-model" aria-label="執筆系モデル">
                 <option value="">プロバイダ既定</option>
               </select>
             </label>
@@ -413,10 +428,10 @@
 
             <label class="chat-provider-row hidden">
               <span>判断系プロバイダーとモデル（個別指定時のみ）</span>
-              <select id="setting-judgment-provider">
+              <select id="setting-judgment-provider" aria-label="判断系プロバイダー">
                 <option value="">本文モデルと同じ</option>
               </select>
-              <select id="setting-judgment-model">
+              <select id="setting-judgment-model" aria-label="判断系モデル">
                 <option value="">プロバイダ既定</option>
               </select>
             </label>
@@ -608,10 +623,10 @@
       </div>
     </div>
 
-    <div id="license-modal" class="modal hidden">
+    <div id="license-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="license-modal-title">
       <div class="modal-backdrop"></div>
       <div class="modal-dialog license-dialog">
-        <h2>ライセンス</h2>
+        <h2 id="license-modal-title">ライセンス</h2>
         <div id="license-content" class="license-content"></div>
         <div class="modal-actions">
           <button id="btn-close-licenses" type="button">閉じる</button>
@@ -619,12 +634,12 @@
       </div>
     </div>
 
-    <div id="project-modal" class="modal hidden">
+    <div id="project-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
       <div class="modal-backdrop"></div>
       <div class="modal-dialog">
-        <h2>プロジェクト管理</h2>
+        <h2 id="project-modal-title">プロジェクト管理</h2>
         <div class="project-form">
-          <input id="project-title-input" type="text" placeholder="新しいプロジェクト名" />
+          <input id="project-title-input" type="text" aria-label="新しいプロジェクト名" placeholder="新しいプロジェクト名" />
           <button id="btn-create-project" type="button">新規作成</button>
         </div>
         <div id="project-list" class="project-list"></div>
@@ -636,7 +651,7 @@
       </div>
     </div>
 
-    <div id="import-preview-modal" class="modal hidden">
+    <div id="import-preview-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-preview-title">
       <div class="modal-backdrop"></div>
       <div class="modal-dialog">
         <h2 id="import-preview-title">フォルダ取り込み</h2>
