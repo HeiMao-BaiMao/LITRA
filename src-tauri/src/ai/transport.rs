@@ -113,7 +113,27 @@ fn retry_after(response: &Response) -> Option<Duration> {
         .ok()?
         .parse::<f64>()
         .ok()?;
-    seconds
-        .is_finite()
-        .then(|| Duration::from_secs_f64(seconds.max(0.0)))
+    parse_retry_seconds(seconds)
+}
+
+fn parse_retry_seconds(seconds: f64) -> Option<Duration> {
+    // A malformed/hostile header must not panic or suspend the retry loop for
+    // years. A single retry wait never exceeds the overall request budget.
+    if !seconds.is_finite() || seconds < 0.0 {
+        return None;
+    }
+    Duration::try_from_secs_f64(seconds.min(REQUEST_TIMEOUT.as_secs_f64())).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn retry_after_is_bounded_and_cannot_panic_on_extreme_values() {
+        for value in [f64::NAN, f64::INFINITY, -1.0] {
+            assert_eq!(parse_retry_seconds(value), None);
+        }
+        assert_eq!(parse_retry_seconds(f64::MAX), Some(REQUEST_TIMEOUT));
+        assert_eq!(parse_retry_seconds(2.5), Some(Duration::from_millis(2500)));
+    }
 }

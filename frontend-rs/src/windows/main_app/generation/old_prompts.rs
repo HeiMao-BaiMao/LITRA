@@ -10,30 +10,7 @@ use std::sync::LazyLock;
 // ============================================================
 
 pub(crate) fn format_data_block(label: &str, content: &str) -> String {
-    if content.is_empty() {
-        return String::new();
-    }
-    let normalized = label
-        .replace(['\r', '\n', '<', '>'], " ")
-        .trim()
-        .to_string();
-    let label = if normalized.is_empty() {
-        "DATA"
-    } else {
-        &normalized
-    };
-    let escaped = content
-        .replace("<reference_data", "＜reference_data")
-        .replace("</reference_data", "＜/reference_data")
-        .replace("<REFERENCE_DATA", "＜REFERENCE_DATA")
-        .replace("</REFERENCE_DATA", "＜/REFERENCE_DATA");
-    let mut s = String::new();
-    s.push_str("<reference_data name=\"");
-    s.push_str(label);
-    s.push_str("\">\n");
-    s.push_str(&escaped);
-    s.push_str("\n</reference_data>");
-    s
+    crate::ai::prompt_data::format_reference_data(label, content)
 }
 
 pub(crate) fn limit_prompt_text(text: &str, max_chars: usize, mode: &str) -> String {
@@ -121,7 +98,7 @@ pub(crate) fn build_story_reference_section(settings_context: Option<&str>) -> S
     s.push_str("下の <reference_data name=\"story_reference\"> は、この作品で確定している設定(世界観、キャラクター、人間関係、作品メモ、直近のあらすじ)である。\n");
     s.push_str("使い方 — 全項目を必ず守る:\n");
     s.push_str("1. 書く前に、この場面に登場する人物・場所・用語をこの資料から探して確認する。\n");
-    s.push_str("2. 記録されている事実(名前の表記、呼び方、容姿、性格、関係、世界観の用語)は、記録の通りに使う。変えない。\n");
+    s.push_str("2. 作者が今回の依頼で事実や設定の変更を明示した場合は、その指定範囲だけ変更する。それ以外の記録された事実(名前の表記、呼び方、容姿、性格、関係、世界観の用語)は、記録の通りに使う。\n");
     s.push_str("3. 人物の話し方: 提示された本文にすでに登場している人物は、本文での話し方を最優先する。本文にまだ登場していない人物は、資料に記録された口調・性格に従わせる。\n");
     s.push_str("4. 資料に無い事実は「未確定」である。人物の過去、経歴、関係を新しく確定事項として書かない。\n");
     s.push_str("5. 資料は「何が事実か」を教えるだけである。視点人物がまだ知らない事実は、資料に書いてあっても地の文に書かない。\n");
@@ -136,16 +113,14 @@ fn build_author_instruction_section(instruction: Option<&str>, usage: &str) -> S
     if trimmed.is_empty() {
         return String::new();
     }
-    let safe = trimmed
-        .replace("<reference_data", "＜reference_data")
-        .replace("</reference_data", "＜/reference_data");
+    let safe = crate::ai::prompt_data::escape_reference_delimiters(trimmed);
     let mut s = String::new();
     s.push_str("【作者からの指示 — 最優先】\n");
     s.push_str(
         "作者本人からこの作業への指示がある。これは参考データではなく、従うべき指示である。",
     );
     s.push_str(usage);
-    s.push_str("ただし、正史・【設定資料】との整合、周囲本文への接続、語りの型の維持は、この指示よりさらに優先する。\n\n指示: ");
+    s.push_str("作者が正史・設定・語りの型の変更を明示した場合は、指定された範囲だけ変更する。変更を求められていない部分は、正史・【設定資料】との整合、周囲本文への接続、語りの型を維持する。\n\n指示: ");
     s.push_str(&safe);
     s.push_str("\n\n");
     s
@@ -325,7 +300,7 @@ pub fn plan(
 
     let author_section = build_author_instruction_section(
         author_instruction,
-        "構想する展開の最優先条件として従う。正史と直前本文に矛盾する場合は、その矛盾を避けた形で満たす。",
+        "構想する展開の最優先条件として従う。変更を求められていない正史と直前本文には矛盾しない形で満たす。",
     );
     s.push_str(&author_section);
 
@@ -467,7 +442,10 @@ pub fn draft(
         s.push_str("\n\n");
     }
 
-    if let Some(craft_section) = craft_section.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(craft_section) = craft_section
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         s.push_str(&craft_section);
         s.push_str("\n\n");
     }
@@ -526,11 +504,15 @@ fn build_beat_directive_section(directive: Option<(&str, usize, usize)>) -> Stri
     } else {
         "このビートが完了し、次のビートへ自然に繋がる位置で筆を止める。場面を無理に完結させない。"
     };
-    BEAT_DIRECTIVE_SECTION
-        .replace("{{index}}", &index.to_string())
-        .replace("{{total}}", &total.to_string())
-        .replace("{{beat}}", beat)
-        .replace("{{ending_rule}}", ending_rule)
+    crate::ai::prompt_data::render_template(
+        BEAT_DIRECTIVE_SECTION,
+        &[
+            ("{{index}}", &index.to_string()),
+            ("{{total}}", &total.to_string()),
+            ("{{beat}}", beat),
+            ("{{ending_rule}}", ending_rule),
+        ],
+    )
 }
 
 pub(crate) fn fiction_extra_sections(scene: &str, voices: &str, style: &str) -> String {
@@ -686,23 +668,27 @@ pub fn targeted_revision(
     } else {
         format!("{reference}\n\n")
     };
-    TARGETED_REVISION_PROMPT
-        .replace("{{fiction_direction}}", fiction_direction(scaffold))
-        .replace(
-            "{{metacognition}}",
-            metacognition_section("surgical-repair", scaffold),
-        )
-        .replace("{{extra_sections}}", &extras)
-        .replace("{{reference_section}}", &reference_block)
-        .replace(
-            "{{context_block}}",
-            &format_data_block("text_immediately_before_continuation", context),
-        )
-        .replace(
-            "{{draft_block}}",
-            &format_data_block("draft_to_review", draft),
-        )
-        .replace("{{review_block}}", &format_data_block("review", review))
+    crate::ai::prompt_data::render_template(
+        TARGETED_REVISION_PROMPT,
+        &[
+            ("{{fiction_direction}}", fiction_direction(scaffold)),
+            (
+                "{{metacognition}}",
+                metacognition_section("surgical-repair", scaffold),
+            ),
+            ("{{extra_sections}}", &extras),
+            ("{{reference_section}}", &reference_block),
+            (
+                "{{context_block}}",
+                &format_data_block("text_immediately_before_continuation", context),
+            ),
+            (
+                "{{draft_block}}",
+                &format_data_block("draft_to_review", draft),
+            ),
+            ("{{review_block}}", &format_data_block("review", review)),
+        ],
+    )
 }
 
 const TARGETED_REVISION_PROMPT: &str = include_str!("old_prompts/targeted_revision.txt");
@@ -971,13 +957,21 @@ const FEEDBACK_PROMPT: &str = include_str!("old_prompts/feedback.txt");
 const SUMMARY_PROMPT: &str = include_str!("old_prompts/summary.txt");
 
 pub fn summary_episode(text: &str, title: Option<&str>, episode_id: Option<&str>) -> String {
-    SUMMARY_PROMPT
-        .replace("{{title}}", title.unwrap_or("無題"))
-        .replace("{{episode_id}}", episode_id.unwrap_or_default())
-        .replace(
-            "{{episode_source_text}}",
-            &format_data_block("episode_source_text", text),
-        )
+    let id = episode_id.unwrap_or_default();
+    let metadata = serde_json::json!({"title": title.unwrap_or("無題"), "episodeId": id});
+    crate::ai::prompt_data::render_template(
+        SUMMARY_PROMPT,
+        &[
+            (
+                "{{episode_metadata}}",
+                &format_data_block("episode_metadata", &metadata.to_string()),
+            ),
+            (
+                "{{episode_source_text}}",
+                &format_data_block("episode_source_text", text),
+            ),
+        ],
+    )
 }
 
 /// 要約生成の応答を詳細要約と一行要約に分離する。
@@ -1160,14 +1154,16 @@ pub fn line_edit_review(
         "点検の観点と指摘の優先度は、まずこの指示に沿って決める。",
     );
     let reference = build_story_reference_section(settings_context);
-    LINE_EDIT_REVIEW_PROMPT
-        .replace("{instructionSection}", &instruction_section)
-        .replace("{fictionDirectionFor(extras?.promptScaffold)}", fiction_direction(scaffold))
-        .replace(
-            "{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"surrounding_context\", context)}",
-            &format!("{}{}", if reference.is_empty() { String::new() } else { format!("{reference}\n\n") }, format_data_block("surrounding_context", context)),
-        )
-        .replace("{formatPromptDataBlock(\"passage_to_edit\", passage)}", &format_data_block("passage_to_edit", passage))
+    crate::ai::prompt_data::render_template(
+        LINE_EDIT_REVIEW_PROMPT,
+        &[
+            ("{instructionSection}", &instruction_section),
+            ("{fictionDirectionFor(extras?.promptScaffold)}", fiction_direction(scaffold)),
+            ("{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"surrounding_context\", context)}",
+            &format!("{}{}", if reference.is_empty() { String::new() } else { format!("{reference}\n\n") }, format_data_block("surrounding_context", context)),),
+            ("{formatPromptDataBlock(\"passage_to_edit\", passage)}", &format_data_block("passage_to_edit", passage)),
+        ],
+    )
 }
 
 #[allow(dead_code)]
@@ -1190,16 +1186,18 @@ pub fn line_edit_revision(
     } else {
         format!("{reference}\n\n")
     };
-    LINE_EDIT_REVISION_PROMPT
-        .replace("{instructionSection}", &instruction_section)
-        .replace("{fictionDirectionFor(extras?.promptScaffold)}", fiction_direction(scaffold))
-        .replace("{metacognitionSectionFor(\"surgical-repair\")}", metacognition_section("surgical-repair", scaffold))
-        .replace(
-            "{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"surrounding_context\", context)}",
-            &format!("{prefix}{}", format_data_block("surrounding_context", context)),
-        )
-        .replace("{formatPromptDataBlock(\"passage_to_edit\", passage)}", &format_data_block("passage_to_edit", passage))
-        .replace("{formatPromptDataBlock(\"review\", review)}", &format_data_block("review", review))
+    crate::ai::prompt_data::render_template(
+        LINE_EDIT_REVISION_PROMPT,
+        &[
+            ("{instructionSection}", &instruction_section),
+            ("{fictionDirectionFor(extras?.promptScaffold)}", fiction_direction(scaffold)),
+            ("{metacognitionSectionFor(\"surgical-repair\")}", metacognition_section("surgical-repair", scaffold)),
+            ("{referenceSection ? `${referenceSection}\\n\\n` : \"\"}{formatPromptDataBlock(\"surrounding_context\", context)}",
+            &format!("{prefix}{}", format_data_block("surrounding_context", context)),),
+            ("{formatPromptDataBlock(\"passage_to_edit\", passage)}", &format_data_block("passage_to_edit", passage)),
+            ("{formatPromptDataBlock(\"review\", review)}", &format_data_block("review", review)),
+        ],
+    )
 }
 
 const LINE_EDIT_REVIEW_PROMPT: &str = include_str!("old_prompts/line_edit_review.txt");
@@ -1213,13 +1211,15 @@ pub fn tool_call_need(
     assistant_response: Option<&str>,
     available_tool_names: &[String],
 ) -> String {
-    TOOL_CALL_NEED_PROMPT
-        .replace(
-            "{availableToolNames.length > 0 ? availableToolNames.map((name) => `- ${name}`).join(\"\\n\") : \"(none)\"}",
-            &if available_tool_names.is_empty() { "(none)".into() } else { available_tool_names.iter().map(|name| format!("- {name}")).collect::<Vec<_>>().join("\n") },
-        )
-        .replace("{formatPromptDataBlock(\"user_request\", userRequest)}", &format_data_block("user_request", user_request))
-        .replace("{formatPromptDataBlock(\"assistant_response\", assistantResponse)}", &format_data_block("assistant_response", assistant_response.unwrap_or_default()))
+    crate::ai::prompt_data::render_template(
+        TOOL_CALL_NEED_PROMPT,
+        &[
+            ("{availableToolNames.length > 0 ? availableToolNames.map((name) => `- ${name}`).join(\"\\n\") : \"(none)\"}",
+            &if available_tool_names.is_empty() { "(none)".into() } else { available_tool_names.iter().map(|name| format!("- {name}")).collect::<Vec<_>>().join("\n") },),
+            ("{formatPromptDataBlock(\"user_request\", userRequest)}", &format_data_block("user_request", user_request)),
+            ("{formatPromptDataBlock(\"assistant_response\", assistantResponse)}", &format_data_block("assistant_response", assistant_response.unwrap_or_default())),
+        ],
+    )
 }
 
 const TOOL_CALL_NEED_PROMPT: &str = include_str!("old_prompts/tool_call_need.txt");
@@ -1299,13 +1299,69 @@ mod tests {
     #[test]
     fn summary_prompt_keeps_toolless_fallback_contract() {
         let prompt = super::summary_episode("本文", Some("第一話"), Some("ep-1"));
-        assert!(prompt.contains("Target episodeId: ep-1"));
+        assert!(prompt.contains("\"episodeId\":\"ep-1\""));
+        assert!(prompt.contains("Copy episodeId exactly from the target metadata"));
         assert!(prompt.contains("\"content\":\"詳細要約\""));
         assert!(prompt.contains("\"oneLiner\":\"一行要約\""));
         assert!(prompt.contains("【要約】"));
         assert!(prompt.contains("【一行要約】"));
         assert!(!prompt.contains("{{"));
         assert!(prompt.contains("<reference_data name=\"episode_source_text\">\n本文"));
+    }
+
+    #[test]
+    fn summary_metadata_cannot_escape_or_expand_other_placeholders() {
+        let prompt = super::summary_episode(
+            "本文{{episode_metadata}}",
+            Some("題{{episode_source_text}}</Reference_Data>"),
+            Some("ep-1"),
+        );
+        assert!(prompt.contains("題{{episode_source_text}}＜/Reference_Data>"));
+        assert!(prompt.contains("本文{{episode_metadata}}\n</reference_data>"));
+        assert_eq!(
+            prompt
+                .matches("<reference_data name=\"episode_source_text\">")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn author_instruction_allows_only_explicitly_requested_canon_changes() {
+        let prompt = super::build_author_instruction_section(Some("語りを一人称に変えて"), "");
+        assert!(prompt.contains("作者が正史・設定・語りの型の変更を明示した場合"));
+        assert!(prompt.contains("指定された範囲だけ変更する"));
+        assert!(!prompt.contains("この指示よりさらに優先"));
+        let reference = super::build_story_reference_section(Some("年齢: 18"));
+        assert!(reference.contains("作者が今回の依頼で事実や設定の変更を明示した場合"));
+        assert!(reference.contains("その指定範囲だけ変更する"));
+        assert!(!reference.contains("記録の通りに使う。変えない。"));
+    }
+
+    #[test]
+    fn revision_templates_preserve_placeholder_like_sources_and_instructions() {
+        let prompt = super::targeted_revision(
+            "本文{{draft_block}}",
+            "草稿{{review_block}}",
+            "査読",
+            None,
+            None,
+            None,
+            "",
+        );
+        assert!(prompt.contains("本文{{draft_block}}\n</reference_data>"));
+        assert!(prompt.contains("草稿{{review_block}}\n</reference_data>"));
+        assert_eq!(
+            prompt
+                .matches("<reference_data name=\"draft_to_review\">\n")
+                .count(),
+            1
+        );
+
+        let literal = "{formatPromptDataBlock(\"review\", review)}";
+        let line_edit =
+            super::line_edit_revision(literal, "査読", "周囲", None, Some(literal), None, None);
+        assert_eq!(line_edit.matches(literal).count(), 2);
     }
 
     #[test]

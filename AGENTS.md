@@ -1,5 +1,11 @@
 # Project-Specific Agent Instructions
 
+## AI 関連の開発 Skill
+
+AI 接続、プロンプト、エージェントのツール実行を調査・変更する場合は、
+`.agents/skills/litra-ai-workflows/SKILL.md` を参照してください。
+これは開発用の手順であり、LITRA アプリ内で実行される Skill ではありません。
+
 ## ツールの積極的な活用
 
 コードの探索・理解・変更を行う際は、以下のツールを積極的に使用してください。

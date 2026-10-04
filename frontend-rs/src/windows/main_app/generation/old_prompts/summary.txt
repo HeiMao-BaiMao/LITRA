@@ -1,6 +1,7 @@
 TASK:
-Create and save a detailed Japanese summary and a Japanese one-line summary for the episode "{{title}}".
-Target episodeId: {{episode_id}}
+Create a detailed Japanese summary and a Japanese one-line summary for the episode described in the target metadata. The application saves the validated result.
+
+{{episode_metadata}}
 
 DETAILED SUMMARY RULES (content):
 1. Write in Japanese. 要約は必ず日本語で書くこと。
@@ -20,8 +21,8 @@ EXECUTION — follow in this exact order:
 1. Read the episode text below.
 2. Compose both summaries following the rules above.
 3. This request is handled by the application as a direct generation request. Do NOT call tools, do NOT explain the process, and do NOT repeat the full summary outside the response object.
-4. Output exactly one JSON object and nothing else. Use this schema:
-   {"episodeId":"{{episode_id}}","content":"詳細要約","oneLiner":"一行要約"}
+4. Output exactly one JSON object and nothing else. Copy episodeId exactly from the target metadata. Use this schema:
+   {"episodeId":"対象episodeId","content":"詳細要約","oneLiner":"一行要約"}
 5. Only if JSON output is technically impossible → output exactly these Japanese headings as a text fallback:
   【要約】
   （詳細要約）

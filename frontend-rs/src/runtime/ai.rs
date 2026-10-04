@@ -1,4 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeSet,
+    rc::Rc,
+};
 
 use js_sys::{Date, Function};
 use serde::{Deserialize, Serialize};
@@ -6,7 +10,23 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use super::{invoke, tauri};
 
-thread_local! { static ACTIVE_REQUEST: RefCell<Option<String>> = const { RefCell::new(None) }; }
+thread_local! {
+    static ACTIVE_REQUESTS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    static CANCELLATION_EPOCH: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Captured by an agent run, including intervals when no HTTP request exists.
+pub fn cancellation_epoch() -> u64 {
+    CANCELLATION_EPOCH.with(Cell::get)
+}
+
+pub fn ensure_not_cancelled(epoch: u64) -> Result<(), JsValue> {
+    if cancellation_epoch() == epoch {
+        Ok(())
+    } else {
+        Err(JsValue::from_str(AI_GENERATION_CANCELLED))
+    }
+}
 
 const AI_GENERATION_CANCELLED: &str = "AI_GENERATION_CANCELLED";
 
@@ -66,12 +86,20 @@ pub fn is_cancelled_error(error: &JsValue) -> bool {
     error.as_string().as_deref() == Some(AI_GENERATION_CANCELLED)
 }
 
-fn clear_active_request(request_id: &str) {
-    ACTIVE_REQUEST.with(|active| {
-        if active.borrow().as_deref() == Some(request_id) {
-            active.borrow_mut().take();
-        }
+fn register_active_request(request_id: &str) {
+    ACTIVE_REQUESTS.with(|active| {
+        active.borrow_mut().insert(request_id.to_owned());
     });
+}
+
+fn clear_active_request(request_id: &str) {
+    ACTIVE_REQUESTS.with(|active| {
+        active.borrow_mut().remove(request_id);
+    });
+}
+
+fn active_request_ids() -> Vec<String> {
+    ACTIVE_REQUESTS.with(|active| active.borrow().iter().cloned().collect())
 }
 
 #[wasm_bindgen(inline_js = r#"
@@ -340,6 +368,7 @@ pub async fn generate_with(
     provider_override: Option<&str>,
     model_override: Option<&str>,
 ) -> Result<GeneratedText, JsValue> {
+    let request_epoch = cancellation_epoch();
     log_ai_info(&format!(
         "config:resolve kind=completion role={role} providerOverride={} modelOverride={}",
         provider_override.unwrap_or("<default>"),
@@ -364,6 +393,7 @@ pub async fn generate_with(
             return Err(error);
         }
     };
+    ensure_not_cancelled(request_epoch)?;
     let provider = config.provider.clone();
     let model = config.model.clone();
     let request_id = format!("ai_{}", tauri::random_uuid().replace('-', ""));
@@ -413,6 +443,9 @@ pub async fn generate_with(
     let callback_provider = provider.clone();
     let callback_model = model.clone();
     let callback = Closure::wrap(Box::new(move |event: JsValue| {
+        if cancellation_epoch() != request_epoch {
+            return;
+        }
         let Ok(value) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) else {
             log_ai_warn(&format!(
                 "event:decode_error kind=completion request={callback_request_id}"
@@ -455,9 +488,10 @@ pub async fn generate_with(
             _ => {}
         }
     }) as Box<dyn FnMut(JsValue)>);
-    ACTIVE_REQUEST.with(|active| *active.borrow_mut() = Some(request_id.clone()));
+    register_active_request(&request_id);
     let result = stream_tauri_ai(request, callback.as_ref().unchecked_ref()).await;
     clear_active_request(&request_id);
+    ensure_not_cancelled(request_epoch)?;
     if let Err(error) = result {
         log_request_failure(
             "completion",
@@ -520,6 +554,7 @@ pub async fn generate_streaming<F>(
 where
     F: FnMut(&str),
 {
+    let request_epoch = cancellation_epoch();
     log_ai_info(&format!(
         "config:resolve kind=streaming role={role} providerOverride={} modelOverride={}",
         provider_override.unwrap_or("<default>"),
@@ -544,6 +579,7 @@ where
             return Err(error);
         }
     };
+    ensure_not_cancelled(request_epoch)?;
     let provider = config.provider.clone();
     let model = config.model.clone();
     let request_id = format!("ai_{}", tauri::random_uuid().replace('-', ""));
@@ -594,6 +630,9 @@ where
     let callback_provider = provider.clone();
     let callback_model = model.clone();
     let callback = Closure::wrap(Box::new(move |event: JsValue| {
+        if cancellation_epoch() != request_epoch {
+            return;
+        }
         let Ok(value) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) else {
             log_ai_warn(&format!(
                 "event:decode_error kind=streaming request={callback_request_id}"
@@ -637,9 +676,10 @@ where
             _ => {}
         }
     }) as Box<dyn FnMut(JsValue)>);
-    ACTIVE_REQUEST.with(|active| *active.borrow_mut() = Some(request_id.clone()));
+    register_active_request(&request_id);
     let result = stream_tauri_ai(request, callback.as_ref().unchecked_ref()).await;
     clear_active_request(&request_id);
+    ensure_not_cancelled(request_epoch)?;
     if let Err(error) = result {
         log_request_failure(
             "streaming",
@@ -735,6 +775,7 @@ pub async fn agent_turn_observed<F>(
 where
     F: FnMut(AgentStreamUpdate) + 'static,
 {
+    let request_epoch = cancellation_epoch();
     log_ai_info(&format!(
         "config:resolve kind=agent role={role} providerOverride={} modelOverride={}",
         provider_override.unwrap_or("<default>"),
@@ -759,6 +800,7 @@ where
             return Err(error);
         }
     };
+    ensure_not_cancelled(request_epoch)?;
     let provider = config.provider.clone();
     let model = config.model.clone();
     let request_id = format!("ai_{}", tauri::random_uuid().replace('-', ""));
@@ -830,6 +872,9 @@ where
     let callback_provider = provider.clone();
     let callback_model = model.clone();
     let callback = Closure::wrap(Box::new(move |event: JsValue| {
+        if cancellation_epoch() != request_epoch {
+            return;
+        }
         let Ok(value) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) else {
             log_ai_warn(&format!(
                 "event:decode_error kind=agent request={callback_request_id}"
@@ -939,9 +984,10 @@ where
             _ => {}
         }
     }) as Box<dyn FnMut(JsValue)>);
-    ACTIVE_REQUEST.with(|active| *active.borrow_mut() = Some(request_id.clone()));
+    register_active_request(&request_id);
     let result = stream_tauri_ai(request, callback.as_ref().unchecked_ref()).await;
     clear_active_request(&request_id);
+    ensure_not_cancelled(request_epoch)?;
     if let Err(error) = result {
         log_request_failure("agent", &request_id, started_at, &js_error_message(&error));
         return Err(error);
@@ -994,10 +1040,33 @@ struct CancelArgs {
 }
 
 pub fn cancel_active() {
-    let request_id = ACTIVE_REQUEST.with(|active| active.borrow().clone());
-    if let Some(request_id) = request_id {
+    CANCELLATION_EPOCH.with(|epoch| epoch.set(epoch.get().wrapping_add(1)));
+    for request_id in active_request_ids() {
         wasm_bindgen_futures::spawn_local(async move {
             let _ = invoke::invoke::<_, ()>("ai_cancel", &CancelArgs { request_id }).await;
         });
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    #[test]
+    fn cancellation_epoch_advances_without_an_active_http_request() {
+        let before = cancellation_epoch();
+        cancel_active();
+        let after = cancellation_epoch();
+        assert_ne!(before, after);
+        assert!(ensure_not_cancelled(after).is_ok());
+    }
+    #[test]
+    fn parallel_requests_remain_cancellable_when_a_sibling_completes() {
+        register_active_request("audit-one");
+        register_active_request("audit-two");
+        assert_eq!(active_request_ids(), vec!["audit-one", "audit-two"]);
+        clear_active_request("audit-one");
+        assert_eq!(active_request_ids(), vec!["audit-two"]);
+        clear_active_request("audit-two");
+        assert!(active_request_ids().is_empty());
     }
 }

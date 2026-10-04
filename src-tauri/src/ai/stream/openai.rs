@@ -1,7 +1,7 @@
 use serde_json::Value;
 use tauri::ipc::Channel;
 
-use super::{send, StreamState};
+use super::{finish, send, StreamState};
 use crate::ai::types::AiStreamEvent;
 
 pub fn parse_responses(
@@ -99,10 +99,15 @@ pub fn parse_responses(
                 .get("name")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            let id = value.get("call_id").and_then(Value::as_str).unwrap_or(key);
+            // arguments.done normally has item_id but no call_id. Preserve the
+            // call_id from output_item.added; item_id is a different identifier.
+            let id = value
+                .get("call_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             state.start(key.into(), id.into(), name.into());
             emit_tool_call(
-                state.finish(key, value.get("arguments").and_then(Value::as_str)),
+                state.finish(key, value.get("arguments").and_then(Value::as_str))?,
                 channel,
             )
         }
@@ -114,12 +119,7 @@ pub fn parse_responses(
                 .pointer("/response/incomplete_details/reason")
                 .and_then(Value::as_str)
                 .map(str::to_string);
-            send(
-                channel,
-                AiStreamEvent::Finished {
-                    finish_reason: reason,
-                },
-            )
+            finish(channel, state, reason)
         }
         Some("response.failed") | Some("error") => {
             let message = value
@@ -207,16 +207,11 @@ pub fn parse_chat(
         .and_then(Value::as_str)
     {
         if reason == "tool_calls" {
-            for call in state.finish_all() {
+            for call in state.finish_all()? {
                 emit_tool_call(Some(call), channel)?;
             }
         }
-        send(
-            channel,
-            AiStreamEvent::Finished {
-                finish_reason: Some(reason.into()),
-            },
-        )?;
+        finish(channel, state, Some(reason.into()))?;
     }
     Ok(())
 }

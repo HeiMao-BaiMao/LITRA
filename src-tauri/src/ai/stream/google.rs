@@ -1,7 +1,7 @@
 use serde_json::Value;
 use tauri::ipc::Channel;
 
-use super::{send, StreamState};
+use super::{finish, send, StreamState};
 use crate::ai::types::AiStreamEvent;
 
 pub fn parse(
@@ -82,12 +82,7 @@ pub fn parse(
         .pointer("/candidates/0/finishReason")
         .and_then(Value::as_str)
     {
-        send(
-            channel,
-            AiStreamEvent::Finished {
-                finish_reason: Some(reason.into()),
-            },
-        )?;
+        finish(channel, state, Some(reason.into()))?;
     }
     Ok(())
 }

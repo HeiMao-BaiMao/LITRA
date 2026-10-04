@@ -1,23 +1,20 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::ipc::Channel;
 
-use crate::ai::auth::store;
+use crate::ai::{
+    auth::store,
+    oauth::flow::{OAuthAttempt, OAuthFlow},
+};
 
 const CLIENT_ID: &str = "Ov23li8tweQw6odWQebz";
 const FLOW_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Default)]
-pub struct CopilotOAuthCancelFlag(Arc<AtomicBool>);
+pub struct CopilotOAuthCancelFlag(OAuthFlow);
 
 impl CopilotOAuthCancelFlag {
     pub fn new() -> Self {
@@ -63,7 +60,21 @@ pub async fn start_copilot_device_auth(
     on_event: Channel<CopilotOAuthEvent>,
     cancel: tauri::State<'_, CopilotOAuthCancelFlag>,
 ) -> Result<(), String> {
-    cancel.0.store(false, Ordering::SeqCst);
+    let attempt = cancel.0.begin()?;
+    tokio::select! {
+        biased;
+        _ = attempt.token.cancelled() => Err("認証がキャンセルされました。".into()),
+        result = tokio::time::timeout(FLOW_TIMEOUT, run_device_auth(enterprise_url, on_event, &attempt)) => {
+            result.map_err(|_| "Copilot 認証がタイムアウトしました。".to_owned())?
+        }
+    }
+}
+
+async fn run_device_auth(
+    enterprise_url: Option<String>,
+    on_event: Channel<CopilotOAuthEvent>,
+    attempt: &OAuthAttempt,
+) -> Result<(), String> {
     let enterprise_url = enterprise_url
         .as_deref()
         .map(normalize_domain)
@@ -96,22 +107,24 @@ pub async fn start_copilot_device_auth(
         })
         .map_err(|error| format!("Copilot user code の通知に失敗しました: {error}"))?;
 
-    let started = Instant::now();
+    let started = tokio::time::Instant::now();
     let flow_timeout = Duration::from_secs(
         device
             .expires_in
             .unwrap_or(FLOW_TIMEOUT.as_secs())
             .min(FLOW_TIMEOUT.as_secs()),
     );
-    let mut interval = device.interval.unwrap_or(5);
+    let mut interval = device.interval.unwrap_or(5).max(1);
     loop {
-        if cancel.0.load(Ordering::SeqCst) {
-            return Err("ログインがキャンセルされました。".into());
-        }
+        attempt.check()?;
         if started.elapsed() >= flow_timeout {
             return Err("Copilot 認証がタイムアウトしました。".into());
         }
-        tokio::time::sleep(Duration::from_secs(interval + 3)).await;
+        let wait = Duration::from_secs(interval.saturating_add(3));
+        if wait >= flow_timeout.saturating_sub(started.elapsed()) {
+            return Err("Copilot 認証がタイムアウトしました。".into());
+        }
+        tokio::time::sleep(wait).await;
         let token: TokenResponse = client
             .post(format!("https://{domain}/login/oauth/access_token"))
             .header(header::ACCEPT, "application/json")
@@ -124,6 +137,8 @@ pub async fn start_copilot_device_auth(
             .send()
             .await
             .map_err(|error| format!("Copilot token の取得に失敗しました: {error}"))?
+            .error_for_status()
+            .map_err(|error| format!("Copilot token の取得に失敗しました: {error}"))?
             .json()
             .await
             .map_err(|error| format!("Copilot token の解析に失敗しました: {error}"))?;
@@ -131,14 +146,21 @@ pub async fn start_copilot_device_auth(
             if access_token.trim().is_empty() {
                 return Err("Copilot OAuth から空の token が返されました。".into());
             }
-            let api_endpoint = discover_api_endpoint(&client, &access_token).await;
-            store::write_json(
+            // An enterprise-issued token must never be sent to github.com.
+            let api_endpoint = if domain == "github.com" {
+                discover_api_endpoint(&client, &access_token).await
+            } else {
+                None
+            };
+            attempt.check()?;
+            store::write_json_cancellable(
                 "github-copilot",
                 &CopilotCredential {
                     token: access_token,
                     enterprise_url: enterprise_url.clone(),
                     api_endpoint,
                 },
+                attempt.token.clone(),
             )
             .await?;
             return Ok(());
@@ -149,8 +171,8 @@ pub async fn start_copilot_device_auth(
                 interval = token
                     .interval
                     .filter(|value| *value > 0)
-                    .unwrap_or(interval.saturating_add(5))
-                    .min(30)
+                    .unwrap_or(0)
+                    .max(interval.saturating_add(5))
             }
             Some("access_denied") => return Err("認証が拒否されました。".into()),
             Some("expired_token") => return Err("認証コードの有効期限が切れました。".into()),
@@ -168,7 +190,7 @@ pub async fn start_copilot_device_auth(
 pub async fn cancel_copilot_device_auth(
     cancel: tauri::State<'_, CopilotOAuthCancelFlag>,
 ) -> Result<(), String> {
-    cancel.0.store(true, Ordering::SeqCst);
+    cancel.0.cancel();
     Ok(())
 }
 

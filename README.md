@@ -96,6 +96,9 @@ cargo tauri dev
 
 リリース用フロントエンドは `trunk build --release`、Rust バックエンドは `cargo test --manifest-path src-tauri/Cargo.toml` で検証できます。Node.js、Bun、Vite は使用しません。
 
+AI 接続・プロンプト・ツール実行の開発には、リポジトリ内の [LITRA AI workflows Skill](.agents/skills/litra-ai-workflows/SKILL.md) に構成と検証時の注意点をまとめています。これは開発用の Skill であり、アプリ内の Skill 実行機能ではありません。
+GLib/GTK のない環境では `cargo test --locked --manifest-path scripts/ai-connection-tests/Cargo.toml` で接続・認証コードの headless 回帰試験を実行できます。これは Tauri 全体や実 OAuth/UI の検証を置き換えません。[監査結果と検証範囲](docs/reviews/ai-runtime-audit.md) も参照してください。
+
 ### 構成
 
 - `frontend-rs/src/`: 全画面の Rust/WASM フロントエンド、UI、AI クライアント

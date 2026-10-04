@@ -56,18 +56,10 @@ pub fn bind(document: &Document, state: Rc<RefCell<State>>) -> Result<(), JsValu
             return;
         };
         let content = input.value().trim().to_owned();
-        if content.is_empty() {}
-        input.set_value("");
-        resize_chat_input(&input);
-        let document = submit_document.clone();
-        let state = Rc::clone(&submit_state);
-        spawn_local(async move {
-            if let Err(error) = send(&document, &state, content).await {
-                state.borrow_mut().is_streaming = false;
-                let _ = super::render::all(&document, &state.borrow());
-                report(error);
-            }
-        });
+        if start_send(&submit_document, &submit_state, content) {
+            input.set_value("");
+            resize_chat_input(&input);
+        }
     }) as Box<dyn FnMut(Event)>);
     form.add_event_listener_with_callback("submit", submit.as_ref().unchecked_ref())?;
     submit.forget();
@@ -174,13 +166,7 @@ pub async fn listen(document: Document, state: Rc<RefCell<State>>) -> Result<(),
             let Some(content) = value.as_string() else {
                 return;
             };
-            let document = send_document.clone();
-            let state = Rc::clone(&send_state);
-            spawn_local(async move {
-                if let Err(error) = send(&document, &state, content).await {
-                    report(error);
-                }
-            });
+            start_send(&send_document, &send_state, content);
         }) as Box<dyn FnMut(JsValue)>),
     )
     .await?;
@@ -353,5 +339,44 @@ fn confirm(message: &str) -> bool {
 fn alert(message: &str) {
     if let Some(window) = web_sys::window() {
         let _ = window.alert_with_message(message);
+    }
+}
+
+/// Both the form and cross-window event reserve a turn synchronously.
+fn start_send(document: &Document, state: &Rc<RefCell<State>>, content: String) -> bool {
+    {
+        let mut current = state.borrow_mut();
+        if !can_submit(&content, current.chat_in_flight) {
+            return false;
+        }
+        current.chat_in_flight = true;
+    }
+    let cancellation_epoch = ai::cancellation_epoch();
+    let document = document.clone();
+    let state = Rc::clone(state);
+    spawn_local(async move {
+        if let Err(error) = send(&document, &state, content, cancellation_epoch).await {
+            state.borrow_mut().is_streaming = false;
+            let _ = super::render::all(&document, &state.borrow());
+            report(error);
+        }
+        state.borrow_mut().chat_in_flight = false;
+    });
+    true
+}
+
+fn can_submit(content: &str, in_flight: bool) -> bool {
+    !in_flight && !content.trim().is_empty()
+}
+
+#[cfg(test)]
+mod submission_tests {
+    use super::can_submit;
+    #[test]
+    fn rejects_empty_and_repeated_submissions_before_any_async_work() {
+        assert!(!can_submit("", false));
+        assert!(!can_submit(" \n\t", false));
+        assert!(!can_submit("調べて", true));
+        assert!(can_submit("調べて", false));
     }
 }

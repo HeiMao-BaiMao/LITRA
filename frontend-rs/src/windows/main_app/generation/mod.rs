@@ -19,6 +19,26 @@ use crate::runtime::ai;
 /// ドラフト生成中のテキストデルタを受け取るコールバック
 pub type ChunkCallback = Rc<RefCell<dyn FnMut(&str)>>;
 
+/// Check the same run epoch around every asynchronous stage, including optional
+/// stages which intentionally turn ordinary request errors into empty results.
+trait GenerationStage: std::future::Future + Sized {
+    async fn with_cancellation(self, epoch: u64) -> Result<Self::Output, JsValue> {
+        await_stage_checked(|| ai::ensure_not_cancelled(epoch), self).await
+    }
+}
+
+impl<F: std::future::Future> GenerationStage for F {}
+
+async fn await_stage_checked<T, E>(
+    mut check: impl FnMut() -> Result<(), E>,
+    future: impl std::future::Future<Output = T>,
+) -> Result<T, E> {
+    check()?;
+    let result = future.await;
+    check()?;
+    Ok(result)
+}
+
 #[derive(Clone, Default)]
 pub struct FictionReferences {
     pub settings_context: String,
@@ -86,6 +106,7 @@ async fn continue_story_full<F>(
 where
     F: FnMut(&str),
 {
+    let cancellation_epoch = ai::cancellation_epoch();
     // 文体指紋を計測し、旧 TypeScript と同じ文体指標セクションをドラフトへ渡す。
     // 現エピソードが短い場合、直前エピソードの本文を補って計測材料を確保する（TS版 findPreviousEpisodeContent 相当）。
     let style_sample = style_fingerprint::compose_style_sample_text(context, previous_episode_text);
@@ -112,7 +133,8 @@ where
             prompts::scene_state(context, nonempty(&references.settings_context)),
             &mut *on_stage,
         )
-        .await
+        .with_cancellation(cancellation_epoch)
+        .await?
     } else {
         String::new()
     };
@@ -133,7 +155,8 @@ where
             ),
             &mut *on_stage,
         )
-        .await
+        .with_cancellation(cancellation_epoch)
+        .await?
     } else {
         String::new()
     };
@@ -152,7 +175,8 @@ where
                 references.related_scenes.as_deref(),
             ),
         )
-        .await?
+        .with_cancellation(cancellation_epoch)
+        .await??
         .text
     } else {
         String::new()
@@ -164,14 +188,11 @@ where
         on_stage("構成を点検中");
         let check = optional_judgment(
             &craft::system_with_principles(judgment_scaffold(settings)),
-            craft::structure_check(
-                context,
-                nonempty(&references.settings_context),
-                Some(&plan),
-            ),
+            craft::structure_check(context, nonempty(&references.settings_context), Some(&plan)),
             &mut *on_stage,
         )
-        .await;
+        .with_cancellation(cancellation_epoch)
+        .await?;
         if check.trim().is_empty() {
             plan
         } else {
@@ -187,14 +208,11 @@ where
         on_stage("構想の常識を点検中");
         let check = optional_judgment(
             &common_sense::audit_system(),
-            common_sense::plan_check(
-                context,
-                &plan,
-                nonempty(&references.settings_context),
-            ),
+            common_sense::plan_check(context, &plan, nonempty(&references.settings_context)),
             &mut *on_stage,
         )
-        .await;
+        .with_cancellation(cancellation_epoch)
+        .await?;
         if check.trim().is_empty() {
             plan
         } else {
@@ -218,7 +236,8 @@ where
             ),
             &mut *on_stage,
         )
-        .await
+        .with_cancellation(cancellation_epoch)
+        .await?
     } else {
         String::new()
     };
@@ -254,7 +273,8 @@ where
             &craft_card,
             &beats,
         )
-        .await?
+        .with_cancellation(cancellation_epoch)
+        .await??
     } else {
         draft(
             context,
@@ -269,7 +289,8 @@ where
             None,
             on_chunk.clone(),
         )
-        .await?
+        .with_cancellation(cancellation_epoch)
+        .await??
     };
     let mut selected = if best_of_two {
         on_stage("第2候補を生成中");
@@ -286,7 +307,8 @@ where
             None,
             None,
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         on_stage("候補を比較中");
         if review::choose_draft(
             &first.text,
@@ -297,7 +319,8 @@ where
             judgment_scaffold(settings),
             Some(instruction),
         )
-        .await?
+        .with_cancellation(cancellation_epoch)
+        .await??
         {
             second
         } else {
@@ -324,7 +347,8 @@ where
             None,
             None,
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         let retry_check = draft_checks::check_draft(&retry.text, context);
         if retry_check.hard.len() < mechanical.hard.len() {
             selected = retry;
@@ -349,7 +373,8 @@ where
                 &extras,
                 j_scaffold,
             )
-            .await?
+            .with_cancellation(cancellation_epoch)
+            .await??
         } else {
             review::inspect_craft(
                 context,
@@ -361,7 +386,8 @@ where
                 &extras,
                 j_scaffold,
             )
-            .await?
+            .with_cancellation(cancellation_epoch)
+            .await??
         };
         // craft 検証(初読読者・緩急・テーマ・常識・品質)を査読に重ねる。
         // 各トグルは独立。品質検査3系統は並列実行するため、ステージ通知は
@@ -379,7 +405,8 @@ where
                     "events",
                     &stage,
                 )
-                .await,
+                .with_cancellation(cancellation_epoch)
+                .await?,
             );
         }
         if enabled(settings, "craftPacingAuditEnabled") {
@@ -393,7 +420,8 @@ where
                     "findings",
                     &stage,
                 )
-                .await,
+                .with_cancellation(cancellation_epoch)
+                .await?,
             );
         }
         if enabled(settings, "craftThemeAuditEnabled") {
@@ -412,7 +440,8 @@ where
                     "findings",
                     &stage,
                 )
-                .await,
+                .with_cancellation(cancellation_epoch)
+                .await?,
             );
         }
         // 一般常識監査: 本文を現実世界の常識(暦・季節・制度・因果・
@@ -432,7 +461,8 @@ where
                     "findings",
                     &stage,
                 )
-                .await,
+                .with_cancellation(cancellation_epoch)
+                .await?,
             );
         }
         // 品質検査: 表現密度・視点識別・動機論理の3系統は独立なので
@@ -495,7 +525,9 @@ where
                     &stage,
                 )));
             }
-            let results = futures::future::join_all(audits).await;
+            let results = futures::future::join_all(audits)
+                .with_cancellation(cancellation_epoch)
+                .await?;
             let quality_findings = results
                 .into_iter()
                 .filter(|value| !value.trim().is_empty())
@@ -566,7 +598,8 @@ where
             references.related_scenes.as_deref(),
             &revise_extras,
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         if revised.text == selected.text {
             return Ok(selected);
         }
@@ -580,7 +613,8 @@ where
                 judgment_scaffold(settings),
                 enabled(settings, "craftCompareRevisionsEnabled"),
             )
-            .await?
+            .with_cancellation(cancellation_epoch)
+            .await??
         {
             selected = revised;
         }
@@ -645,6 +679,7 @@ async fn rewrite_passage_streaming_with_progress<F>(
 where
     F: FnMut(&str),
 {
+    let cancellation_epoch = ai::cancellation_epoch();
     on_stage("設定資料を確認中");
     on_stage("書き直し案を生成中");
     let first = rewrite_candidate(
@@ -655,7 +690,8 @@ where
         scaffold(settings),
         on_chunk,
     )
-    .await?;
+    .with_cancellation(cancellation_epoch)
+    .await??;
     let mut selected = if enabled(settings, "continuationBestOfTwo") {
         on_stage("別の書き直し案を生成中");
         let second = rewrite_candidate(
@@ -666,7 +702,8 @@ where
             scaffold(settings),
             None,
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         on_stage("書き直し案を比較中");
         if review::choose_candidate(
             &first.text,
@@ -677,7 +714,8 @@ where
             nonempty(&references.settings_context),
             judgment_scaffold(settings),
         )
-        .await?
+        .with_cancellation(cancellation_epoch)
+        .await??
         {
             second
         } else {
@@ -697,7 +735,8 @@ where
             "",
             scaffold(settings),
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         if !review::requires_revision(&findings) {
             return Ok(selected);
         }
@@ -712,7 +751,8 @@ where
             references.related_scenes.as_deref(),
             "",
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         if revised.text == selected.text {
             return Ok(selected);
         }
@@ -726,7 +766,8 @@ where
                 judgment_scaffold(settings),
                 enabled(settings, "craftCompareRevisionsEnabled"),
             )
-            .await?
+            .with_cancellation(cancellation_epoch)
+            .await??
         {
             selected = revised;
         }
@@ -748,6 +789,7 @@ async fn draft(
     beat_directive: Option<(&str, usize, usize)>,
     on_chunk: Option<ChunkCallback>,
 ) -> Result<ai::GeneratedText, JsValue> {
+    let cancellation_epoch = ai::cancellation_epoch();
     let prompt = prompts::draft(
         context,
         instruction,
@@ -774,9 +816,12 @@ async fn draft(
                 (cb.borrow_mut())(chunk);
             },
         )
-        .await?
+        .with_cancellation(cancellation_epoch)
+        .await??
     } else {
-        ai::generate("writing", system, prompt.clone()).await?
+        ai::generate("writing", system, prompt.clone())
+            .with_cancellation(cancellation_epoch)
+            .await??
     };
     // TS の continuation と同じく、出力上限で切れた場合は同じ会話を
     // 最大2回だけ継続し、途中で欠けた本文をそのまま連結する。
@@ -796,7 +841,7 @@ async fn draft(
             None,
             None,
             None,
-        ).await?;
+        ).with_cancellation(cancellation_epoch).await??;
         result.text.push_str(&turn.text);
         result.finish_reason = turn.finish_reason;
     }
@@ -835,6 +880,7 @@ async fn draft_beats(
     craft: &str,
     beats: &[String],
 ) -> Result<ai::GeneratedText, JsValue> {
+    let cancellation_epoch = ai::cancellation_epoch();
     let mut cumulative_context = context.to_string();
     let mut combined: Option<ai::GeneratedText> = None;
     for (index, beat) in beats.iter().enumerate() {
@@ -851,7 +897,8 @@ async fn draft_beats(
             Some((beat, index + 1, beats.len())),
             None,
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         let part_text = part.text.clone();
         if let Some(result) = combined.as_mut() {
             result.text.push_str(&part_text);
@@ -896,11 +943,7 @@ async fn rewrite_candidate(
 /// 場面状態カード・話し方カードのような「無くても続行できる」判断系生成。
 /// 失敗しても続きの生成は止めない（カード無しで続行）が、黙って握り潰さず
 /// on_stage で一拍可視化する（詳細は runtime::ai のログに残る）。
-async fn optional_judgment(
-    system: &str,
-    prompt: String,
-    on_stage: &mut dyn FnMut(&str),
-) -> String {
+async fn optional_judgment(system: &str, prompt: String, on_stage: &mut dyn FnMut(&str)) -> String {
     match ai::generate("judgment", system.to_owned(), prompt).await {
         Ok(result) => result.text,
         Err(_) => {
@@ -1075,6 +1118,59 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn cancelled_stage_is_not_polled() {
+        let polled = std::cell::Cell::new(false);
+        let result = futures::executor::block_on(await_stage_checked(|| Err("cancelled"), async {
+            polled.set(true)
+        }));
+        assert_eq!(result, Err("cancelled"));
+        assert!(!polled.get());
+    }
+
+    #[test]
+    fn cancellation_after_optional_failure_blocks_the_next_stage() {
+        let cancelled = std::cell::Cell::new(false);
+        let next_stage_started = std::cell::Cell::new(false);
+        let result = futures::executor::block_on(async {
+            let _optional = await_stage_checked(
+                || {
+                    if cancelled.get() {
+                        Err("cancelled")
+                    } else {
+                        Ok(())
+                    }
+                },
+                async {
+                    cancelled.set(true);
+                    // Optional judgments deliberately swallow ordinary errors.
+                    String::new()
+                },
+            )
+            .await?;
+            next_stage_started.set(true);
+            Ok::<_, &str>(())
+        });
+        assert_eq!(result, Err("cancelled"));
+        assert!(!next_stage_started.get());
+    }
+
+    #[test]
+    fn stage_checks_preserve_success_and_ordinary_errors() {
+        assert_eq!(
+            futures::executor::block_on(await_stage_checked(|| Ok::<_, &str>(()), async {
+                Ok::<_, &str>("draft")
+            },)),
+            Ok(Ok("draft")),
+        );
+        assert_eq!(
+            futures::executor::block_on(await_stage_checked(|| Ok::<_, &str>(()), async {
+                Err::<(), _>("temporary error")
+            },)),
+            Ok(Err("temporary error")),
+        );
+    }
+
+    #[test]
     fn scaffold_falls_back_to_seeded_model_default_when_no_explicit_override() {
         // writingOverrides/トップレベル promptScaffold のどちらも無い場合のみ、
         // seed_model_scaffold_defaults が注入する既定値が採用される。
@@ -1099,7 +1195,10 @@ mod tests {
     #[test]
     fn review_gate_forces_revision_on_hard_mechanical_violation_even_if_review_is_clean() {
         assert!(review_gate_requires_revision("【総合判定】問題なし", true));
-        assert!(!review_gate_requires_revision("【総合判定】問題なし", false));
+        assert!(!review_gate_requires_revision(
+            "【総合判定】問題なし",
+            false
+        ));
         assert!(review_gate_requires_revision("【総合判定】要修正", false));
     }
 
@@ -1252,7 +1351,9 @@ mod tests {
     fn craft_finding_lines_keep_line_kind_and_reason() {
         use serde_json::json;
         assert_eq!(
-            format_craft_finding(&json!({"line": 12, "type": "confused", "reason": "誰の発言か分からない"})),
+            format_craft_finding(
+                &json!({"line": 12, "type": "confused", "reason": "誰の発言か分からない"})
+            ),
             Some("- L12 [confused] 誰の発言か分からない".into())
         );
         // 行番号が無くても種別と理由があれば整形する
@@ -1300,6 +1401,7 @@ async fn revise_with_review(
     related_scenes: Option<&str>,
     extra_sections: &str,
 ) -> Result<ai::GeneratedText, JsValue> {
+    let cancellation_epoch = ai::cancellation_epoch();
     if targeted {
         let mut proposal = ai::generate(
             "writing",
@@ -1315,7 +1417,8 @@ async fn revise_with_review(
                 extra_sections,
             ),
         )
-        .await?;
+        .with_cancellation(cancellation_epoch)
+        .await??;
         if let Some(replacements) = old_prompts::parse_targeted_revision(&proposal.text) {
             if replacements.is_empty() {
                 proposal.text = draft.to_string();
@@ -1341,7 +1444,8 @@ async fn revise_with_review(
             extra_sections,
         ),
     )
-    .await
+    .with_cancellation(cancellation_epoch)
+    .await?
 }
 
 fn apply_targeted_replacements(

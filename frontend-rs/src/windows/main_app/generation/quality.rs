@@ -35,11 +35,11 @@ pub fn audit_system() -> String {
 }
 
 fn expand(template: &str, pairs: &[(&str, String)]) -> String {
-    let mut out = template.to_string();
-    for (key, value) in pairs {
-        out = out.replace(key, value);
-    }
-    out
+    let pairs = pairs
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect::<Vec<_>>();
+    crate::ai::prompt_data::render_template(template, &pairs)
 }
 
 /// テキスト末尾の最大 `max_chars` 文字を返す(文字境界を保つ)。
@@ -68,7 +68,10 @@ pub fn density_audit(context: &str, draft: &str) -> String {
                 "{{context_block}}",
                 old_prompts::format_data_block("text_immediately_before_continuation", context),
             ),
-            ("{{draft_block}}", old_prompts::format_data_block("draft_to_review", draft)),
+            (
+                "{{draft_block}}",
+                old_prompts::format_data_block("draft_to_review", draft),
+            ),
         ],
     )
 }
@@ -103,7 +106,10 @@ pub fn pov_audit(
                 old_prompts::format_data_block("text_immediately_before_continuation", context),
             ),
             ("{{previous_block}}", previous_block),
-            ("{{draft_block}}", old_prompts::format_data_block("draft_to_review", draft)),
+            (
+                "{{draft_block}}",
+                old_prompts::format_data_block("draft_to_review", draft),
+            ),
         ],
     )
 }
@@ -133,7 +139,10 @@ pub fn logic_audit(
                     .map(|value| old_prompts::format_data_block("related_scenes", value))
                     .unwrap_or_default(),
             ),
-            ("{{draft_block}}", old_prompts::format_data_block("draft_to_review", draft)),
+            (
+                "{{draft_block}}",
+                old_prompts::format_data_block("draft_to_review", draft),
+            ),
         ],
     )
 }
@@ -245,5 +254,17 @@ mod tests {
         assert_eq!(tail_chars("あいうえお", 3), "うえお");
         assert_eq!(tail_chars("あいう", 10), "あいう");
         assert_eq!(tail_chars("あいうえお", 0), "");
+    }
+
+    #[test]
+    fn audit_preserves_placeholder_like_manuscript_text() {
+        let prompt = density_audit("元の本文{{draft_block}}", "草稿");
+        assert!(prompt.contains("元の本文{{draft_block}}\n</reference_data>"));
+        assert_eq!(
+            prompt
+                .matches("<reference_data name=\"draft_to_review\">")
+                .count(),
+            1
+        );
     }
 }

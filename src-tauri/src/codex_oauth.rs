@@ -6,7 +6,7 @@
 // - コールバックで code を受け取り、state 検証 → code 交換 → キーリング保存まで行う
 // - タイムアウト / キャンセル / エラーは日本語エラーメッセージで返す
 // - 成功・エラー画面はブラウザに安全な HTML を返す
-// - キャンセルは cancel_codex_browser_auth コマンドから atomic フラグ経由で行う
+// - キャンセルは各試行に固有の CancellationToken 経由で行う
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64URL;
 use base64::Engine;
@@ -15,12 +15,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
-use crate::secrets;
+use crate::ai::{auth::store, oauth::flow::OAuthFlow};
+use tokio_util::sync::CancellationToken;
 
 // ---- 定数（サンプル準拠） ----
 
@@ -30,27 +29,17 @@ const DEFAULT_PORT: u16 = 1455;
 const CALLBACK_PATH: &str = "/auth/callback";
 const TIMEOUT_MINUTES: u64 = 5;
 
-// ---- キャンセルフラグ（Tauri managed state として登録） ----
+// ---- 認証試行の管理（Tauri managed state として登録） ----
 
-#[derive(Clone)]
-pub struct OAuthCancelFlag(pub Arc<AtomicBool>);
+#[derive(Clone, Default)]
+pub struct OAuthCancelFlag(OAuthFlow);
 
 impl OAuthCancelFlag {
     pub fn new() -> Self {
-        OAuthCancelFlag(Arc::new(AtomicBool::new(false)))
+        Self::default()
     }
-
-    pub fn reset(&self) {
-        self.0.store(false, Ordering::SeqCst);
-    }
-
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
-    }
-
-    #[allow(dead_code)]
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.0.cancel();
     }
 }
 
@@ -128,89 +117,61 @@ fn url_encode_param(input: &str) -> String {
     result
 }
 
-/// URL デコード（簡易版）
-fn url_decode_param(input: &str) -> String {
-    let mut result = String::with_capacity(input.len());
-    let mut chars = input.chars();
-    while let Some(c) = chars.next() {
-        if c == '%' {
-            let hex: String = chars.by_ref().take(2).collect();
-            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
-            } else {
-                result.push('%');
-                result.push_str(&hex);
-            }
-        } else if c == '+' {
-            result.push(' ');
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-/// URL クエリ文字列を key=value のリストにパースする
+/// UTF-8 対応の URL クエリデコード。
 fn parse_query(query: &str) -> Vec<(String, String)> {
-    query
-        .split('&')
-        .filter(|s| !s.is_empty())
-        .filter_map(|pair| {
-            let mut parts = pair.splitn(2, '=');
-            let key = parts.next()?.to_string();
-            let value = parts.next().unwrap_or("").to_string();
-            Some((key, url_decode_param(&value)))
-        })
-        .collect()
+    // The URL implementation correctly decodes percent-encoded UTF-8 and +.
+    reqwest::Url::parse(&format!("http://localhost/?{query}"))
+        .map(|url| url.query_pairs().into_owned().collect())
+        .unwrap_or_default()
 }
 
 // ---- コールバックサーバー ----
 
 /// 1つの HTTP リクエストを読み取り、path と query params を返す。パース失敗は Err。
-fn read_http_request(stream: &mut TcpStream) -> Result<(String, Vec<(String, String)>), String> {
-    let mut buf = [0u8; 4096];
-    let n = stream
-        .read(&mut buf)
-        .map_err(|e| format!("リクエスト読み取りエラー: {}", e))?;
-
-    if n == 0 {
-        return Err("空のリクエストを受信しました".to_string());
+fn read_http_request(
+    stream: &mut TcpStream,
+    cancel: &CancellationToken,
+) -> Result<(String, Vec<(String, String)>), String> {
+    stream
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .map_err(|e| format!("コールバック読み取り設定エラー: {e}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .map_err(|e| format!("コールバック書き込み設定エラー: {e}"))?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let mut request = Vec::new();
+    let mut chunk = [0; 1024];
+    // TCP may fragment the request line at any byte. A silent local socket
+    // must not hold the callback listener or cancellation hostage.
+    while !request.contains(&b'\n') {
+        if cancel.is_cancelled() {
+            return Err("認証がキャンセルされました。".into());
+        }
+        if std::time::Instant::now() >= deadline || request.len() >= 8192 {
+            return Err("コールバックのリクエストが不完全です。".into());
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) => return Err("空または不完全なリクエストを受信しました".into()),
+            Ok(count) => request.extend_from_slice(&chunk[..count]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => return Err(format!("リクエスト読み取りエラー: {error}")),
+        }
     }
-
-    let request = std::str::from_utf8(&buf[..n])
-        .map_err(|_| "リクエストのエンコードが不正です".to_string())?;
-
-    // 1行目: "GET /auth/callback?code=xxx&state=yyy HTTP/1.1"
-    let first_line = request
+    let first_line = std::str::from_utf8(&request)
+        .map_err(|_| "リクエストのエンコードが不正です")?
         .lines()
         .next()
-        .ok_or_else(|| "空のリクエスト行".to_string())?;
-    let parts: Vec<&str> = first_line.split_whitespace().collect();
-    if parts.len() < 2 || parts[0] != "GET" {
-        return Err(format!(
-            "サポートされていないメソッド: {}",
-            parts.first().unwrap_or(&"?")
-        ));
+        .ok_or("空のリクエスト行")?;
+    let parts = first_line.split_whitespace().collect::<Vec<_>>();
+    if parts.len() != 3 || parts[0] != "GET" || !parts[2].starts_with("HTTP/") {
+        return Err("不正な HTTP リクエストです。".into());
     }
-
-    let path_and_query = parts[1];
-
-    // /cancel はキャンセルとして扱う
-    if path_and_query == "/cancel" {
-        return Err("認証がキャンセルされました".to_string());
-    }
-
-    let (path, query_str) = match path_and_query.find('?') {
-        Some(pos) => (&path_and_query[..pos], &path_and_query[pos + 1..]),
-        None => (path_and_query, ""),
-    };
-
-    if path != CALLBACK_PATH {
-        return Err(format!("不明なパス: {}", path));
-    }
-
-    let params = parse_query(query_str);
-    Ok((path.to_string(), params))
+    let (path, query) = parts[1].split_once('?').unwrap_or((parts[1], ""));
+    Ok((path.into(), parse_query(query)))
 }
 
 /// HTTP レスポンスをストリームに書き込む
@@ -233,7 +194,7 @@ fn success_html() -> &'static str {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>認証完了 - LITRA</title>
+<title>認可コード受信 - LITRA</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f0f4f8}
 .card{background:#fff;border-radius:16px;padding:2.5rem;box-shadow:0 4px 24px rgba(0,0,0,.08);text-align:center;max-width:400px}
@@ -245,8 +206,8 @@ p{color:#555;margin:0;line-height:1.6}
 <body>
 <div class="card">
 <div class="icon">&#x2705;</div>
-<h1>認証完了</h1>
-<p>ChatGPT アカウントの認証が完了しました。<br>このウィンドウは閉じて LITRA に戻ってください。</p>
+<h1>認可コードを受信しました</h1>
+<p>LITRA でログイン処理を完了しています。<br>このウィンドウを閉じ、LITRA で結果を確認してください。</p>
 </div>
 </body>
 </html>"#
@@ -348,7 +309,11 @@ async fn exchange_code_for_tokens(
     redirect_uri: &str,
     code_verifier: &str,
 ) -> Result<TokenResponse, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("OAuth HTTP client error: {e}"))?;
     let params = [
         ("grant_type", "authorization_code"),
         ("code", code),
@@ -391,52 +356,27 @@ async fn exchange_code_for_tokens(
 }
 
 /// トークンをキーリングに保存する（既存の secrets モジュール経由）
-fn save_credential_sync(tokens: &TokenResponse) -> Result<(), String> {
+async fn save_credential(tokens: &TokenResponse, cancel: CancellationToken) -> Result<(), String> {
+    if tokens.access_token.trim().is_empty() || tokens.refresh_token.trim().is_empty() {
+        return Err("OAuth から空のトークンが返されました。".into());
+    }
     let account_id = extract_account_id_from_tokens(tokens);
-    let expires = std::time::SystemTime::now()
+    let expires = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis() as u64
-        + (tokens.expires_in.unwrap_or(3600) * 1000);
-
-    let credential = serde_json::json!({
-        "access": tokens.access_token,
-        "refresh": tokens.refresh_token,
-        "expires": expires,
-        "accountId": account_id,
-    });
-
-    let json_str =
-        serde_json::to_string(&credential).map_err(|e| format!("JSON シリアライズ失敗: {}", e))?;
-
-    // Windows Credential Manager limits one password to 2560 UTF-16 code units.
-    // Keep the same chunked format used by src/secrets.ts.
-    // Windows stores the password as UTF-16 under a 2560-byte limit.
-    // 1000 code points leaves room for surrogate pairs/backend overhead.
-    const CHUNK_SIZE: usize = 1000;
-    const BASE_KEY: &str = "oauth:codex";
-    let chunks: Vec<String> = json_str
-        .chars()
-        .collect::<Vec<_>>()
-        .chunks(CHUNK_SIZE)
-        .map(|chunk| chunk.iter().collect())
-        .collect();
-
-    // Remove chunks from a previous chunked credential before replacing it.
-    if let Some(previous) = secrets::get_secret(BASE_KEY)? {
-        if let Some(count) = previous
-            .strip_prefix("chunks:v1:")
-            .and_then(|v| v.parse::<usize>().ok())
-        {
-            for index in 0..count.min(32) {
-                secrets::delete_secret(&format!("{}:{}", BASE_KEY, index))?;
-            }
-        }
-    }
-    for (index, chunk) in chunks.iter().enumerate() {
-        secrets::set_secret(&format!("{}:{}", BASE_KEY, index), chunk)?;
-    }
-    secrets::set_secret(BASE_KEY, &format!("chunks:v1:{}", chunks.len()))
+        .as_millis() as u64)
+        .saturating_add(tokens.expires_in.unwrap_or(3600).saturating_mul(1000));
+    store::write_json_cancellable(
+        "codex",
+        &serde_json::json!({
+            "access": tokens.access_token,
+            "refresh": tokens.refresh_token,
+            "expires": expires,
+            "accountId": account_id,
+        }),
+        cancel,
+    )
+    .await
 }
 
 // ---- 公開コマンド ----
@@ -449,14 +389,13 @@ pub struct CodexAuthResult {
 
 /// ブラウザ PKCE OAuth フロー全体を実行する Tauri コマンド。
 /// 内部で TCP コールバックサーバーを起動し、PKCE 認可コードフローで認証する。
-/// キャンセルは cancel_codex_browser_auth コマンド経由で atomic フラグを設定する。
+/// キャンセルは cancel_codex_browser_auth コマンド経由で現在の試行に通知する。
 #[tauri::command]
 pub async fn start_codex_browser_auth(
     _app: tauri::AppHandle,
     cancel_flag: tauri::State<'_, OAuthCancelFlag>,
 ) -> Result<CodexAuthResult, String> {
-    // キャンセルフラグをリセット
-    cancel_flag.reset();
+    let attempt = cancel_flag.0.begin()?;
 
     // ---- 1. PKCE & state 生成 ----
     let pkce = generate_pkce();
@@ -488,18 +427,17 @@ pub async fn start_codex_browser_auth(
     // キャンセルフラグを定期的に確認する。
     let (result_tx, result_rx) = oneshot::channel::<Result<String, String>>();
     let state_clone = state.clone();
-    let cancel = cancel_flag.0.clone();
+    let cancel = attempt.token.clone();
 
-    std::thread::spawn(move || {
-        listener
-            .set_nonblocking(true)
-            .expect("set_nonblocking failed");
-
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("OAuth listener error: {e}"))?;
+    let worker = std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(TIMEOUT_MINUTES * 60);
 
         loop {
             // キャンセルチェック
-            if cancel.load(Ordering::SeqCst) {
+            if cancel.is_cancelled() {
                 let _ = result_tx.send(Err("認証がキャンセルされました。".to_string()));
                 return;
             }
@@ -515,7 +453,7 @@ pub async fn start_codex_browser_auth(
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     // このクロージャ内では ? を使わず、明示的に Result を組み立てる
-                    let outcome = match read_http_request(&mut stream) {
+                    let outcome = match read_http_request(&mut stream, &cancel) {
                         Ok((path, params)) => {
                             if path != CALLBACK_PATH {
                                 send_http_response(
@@ -524,9 +462,7 @@ pub async fn start_codex_browser_auth(
                                     "text/html; charset=utf-8",
                                     &error_html("無効なコールバックパスです。"),
                                 );
-                                let _ =
-                                    result_tx.send(Err("無効なコールバックパスです。".to_string()));
-                                return;
+                                continue;
                             }
                             let received_state = params
                                 .iter()
@@ -543,7 +479,9 @@ pub async fn start_codex_browser_auth(
                                         "CSRF 攻撃の可能性があります。認証をやり直してください。",
                                     ),
                                 );
-                                Err("state 検証エラー: 値が一致しません".to_string())
+                                // Ignore unrelated/stale callbacks rather than letting
+                                // them terminate the legitimate authentication attempt.
+                                continue;
                             } else if let Some(error) = params.iter().find(|(k, _)| k == "error") {
                                 let desc = params
                                     .iter()
@@ -557,8 +495,9 @@ pub async fn start_codex_browser_auth(
                                     &error_html(desc),
                                 );
                                 Err(desc.to_string())
-                            } else if let Some((_, code_val)) =
-                                params.iter().find(|(k, _)| k == "code")
+                            } else if let Some((_, code_val)) = params
+                                .iter()
+                                .find(|(k, value)| k == "code" && !value.is_empty())
                             {
                                 send_http_response(
                                     &mut stream,
@@ -584,7 +523,7 @@ pub async fn start_codex_browser_auth(
                                 "text/html; charset=utf-8",
                                 &error_html(&e),
                             );
-                            Err(e)
+                            continue;
                         }
                     };
                     let _ = result_tx.send(outcome);
@@ -602,18 +541,33 @@ pub async fn start_codex_browser_auth(
         }
     });
 
-    // ---- 6. 結果を待機（最長 TIMEOUT_MINUTES + 余裕）----
-    let timeout_dur = Duration::from_secs(TIMEOUT_MINUTES * 60 + 30);
-    let code = tokio::time::timeout(timeout_dur, result_rx)
+    // Cancellation also covers token exchange, not just the callback wait.
+    let callback = tokio::select! {
+        biased;
+        _ = attempt.token.cancelled() => Err("認証がキャンセルされました。".to_owned()),
+        result = tokio::time::timeout(Duration::from_secs(TIMEOUT_MINUTES * 60 + 5), result_rx) => {
+            result.map_err(|_| "認証がタイムアウトしました。".to_owned())
+                .and_then(|result| result.map_err(|_| "OAuth callback stopped".to_owned()))
+                .and_then(|result| result)
+        }
+    };
+    // Ensure the old listener has released the fixed port before allowing a
+    // new attempt. Signal its cancellation only when no callback was received.
+    if callback.is_err() {
+        attempt.token.cancel();
+    }
+    tokio::task::spawn_blocking(move || worker.join())
         .await
-        .map_err(|_| "認証のタイムアウト (5分) になりました。もう一度お試しください。".to_string())?
-        .map_err(|_| "認証がキャンセルされました。".to_string())??;
-
-    // ---- 7. トークン交換 ----
-    let tokens = exchange_code_for_tokens(&code, &redirect_uri, &pkce.verifier).await?;
-
-    // ---- 8. キーリングに保存 ----
-    save_credential_sync(&tokens)?;
+        .map_err(|e| format!("OAuth callback task failed: {e}"))?
+        .map_err(|_| "OAuth callback thread failed".to_owned())?;
+    let code = callback?;
+    let tokens = tokio::select! {
+        biased;
+        _ = attempt.token.cancelled() => return Err("認証がキャンセルされました。".into()),
+        result = exchange_code_for_tokens(&code, &redirect_uri, &pkce.verifier) => result?,
+    };
+    attempt.check()?;
+    save_credential(&tokens, attempt.token.clone()).await?;
 
     Ok(CodexAuthResult {
         success: true,
@@ -628,4 +582,61 @@ pub async fn cancel_codex_browser_auth(
 ) -> Result<(), String> {
     cancel_flag.cancel();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_decoder_preserves_unicode_and_encoded_separators() {
+        assert_eq!(
+            parse_query("error_description=%E6%97%A5%E6%9C%AC%E8%AA%9E+a%26b&code=x%3Dy"),
+            vec![
+                ("error_description".into(), "日本語 a&b".into()),
+                ("code".into(), "x=y".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn callback_reads_fragmented_request_line() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            for part in [
+                "GET /auth/call",
+                "back?code=abc&state=xyz ",
+                "HTTP/1.1\r\n\r\n",
+            ] {
+                stream.write_all(part.as_bytes()).unwrap();
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let (mut stream, _) = listener.accept().unwrap();
+        let (path, params) = read_http_request(&mut stream, &CancellationToken::new()).unwrap();
+        assert_eq!(path, CALLBACK_PATH);
+        assert!(params.contains(&("code".into(), "abc".into())));
+        sender.join().unwrap();
+    }
+
+    #[test]
+    fn silent_callback_socket_cannot_block_cancellation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        let token = CancellationToken::new();
+        token.cancel();
+        let started = std::time::Instant::now();
+        assert!(read_http_request(&mut stream, &token).is_err());
+        assert!(started.elapsed() < Duration::from_millis(200));
+    }
+
+    #[test]
+    fn callback_html_escapes_untrusted_error_text() {
+        let html = error_html("<script>alert('x')</script>&");
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
 }

@@ -49,7 +49,7 @@ pub async fn apply_request(
                 credential = refresh(client, latest).await?;
             }
         } else {
-            credential = refresh(client, credential).await?;
+            return Err("Codex からログアウトされました。再ログインしてください。".into());
         }
     }
     let mut builder = builder
@@ -94,17 +94,25 @@ async fn refresh(client: &Client, previous: CodexCredential) -> Result<CodexCred
         .json()
         .await
         .map_err(|error| format!("Codex token response is invalid: {error}"))?;
+    if tokens.access_token.trim().is_empty() {
+        return Err("Codex token refresh returned an empty access token".into());
+    }
     let credential = CodexCredential {
         access: tokens.access_token,
-        refresh: tokens.refresh_token.unwrap_or(previous.refresh),
-        expires: now_ms().saturating_add(tokens.expires_in.unwrap_or(3600) * 1000),
+        refresh: tokens
+            .refresh_token
+            .filter(|token| !token.trim().is_empty())
+            .unwrap_or_else(|| previous.refresh.clone()),
+        expires: now_ms().saturating_add(tokens.expires_in.unwrap_or(3600).saturating_mul(1000)),
         account_id: tokens
             .id_token
             .as_deref()
             .and_then(crate::codex_oauth::extract_account_id_from_jwt)
-            .or(previous.account_id),
+            .or_else(|| previous.account_id.clone()),
     };
-    store::write_json("codex", &credential).await?;
+    if !store::replace_json("codex", &previous, &credential).await? {
+        return Err("Codex のログイン状態が変更されました。もう一度お試しください。".into());
+    }
     Ok(credential)
 }
 

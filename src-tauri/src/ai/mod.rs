@@ -69,6 +69,7 @@ async fn stream_request(
     )?;
     let client = transport::build_client()?;
     let prepared = tokio::select! {
+        biased;
         _ = token.cancelled() => {
             send(channel, AiStreamEvent::Cancelled)?;
             return Ok(());
@@ -96,6 +97,7 @@ async fn stream_request_with_request(
     client: reqwest::Client,
 ) -> Result<(), String> {
     let prepared = tokio::select! {
+        biased;
         _ = token.cancelled() => {
             send(channel, AiStreamEvent::Cancelled)?;
             return Ok(());
@@ -118,7 +120,15 @@ async fn stream_prepared(
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let mut body = String::from_utf8_lossy(&prefix).into_owned();
-        body.push_str(&response.text().await.unwrap_or_default());
+        let error_body = tokio::select! {
+            biased;
+            _ = token.cancelled() => {
+                send(channel, AiStreamEvent::Cancelled)?;
+                return Ok(());
+            }
+            body = response.text() => body.unwrap_or_default(),
+        };
+        body.push_str(&error_body);
         let message = format!("AI API エラー ({status}): {}", truncate(&body, 1000));
         let _ = send(
             channel,
@@ -138,6 +148,7 @@ async fn stream_prepared(
     }
     loop {
         tokio::select! {
+            biased;
             _ = token.cancelled() => {
                 send(channel, AiStreamEvent::Cancelled)?;
                 return Ok(());
@@ -166,12 +177,7 @@ async fn stream_prepared(
             &mut stream_state,
         )?;
     }
-    send(
-        channel,
-        AiStreamEvent::Finished {
-            finish_reason: None,
-        },
-    )
+    stream::validate_completion(channel, &stream_state)
 }
 
 fn send(channel: &Channel<AiStreamEvent>, event: AiStreamEvent) -> Result<(), String> {
@@ -187,7 +193,7 @@ fn truncate(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::types::{AiInputMessage, AiTextRequest, AiToolDefinition, ProviderApiType};
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
 
     #[test]
     fn endpoint_is_selected_by_configured_api_type() {
@@ -373,13 +379,11 @@ mod tests {
         first.messages = vec![user_message("hello")];
         let body = first.body();
         assert_eq!(body["reasoning"]["effort"], json!("medium"));
-        assert!(
-            body["input"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update"))
-        );
+        assert!(body["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update")));
 
         let mut second = astra_request(conversation, "high");
         second.messages = vec![
@@ -411,13 +415,11 @@ mod tests {
         second.messages = vec![user_message("hello"), user_message("again")];
         let body = second.body();
         assert_eq!(body["reasoning"]["effort"], json!("high"));
-        assert!(
-            body["input"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update"))
-        );
+        assert!(body["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update")));
     }
 
     #[test]
@@ -427,13 +429,11 @@ mod tests {
         request.messages = vec![user_message("hello")];
         let body = request.body();
         assert_eq!(body["reasoning"]["effort"], json!("high"));
-        assert!(
-            body["input"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update"))
-        );
+        assert!(body["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item.get("type").and_then(Value::as_str) != Some("configuration_update")));
     }
 
     #[test]
@@ -868,5 +868,127 @@ mod tests {
         assert_eq!(input[0]["encrypted_content"], "opaque-reasoning");
         assert!(input[0].get("id").is_none());
         assert_eq!(input[1]["role"], "assistant");
+    }
+    fn collecting_channel() -> (
+        tauri::ipc::Channel<super::AiStreamEvent>,
+        std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    ) {
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = events.clone();
+        (
+            tauri::ipc::Channel::new(move |body| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(body.deserialize::<Value>().unwrap());
+                Ok(())
+            }),
+            events,
+        )
+    }
+
+    #[test]
+    fn http_stream_lifecycle_rejects_premature_eof_and_emits_one_success() {
+        use std::io::{Read, Write};
+        for (body, expected_success) in [
+            (
+                "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+                false,
+            ),
+            (
+                "data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+                true,
+            ),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut input = [0; 4096];
+                assert!(socket.read(&mut input).unwrap() > 0);
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            });
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let response = reqwest::Client::new()
+                        .get(format!("http://{address}"))
+                        .send()
+                        .await
+                        .unwrap();
+                    let (channel, events) = collecting_channel();
+                    let result = super::stream_prepared(
+                        &sample_request(),
+                        &channel,
+                        &super::CancellationToken::new(),
+                        super::transport::AiHttpResponse {
+                            response,
+                            prefix: Vec::new(),
+                        },
+                    )
+                    .await;
+                    assert_eq!(result.is_ok(), expected_success);
+                    let events = events.lock().unwrap();
+                    assert_eq!(
+                        events
+                            .iter()
+                            .filter(|event| event["type"] == "finished")
+                            .count(),
+                        usize::from(expected_success)
+                    );
+                });
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn stalled_http_error_body_is_cancellable() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (release, done) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut input = [0; 4096];
+            assert!(socket.read(&mut input).unwrap() > 0);
+            socket
+                .write_all(b"HTTP/1.1 500 Error\r\nContent-Length: 100\r\n\r\n")
+                .unwrap();
+            let _ = done.recv_timeout(std::time::Duration::from_secs(2));
+        });
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let response = reqwest::Client::new()
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let (channel, events) = collecting_channel();
+                let token = super::CancellationToken::new();
+                token.cancel();
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_millis(100),
+                    super::stream_prepared(
+                        &sample_request(),
+                        &channel,
+                        &token,
+                        super::transport::AiHttpResponse {
+                            response,
+                            prefix: Vec::new(),
+                        },
+                    ),
+                )
+                .await
+                .unwrap();
+                assert!(result.is_ok());
+                assert_eq!(events.lock().unwrap()[0]["type"], "cancelled");
+            });
+        let _ = release.send(());
+        server.join().unwrap();
     }
 }

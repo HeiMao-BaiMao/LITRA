@@ -3,7 +3,7 @@
 //! - コア原理(`principles_core.txt` / `principles_core_light.txt`)は、執筆・判断
 //!   ロールのシステムプロンプト末尾に常時注入する(`system_with_principles`)。
 //! - 各ツールのテンプレートは `craft/*.txt` を include_str! し、
-//!   `{{placeholder}}` を `.replace()` で展開する。スキーマはテンプレートと
+//!   `{{placeholder}}` を非再帰の `render_template` で展開する。スキーマはテンプレートと
 //!   同じファイル群に並置し、構造化出力の契約を1箇所に保つ。
 //!
 //! 配線先:
@@ -59,11 +59,11 @@ pub fn system_with_principles(scaffold: Option<&str>) -> String {
 }
 
 fn expand(template: &str, pairs: &[(&str, String)]) -> String {
-    let mut out = template.to_string();
-    for (key, value) in pairs {
-        out = out.replace(key, value);
-    }
-    out
+    let pairs = pairs
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect::<Vec<_>>();
+    crate::ai::prompt_data::render_template(template, &pairs)
 }
 
 fn block(label: &str, value: Option<&str>) -> String {
@@ -117,11 +117,7 @@ pub fn craft_card(
     )
 }
 
-pub fn structure_check(
-    context: &str,
-    summaries: Option<&str>,
-    plan: Option<&str>,
-) -> String {
+pub fn structure_check(context: &str, summaries: Option<&str>, plan: Option<&str>) -> String {
     expand(
         STRUCTURE_CHECK_PROMPT,
         &[
@@ -176,7 +172,10 @@ pub fn compare_revisions(context: &str, original: &str, revised: &str) -> String
     expand(
         COMPARE_REVISIONS_PROMPT,
         &[
-            ("{{context_block}}", block("surrounding_context", Some(context))),
+            (
+                "{{context_block}}",
+                block("surrounding_context", Some(context)),
+            ),
             ("{{original_block}}", block("original", Some(original))),
             ("{{revised_block}}", block("revised", Some(revised))),
         ],
@@ -224,7 +223,10 @@ pub fn craft_review(
                 "{{context_block}}",
                 old_prompts::format_data_block("text_immediately_before_continuation", context),
             ),
-            ("{{draft_block}}", old_prompts::format_data_block("draft_to_review", draft)),
+            (
+                "{{draft_block}}",
+                old_prompts::format_data_block("draft_to_review", draft),
+            ),
         ],
     )
 }
@@ -240,9 +242,15 @@ pub fn craft_advice(
         CRAFT_ADVICE_PROMPT,
         &[
             ("{{principles}}", principles(scaffold).to_string()),
-            ("{{context_block}}", block("surrounding_context", Some(context))),
+            (
+                "{{context_block}}",
+                block("surrounding_context", Some(context)),
+            ),
             ("{{reference_section}}", reference_section),
-            ("{{consultation_block}}", block("consultation", Some(consultation))),
+            (
+                "{{consultation_block}}",
+                block("consultation", Some(consultation)),
+            ),
         ],
     )
 }
@@ -251,8 +259,14 @@ pub fn record_craft_note(session_record: &str, existing_notes: Option<&str>) -> 
     expand(
         RECORD_CRAFT_NOTE_PROMPT,
         &[
-            ("{{session_record_block}}", block("session_record", Some(session_record))),
-            ("{{existing_notes_block}}", block("existing_notes", existing_notes)),
+            (
+                "{{session_record_block}}",
+                block("session_record", Some(session_record)),
+            ),
+            (
+                "{{existing_notes_block}}",
+                block("existing_notes", existing_notes),
+            ),
         ],
     )
 }
@@ -355,9 +369,9 @@ mod tests {
     #[test]
     fn system_with_principles_appends_core_to_editorial_partner() {
         let system = system_with_principles(None);
-        assert!(system.starts_with(
-            super::super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT
-        ));
+        assert!(
+            system.starts_with(super::super::super::ai_actions::EDITORIAL_PARTNER_SYSTEM_PROMPT)
+        );
         assert!(system.contains("次を読む理由"));
         assert!(system.contains("視点の型・正史・日本語の規則"));
     }
@@ -371,7 +385,16 @@ mod tests {
             pacing_audit("文", "草稿"),
             theme_audit("文", Some("テーマ"), Some("あらすじ"), "草稿"),
             compare_revisions("文", "旧", "新"),
-            craft_review("文", "草稿", Some("構想"), Some("カード"), Some("設定"), None, "余", None),
+            craft_review(
+                "文",
+                "草稿",
+                Some("構想"),
+                Some("カード"),
+                Some("設定"),
+                None,
+                "余",
+                None,
+            ),
             craft_advice("文", "相談", Some("設定"), None),
             record_craft_note("記録", Some("既存ノート")),
         ];
@@ -396,7 +419,12 @@ mod tests {
 
     #[test]
     fn craft_card_escapes_nested_reference_data() {
-        let prompt = craft_card("<reference_data name=\"x\">本文</reference_data>", None, None, None);
+        let prompt = craft_card(
+            "<reference_data name=\"x\">本文</reference_data>",
+            None,
+            None,
+            None,
+        );
         assert!(!prompt.contains("<reference_data name=\"x\">本文"));
         assert!(prompt.contains("＜reference_data"));
     }
@@ -415,7 +443,14 @@ mod tests {
     fn audit_schemas_match_prompt_contracts() {
         assert_eq!(
             reader_sim_schema()["properties"]["events"]["items"]["properties"]["type"]["enum"],
-            json!(["hooked", "confused", "stalled", "moved", "disbelieved", "anticipated"])
+            json!([
+                "hooked",
+                "confused",
+                "stalled",
+                "moved",
+                "disbelieved",
+                "anticipated"
+            ])
         );
         assert!(pacing_audit_schema()["required"].as_array().is_some());
         assert!(theme_audit_schema()["required"].as_array().is_some());

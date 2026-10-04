@@ -42,7 +42,8 @@ pub async fn open(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
         },
     );
     populate(document, &state.borrow(), &model_defaults)?;
-    integrations::populate(document, &state.borrow().ai_settings).await?;
+    let integration_settings = state.borrow().ai_settings.clone();
+    integrations::populate(document, &integration_settings).await?;
     set_hidden(document, false)
 }
 
@@ -139,15 +140,9 @@ pub async fn save(document: &Document, state: &Rc<RefCell<State>>) -> Result<(),
             "setting-common-sense-plan-check",
             "commonSensePlanCheckEnabled",
         ),
-        (
-            "setting-quality-density",
-            "craftQualityDensityEnabled",
-        ),
+        ("setting-quality-density", "craftQualityDensityEnabled"),
         ("setting-quality-pov", "craftQualityPovEnabled"),
-        (
-            "setting-quality-logic",
-            "craftQualityLogicEnabled",
-        ),
+        ("setting-quality-logic", "craftQualityLogicEnabled"),
     ] {
         if let Some(input) = document
             .get_element_by_id(id)
@@ -245,7 +240,8 @@ pub async fn reset(document: &Document, state: &Rc<RefCell<State>>) -> Result<()
         },
     );
     populate(document, &state.borrow(), &model_defaults)?;
-    integrations::populate(document, &state.borrow().ai_settings).await
+    let integration_settings = state.borrow().ai_settings.clone();
+    integrations::populate(document, &integration_settings).await
 }
 
 pub fn provider_changed(
