@@ -1,6 +1,6 @@
 {
   "appName": "LITRA",
-  "appVersion": "2.1.1",
+  "appVersion": "2.1.4",
   "sourceFiles": [
     "src-tauri/Cargo.lock",
     "frontend-rs/Cargo.lock"
@@ -2065,7 +2065,7 @@
     {
       "ecosystem": "cargo",
       "name": "rustls",
-      "version": "0.23.43",
+      "version": "0.23.45",
       "license": "Apache-2.0 OR ISC OR MIT",
       "source": "https://github.com/rustls/rustls",
       "homepage": "https://github.com/rustls/rustls"
