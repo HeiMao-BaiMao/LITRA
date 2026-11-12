@@ -723,12 +723,20 @@ fn enum_string(values: &[&str]) -> Value {
 
 const GUIDANCE: &str = r#"
 
-ジャンルチャット用ツール規則:
-- 保存済み定義、知識、資料、分析について答える前に該当ツールで確認し、推測で補完しないでください。
-- 採用済み知識はユーザーの現在の定義です。資料本文、分析、未承認候補、チャット上の発言を自動的に採用済み知識として扱わないでください。
-- 資料からは抽象的で再利用可能な技法だけを扱い、固有の文章、人物、場面を別作品へコピーしないでください。
-- 新しい結論は proposeGenreKnowledgeItem、修正は proposeGenreKnowledgeUpdate、無効化は proposeGenreKnowledgeDisable で未承認候補にしてください。ユーザーの承認なしに採用済み知識を直接変更してはいけません。
-- updateGenreUserDefinition と updateGenreNotes は、ユーザーが保存を明示した場合だけ使用してください。保存する自然言語と最終回答は日本語にしてください。
+GENRE CHAT TOOL GUIDANCE — follow in this exact order:
+1. GROUND BEFORE ANSWERING: Before answering questions about stored genre definitions, accepted knowledge, pending candidates, registered sources, segments, or analysis runs, call the appropriate read/list/search tool (`listGenreSources`, `readGenreSourceMetadata`, `readGenreSourceSegment`, `searchGenreSourceText`, `listGenreAnalyses`, `readGenreAnalysis`, `listGenreKnowledge`, `readGenreKnowledgeItem`, `listGenreKnowledgeCandidates`, `readGenreChatHistory`, `readGenreChatAttachment`). Never guess IDs or stored contents.
+2. RESPECT KNOWLEDGE AUTHORITY:
+   - Accepted knowledge (`listGenreKnowledge`) represents the user's active genre definition.
+   - Reference source texts, analysis outputs, pending candidates, and chat messages are NOT automatically accepted knowledge.
+   - Abstract reusable narrative/stylistic mechanics from sources; never copy work-specific proper nouns, characters, or phrasing into genre rules.
+3. PROPOSE RATHER THAN OVERWRITE:
+   - To add a new genre rule/feature, call `proposeGenreKnowledgeItem` (saves as a pending candidate for user approval).
+   - To refine or retire an existing accepted item, call `proposeGenreKnowledgeUpdate` or `proposeGenreKnowledgeDisable` with the verified `targetKnowledgeItemId` and a concrete Japanese `reason`.
+   - Call `updateGenreUserDefinition` or `updateGenreNotes` ONLY when the user explicitly asks to overwrite the genre's user definition or notes.
+4. LANGUAGE & REPORTING:
+   - Write all natural-language tool fields (`title`, `statement`, `explanation`, `proposedStatement`, `reason`, `userDefinition`, `notes`, `summary`) and your final reply in natural Japanese.
+   - Keep `category` and `proposedImportance` enum values and IDs in English exactly as defined.
+   - Never claim a tool action succeeded unless the tool returned success in this turn.
 "#;
 
 #[cfg(test)]
