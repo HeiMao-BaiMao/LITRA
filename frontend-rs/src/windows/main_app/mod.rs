@@ -56,6 +56,7 @@ struct State {
     world_entries: Vec<Value>,
     relationships: Value,
     project_memos: Vec<Value>,
+    craft_notes: Vec<Value>,
     current_character_id: Option<String>,
     current_world_entry_id: Option<String>,
     current_memo_id: Option<String>,
@@ -381,6 +382,9 @@ async fn open_project(
         .await?
         .unwrap_or_else(|| json!({}));
     let project_memos = project_settings::memos(&project_id).await?;
+    let craft_notes_doc = projects::read_document(&project_id, "craft-notes")
+        .await?
+        .unwrap_or_else(|| json!({"notes":[]}));
     let current_id = episodes.first().map(|episode| episode.id.clone());
     let editor_text = match current_id
         .as_ref()
@@ -420,6 +424,11 @@ async fn open_project(
         .and_then(|item| item.get("id")?.as_str())
         .map(str::to_owned);
     current.project_memos = project_memos;
+    current.craft_notes = craft_notes_doc
+        .get("notes")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     current.current_memo_id = current
         .project_memos
         .first()

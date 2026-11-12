@@ -62,13 +62,25 @@ pub async fn run(
         .filter_map(|d| d["name"].as_str().map(str::to_owned))
         .collect::<Vec<_>>();
     let tool_name_refs = tool_names.iter().map(String::as_str).collect::<Vec<_>>();
+    system.push_str("\n\nNOVEL CRAFT PRINCIPLES — apply these 10 core principles to all story consultation, editorial critique, and prose writing:\n");
+    system.push_str(super::generation::craft::principles(Some("light")));
+    if direct_creative_edit {
+        let scaffold = {
+            let current = state.borrow();
+            super::generation::scaffold(&current.ai_settings).map(str::to_owned)
+        };
+        system.push_str("\n\n");
+        system.push_str(super::generation::old_prompts::fiction_direction(
+            scaffold.as_deref(),
+        ));
+    }
     system.push_str(&build_tool_guidance(&tool_name_refs, direct_creative_edit));
     let settings_context = {
         let current = state.borrow();
         super::prompt_context::build_settings_context(&current, &current.ai_settings)
     };
     if !settings_context.trim().is_empty() {
-        system.push_str("\n\nSTORY REFERENCE DATA — this project's established facts (worldbuilding, characters, relationships, memos, recent synopses):\n1. BEFORE writing fiction or answering anything about this story → look up every character, place, and term of the current scene in the data below.\n2. Use recorded facts as canon unless the current author request explicitly changes them. Apply only the requested canon change; preserve all unrelated facts.\n3. IF a fact is not recorded there → it is unknown. NEVER state it as established canon.\n4. The data does NOT expand what the viewpoint character knows.\n5. Derive plausible knowledge and experience from recorded social attributes.\n6. 作者が今回明示的に変更を依頼した設定以外は、資料に記録された事実を記録通りに使うこと。\n\n");
+        system.push_str("\n\nSTORY REFERENCE DATA — established project canon (worldbuilding, characters, relationships, memos, craft notes, recent synopses):\n1. BEFORE writing fiction or answering any question about this project → look up every relevant character, location, term, relationship, and craft note in the reference block below.\n2. Treat recorded facts as binding canon unless the author's current request explicitly modifies them. Apply an authorized change only to the requested scope; preserve all other recorded facts (names, spellings, forms of address, speech style, relationships, world rules, and recorded craft rules).\n3. IF a fact is not recorded below → it is unknown. NEVER assert unrecorded backstory, relationships, or lore as established canon.\n4. Reference data informs YOU, not the viewpoint character: never leak facts into narration or dialogue that the viewpoint character or speaker has not yet learned.\n5. Derive each character's plausible knowledge, local familiarity, and vocabulary from their recorded social attributes (age, occupation, position, origin, duration of membership/stay).\n\n");
         system.push_str(&crate::ai::prompt_data::format_reference_data(
             "story_reference",
             &settings_context,
@@ -1405,24 +1417,24 @@ fn build_tool_guidance(tool_names: &[&str], direct_creative_edit: bool) -> Strin
     if has_episode_tools {
         s.push_str(r#"
 
-EPISODE TEXT EDITING (hashline) - follow in this order:
-1. WHEN THE USER ASKS YOU TO WRITE FICTION: 「〜を書いて」「本文に追加して」「小説の続きを書いて」「物語を作って」「以下の内容を反映して」など、ユーザーが明示的に本文執筆・追記・編集を依頼した場合 → 相談だけで終わらず、必ずツールを使って実際に本文に書き込むこと。執筆依頼をチャットの相談にすり替えてツールを呼ばないことは禁止。
-2. GROUND FIRST: Before editing, ALWAYS read the target with getEpisodeLines (a range) or findEpisodeLines (a search). They return a `[episodeId#TAG]` header plus `LINE:TEXT` rows. NEVER guess line numbers or content from memory.
-3. EDIT WITH A PATCH: call editEpisode with `input` = one or more sections. Each section starts with the `[episodeId#TAG]` header you just read (copy it verbatim, including #TAG), followed by line ops:
+EPISODE TEXT EDITING (hashline) — follow in this exact order:
+1. WHEN THE USER ASKS TO WRITE OR APPLY FICTION: 「〜を書いて」「本文に追加して」「小説の続きを書いて」「物語を作って」「以下の内容を反映して」など、本文の執筆・追記・反映・修正を明示的に依頼された場合 → チャット上の相談や下書き提示だけで終わらせず、必ず適切な執筆/編集ツールを呼び出して実行すること。
+2. GROUND FIRST: Before any edit, ALWAYS read the target lines with `getEpisodeLines` (line range) or `findEpisodeLines` (keyword search). They return a `[episodeId#TAG]` header plus 1-based `LINE:TEXT` rows. NEVER guess line numbers or line contents from memory.
+3. APPLY HASHLINE PATCH (`editEpisode`): pass `input` containing one or more sections. Each section begins with the exact `[episodeId#TAG]` header returned by the latest read (copy verbatim, including `#TAG`), followed by line operations:
    - `SWAP N.=M:` replace original lines N..M (inclusive) with the `+TEXT` body rows below.
-   - `DEL N.=M` delete lines N..M (no body).
-   - `INS.PRE N:` / `INS.POST N:` insert body before/after line N. `INS.HEAD:` / `INS.TAIL:` insert at file start/end.
-   - Every body row is `+TEXT` (a literal line; `+` alone = blank line). A Markdown bullet is `+- item`. NEVER write `-old` or bare context lines — the range names what changes, the body is only the new content.
-   - Single line: `SWAP N.=N:` / `DEL N`.
-4. Line numbers refer to the ORIGINAL read output and never shift as hunks apply. Touch only lines the read literally displayed.
-5. RANGES ARE TIGHT: cover ONLY lines whose content changes. Never widen a range over unchanged lines. Pure additions use `INS.*`, never a widened `SWAP`.
-6. RE-GROUND AFTER EVERY EDIT: each successful editEpisode mints a fresh #TAG and renumbers. Take the next edit's header/numbers from the edit response (it returns updated `numberedText`) or a fresh getEpisodeLines. On a stale-tag rejection or any surprising result, STOP and re-read before further edits.
-7. Multiple separate changes = multiple sections (or multiple hunks under one header) in a SINGLE editEpisode call — they apply all-or-nothing. Never chain editEpisode calls for changes that belong together.
-8. IF multiple non-contiguous ranges are available as exact 1-based line ranges from the same pre-edit text, use editEpisodeBatch once with every `expectedText`, `replacementText`, and Japanese `reason`. Never apply those ranges through separate tool calls.
-9. Body text must be Japanese, unless the user explicitly asked for another language.
-10. Do NOT ask for confirmation before a clearly requested edit. Ask first only when the target range, the intended change, or the canon impact is ambiguous or high-risk.
-11. reason is required on every edit. State the concrete problem this change fixes or the goal it achieves, in Japanese. NEVER write filler like 「より自然にするため」. This text is saved permanently to a project edit log that other sessions and future consistency checks will read.
-12. After a successful edit, report what changed once (the returned warnings/numberedText or editSummary/editedLineRanges). Do not reprint the whole patch unless the user asks.
+   - `DEL N.=M` delete original lines N..M (no body rows).
+   - `INS.PRE N:` / `INS.POST N:` insert `+TEXT` body rows immediately before / after line N.
+   - `INS.HEAD:` / `INS.TAIL:` insert `+TEXT` body rows at the start / end of the episode.
+   - Every body row MUST start with `+` (`+TEXT` for text; a bare `+` for an empty line; `+- item` for a Markdown bullet). NEVER include `-old` lines or unprefixed context lines.
+   - Single-line shorthand: `SWAP N.=N:` or `DEL N`.
+4. IMMUTABLE LINE NUMBERS PER CALL: all line numbers in one `editEpisode` call refer to the snapshot identified by `#TAG` and do not shift across hunks in the same call. Touch only lines you have actually read.
+5. KEEP RANGES TIGHT: target ONLY the lines that actually change. Never widen `SWAP` across unchanged surrounding lines; use `INS.*` for pure insertions.
+6. RE-GROUND AFTER EVERY EDIT: each successful `editEpisode` mints a new `#TAG` and renumbers lines. Use the updated `numberedText` from the tool response (or call `getEpisodeLines` again) before any subsequent edit. On a stale-tag error, STOP and re-read the range before retrying.
+7. ATOMIC MULTI-HUNK EDITS: combine related changes into multiple hunks (or sections) inside a SINGLE `editEpisode` call so they apply atomically.
+8. BATCH EXACT-RANGE EDITS (`editEpisodeBatch`): when applying multiple non-contiguous 1-based line replacements from the same pre-edit snapshot with exact `expectedText`, `replacementText`, and Japanese `reason`, call `editEpisodeBatch` once rather than chaining separate calls.
+9. LANGUAGE & CONFIRMATION: manuscript body text MUST be Japanese unless the user explicitly requested another language. Execute clearly requested edits immediately without asking for confirmation first; ask only when the target scope or canon impact is genuinely ambiguous.
+10. AUDITABLE `reason`: every edit requires a concrete Japanese `reason` stating the specific flaw fixed or narrative goal achieved (never vague filler like 「より自然にするため」). This reason is recorded permanently in the project edit log for future sessions and consistency checks.
+11. CONCISE COMPLETION REPORT: after a successful edit, report the changed line ranges and summary once in Japanese. Do not reprint the raw patch unless requested.
 "#);
     }
 
@@ -1430,12 +1442,12 @@ EPISODE TEXT EDITING (hashline) - follow in this order:
     if available.contains("continuePassage") {
         s.push_str(r#"
 
-NEW FICTION GENERATION (continuePassage):
-- IF the user asks you to write a new continuation, scene, passage, dialogue sequence, or other manuscript prose → you MUST call continuePassage. Do NOT compose the prose in the chat model and do NOT place prose you invented directly into editEpisode.
-- Put the complete author request into instruction: desired event, mood, length, viewpoint constraints, and anything that must or must not happen.
-- The tool uses the dedicated writing settings and, when enabled, multiple candidates, judgment-model selection, review, and deterministic checks.
-- The result is saved in the proposal cache and does NOT modify the manuscript by itself. If the user explicitly requested writing/application now, immediately call applyPassageProposal with the returned proposalId. Do not copy generatedText into editEpisode.
-- IF the tool fails → report the failure honestly. Do not silently replace it with chat-model prose.
+NEW FICTION GENERATION (`continuePassage`):
+- IF the user asks to write a new continuation, scene, passage, or dialogue sequence for the manuscript → you MUST call `continuePassage`. Do NOT draft the prose directly in chat and do NOT bypass `continuePassage` by writing fresh story prose straight into `editEpisode`.
+- Pass the complete author directive in `instruction` (desired events, emotional direction, pacing, length, viewpoint constraints, and anything to include or avoid).
+- `continuePassage` runs the dedicated writing pipeline (continuity cards, planning, multi-candidate selection, judgment review, and quality/common-sense checks) and stores the result in the proposal cache without modifying the episode file by itself.
+- IF the user explicitly asked to write/append the continuation into the manuscript right now → immediately call `applyPassageProposal` with the returned `proposalId`. Never copy `generatedText` into `editEpisode`.
+- IF `continuePassage` fails → report the error honestly in Japanese; never silently substitute chat-model prose.
 "#);
     }
 
@@ -1443,12 +1455,11 @@ NEW FICTION GENERATION (continuePassage):
     if direct_creative_edit && available.contains("editEpisode") {
         s.push_str(r#"
 
-DIRECT CREATIVE EDITING MODE - ACTIVE:
-- This mode replaces the multi-stage continuePassage pipeline. For a request to write new fiction, you MUST write the final Japanese prose yourself and apply it with editEpisode (a hashline patch) in this same turn. Do not call continuePassage, rewritePassage, lineEditPassage, or any proposal-selection/review pipeline.
-- Ground first with getEpisodeLines or findEpisodeLines, then issue a hashline patch. For a continuation at the end, use `INS.TAIL:` (or `INS.POST N:` after the final line) with the newly written prose as `+TEXT` body rows. Do not retype unchanged lines.
-- Do not merely print or propose the prose in chat. The requested result is complete only after editEpisode returns success.
-- Keep canon, viewpoint, tense, voice, and the user's requested length, but perform no separate planning, candidate generation, literary review, or regression comparison.
-- If editEpisode rejects with a stale tag, re-read the affected range and retry once with the fresh `[episodeId#TAG]`. If it still fails, report the failure without claiming that the manuscript changed.
+DIRECT CREATIVE EDITING MODE — ACTIVE:
+- This mode replaces the multi-stage `continuePassage` / `rewritePassage` / `lineEditPassage` pipeline. When asked to write or edit fiction, compose the finished Japanese manuscript prose yourself following all narration-mode, canon, and style rules, and apply it directly via `editEpisode` (hashline patch) in this same turn.
+- Ground first with `getEpisodeLines` or `findEpisodeLines` to obtain the current `[episodeId#TAG]`. For appending at the end of an episode, use `INS.TAIL:` (or `INS.POST N:` after the last line) with `+TEXT` rows. Never retype unchanged lines.
+- Do NOT merely print the story prose in chat: the task is complete only after `editEpisode` returns success.
+- If `editEpisode` rejects due to a stale tag, re-read with `getEpisodeLines` and retry once with the fresh `[episodeId#TAG]`. If it still fails, report the failure honestly without claiming the manuscript was updated.
 "#);
     }
 
@@ -1459,34 +1470,33 @@ DIRECT CREATIVE EDITING MODE - ACTIVE:
     if has_proposal_tools {
         s.push_str(r#"
 
-CACHED PASSAGE PROPOSALS:
-- Previously generated continuation proposals persist outside chat history. Use listPassageProposals when the user asks what was generated earlier or no proposalId is available in the current context.
-- Use getPassageProposal to quote or inspect the exact full cached text.
-- Use applyPassageProposal when the user asks to write/apply a cached proposal. It inserts the cached text directly at the current editor cursor and saves the episode; do not reconstruct the text with editEpisode.
-- Never apply an already-applied proposal again unless the user explicitly requests a duplicate, in which case generate a new proposal.
+CACHED PASSAGE PROPOSALS (`listPassageProposals`, `getPassageProposal`, `applyPassageProposal`):
+- Continuation proposals generated by `continuePassage` persist across turns. Call `listPassageProposals` when no `proposalId` is in context or when the user asks about earlier proposals.
+- Call `getPassageProposal` to inspect or quote the exact full text of a cached proposal.
+- Call `applyPassageProposal` when the user asks to adopt/write a cached proposal into the episode. It appends the cached text cleanly and marks the proposal as applied; never re-apply an already-applied proposal unless the user explicitly asks to duplicate it.
 "#);
     }
 
     if available.contains("rewritePassage") {
         s.push_str(r#"
 
-CREATIVE REWRITE (rewritePassage):
-- IF the user asks for better phrasing, a rewrite, polish, or a stylistic variant of manuscript prose → you MUST call rewritePassage instead of rewriting the prose yourself in chat. It runs the dedicated writing model with the full Japanese-fiction ruleset.
-- targetText MUST be a verbatim copy of the passage. Verify it with findEpisodeLines or getEpisodeLines when unsure. NEVER paraphrase it.
-- Put the user's stylistic direction into instruction, in Japanese. Omit instruction when no specific direction was given.
-- Present rewrittenText as a proposal. The tool does NOT modify the episode. Apply it with editEpisode only when explicitly asked.
-- IF the tool fails or returns empty → say so honestly, then rewrite inline as a fallback.
+CREATIVE REWRITE (`rewritePassage`):
+- IF the user asks to rewrite, polish, or produce a stylistic variant of an existing manuscript passage → call `rewritePassage` instead of rewriting it inline in chat. It invokes the dedicated writing model with full context and style rules.
+- `targetText` MUST be an exact, verbatim copy of the target passage from the manuscript (verify with `findEpisodeLines` or `getEpisodeLines` first; never paraphrase).
+- Pass the user's stylistic or narrative direction in `instruction` (in Japanese).
+- Present the returned `rewrittenText` as a proposal; apply it with `editEpisode` only when the user asks to apply it to the manuscript.
+- IF `rewritePassage` fails or returns empty → report that honestly in Japanese, then provide an inline rewrite as a fallback.
 "#);
     }
     if available.contains("lineEditPassage") {
         s.push_str(r#"
 
-LINE EDITING (lineEditPassage):
-- IF the user asks for professional editing WITH concrete revision proposals — ペン入れ, 推敲, 校閲, 添削 — you MUST call lineEditPassage.
-- passageText MUST be a verbatim copy of ONE contiguous manuscript passage. For long text, propose working scene by scene (roughly 1000-3000 characters) and confirm that plan first.
-- Put the user's editorial focus into instruction, in Japanese.
-- Present the review's key findings, then each proposal numbered with the exact target and proposed replacement. The tool does NOT modify the episode.
-- For critique-only requests where revision proposals are unnecessary, answer directly.
+LINE EDITING (`lineEditPassage`):
+- IF the user asks for professional editorial line-editing with concrete revision proposals (ペン入れ, 推敲, 校閲, 添削) → call `lineEditPassage`.
+- `passageText` MUST be a verbatim copy of ONE contiguous manuscript span. If the target is very long, propose working scene by scene (roughly 1,000–3,000 characters per pass) and confirm with the user.
+- Pass the user's editorial focus in `instruction` (in Japanese).
+- Present the review's key findings followed by each numbered replacement proposal (`targetText` → `replacementText`). The tool does not modify the episode automatically.
+- For general critique/feedback that does not ask for concrete replacement patches, answer directly without calling `lineEditPassage`.
 "#);
     }
     if available.contains("listEpisodes")
@@ -1495,103 +1505,100 @@ LINE EDITING (lineEditPassage):
     {
         s.push_str(r#"
 
-PAST EPISODE RETRIEVAL:
-- IF the target episode is unclear → find candidates with listEpisodes or searchEpisodes first.
-- Use retrieveEpisode with summary when a synopsis is enough. Request fullText only to verify exact wording, a scene, or an action.
-- Run rebuildSearchIndex only when search results are clearly missing or stale. Then search again.
+PAST EPISODE RETRIEVAL (`listEpisodes`, `searchEpisodes`, `retrieveEpisode`, `rebuildSearchIndex`):
+- When the target episode is unknown, locate candidates first with `listEpisodes` or `searchEpisodes`.
+- Prefer `retrieveEpisode` with `type: "summary"` when a synopsis suffices; request `type: "fullText"` only when exact wording, dialogue, or scene detail is required.
+- Call `rebuildSearchIndex` only when search results are demonstrably missing or stale, then search again.
 "#);
     }
     if available.contains("getEditLog") {
         s.push_str(r#"
 
-EDIT LOG:
-- IF you need to know why a past change was made — including before continuing, rewriting, or judging previously edited text — call getEditLog. NEVER guess past intent.
-- IF the user asks about editing history or intent → call getEditLog before answering.
-- Call it once per need; do not re-fetch the same episode repeatedly in one turn.
+EDIT LOG (`getEditLog`):
+- Before continuing, rewriting, or critiquing a passage whose past revision intent matters — or whenever the user asks why a change was made — call `getEditLog`. NEVER guess past editorial intent.
+- Call `getEditLog` at most once per episode per turn.
 "#);
     }
     if available.contains("saveEpisodeSummaryAndOneLiner") {
         s.push_str(
             r#"
 
-SUMMARY SAVING:
-- Apply only when the user asks to create, save, update, or regenerate an episode summary.
-- Derive both summaries only from events explicitly present in the episode text.
-- Call saveEpisodeSummaryAndOneLiner exactly once, saving content and oneLiner together.
-- Do not print the summaries in chat before the tool call.
+SUMMARY SAVING (`saveEpisodeSummaryAndOneLiner`):
+- Call only when the user asks to create, save, update, or regenerate an episode summary.
+- Base both `content` (detailed summary) and `oneLiner` (single-sentence core) strictly on events explicitly written in the episode text.
+- Call `saveEpisodeSummaryAndOneLiner` once with both fields together, and do not dump the full summary text in chat before calling the tool.
 "#,
         );
     }
     if available.contains("createCharacter") || available.contains("updateCharacter") {
         s.push_str(r#"
 
-CHARACTER SETTINGS:
-1. Before createCharacter, ALWAYS call listCharacters. Compare names, readings, aliases, surnames, ranks/titles, forms of address, spacing, width, and spelling variants.
-2. IF the same person exists → NEVER create a duplicate. Update the existing record when requested.
-3. IF identity is uncertain → do NOT create; report the candidate in Japanese.
-4. Call createCharacter at most once per person in one response.
-5. Before updateCharacter, confirm characterId and current values. Update only requested fields.
-6. Put よみがな into reading; nicknames, title forms, and alternate spellings into alias.
-7. customFields MUST be an array of {label, value}.
+CHARACTER SETTINGS (`listCharacters`, `createCharacter`, `updateCharacter`):
+1. Before `createCharacter`, ALWAYS call `listCharacters` and compare names, kana readings, aliases, surnames, titles/ranks, forms of address, spacing, and spelling variants.
+2. IF the character already exists → NEVER create a duplicate; use `updateCharacter` when an update is requested.
+3. IF identity is ambiguous → do NOT create a record; ask or report the candidate match in Japanese.
+4. Call `createCharacter` at most once per distinct person in a turn.
+5. Before `updateCharacter`, verify `characterId` and existing field values; modify only the requested fields.
+6. Store kana pronunciation in `reading`, and nicknames / title forms / alternate spellings in `alias`.
+7. Format `customFields` as an array of `{label, value}` objects with Japanese values.
 "#);
     }
     if available.contains("createWorldEntry") || available.contains("updateWorldEntry") {
         s.push_str(
             r#"
 
-WORLDBUILDING SETTINGS:
-- Before updating, call listWorldEntries to confirm entryId and current values.
-- Update only requested fields. Do not fill missing information by inference.
-- customFields MUST be an array of {label, value}.
+WORLDBUILDING SETTINGS (`listWorldEntries`, `createWorldEntry`, `updateWorldEntry`):
+- Always call `listWorldEntries` before creating or updating an entry to prevent duplicates and verify `entryId` and current values.
+- Modify only the requested fields; never invent unstated lore to fill blank fields.
+- Format `customFields` as an array of `{label, value}` objects with Japanese values.
 "#,
         );
     }
     if available.contains("createRelationship") || available.contains("updateRelationship") {
         s.push_str(r#"
 
-RELATIONSHIPS:
-- Call listCharacters and listRelationships before creating or updating a relationship.
-- Use only returned character IDs. Do not infer identity from similar names without evidence.
-- Avoid duplicate relationships. Update an existing relationship when it represents the same pair and scope.
-- Keep direction as a-to-b, b-to-a, or mutual. Write description in Japanese.
+RELATIONSHIPS (`listRelationships`, `createRelationship`, `updateRelationship`):
+- Call both `listCharacters` and `listRelationships` before creating or updating a relationship.
+- Use only verified `characterId` values returned by `listCharacters`; never guess IDs from similar names.
+- Update an existing relationship record when the pair and episode scope already exist instead of creating a duplicate.
+- Keep `direction` as `"a-to-b"`, `"b-to-a"`, or `"mutual"`, and write `description` in natural Japanese.
 "#);
     }
     if available.contains("createProjectMemo") || available.contains("updateProjectMemo") {
         s.push_str(r#"
 
-MEMOS:
-- Read existing memos before creating or updating one. Do not create duplicates for the same subject.
-- Preserve unrelated content. Write stored title and prose in Japanese.
-- Do not promote guesses or assistant suggestions into project canon without an explicit user request.
+MEMOS (`listEpisodeMemos`, `getEpisodeMemo`, `saveEpisodeMemo`, `listProjectMemos`, `getProjectMemo`, `createProjectMemo`, `updateProjectMemo`):
+- Read existing memos before creating or updating to avoid duplicate topics and preserve unrelated notes.
+- Write all stored titles and memo bodies in Japanese.
+- Never save tentative assistant ideas as project canon memos unless the user explicitly asks to record them.
 "#);
     }
     if available.contains("craftAdvice") {
         s.push_str(r#"
 
-CRAFT CONSULTATION (craftAdvice):
-- IF the user asks 作劇相談 — how a scene should continue, what should happen next, how to fix a plot or pacing problem, why a passage does not work — call craftAdvice with the full consultation in Japanese.
-- The tool runs the judgment model with the novel-principles ruleset and returns a diagnosis, options with tradeoffs, and one recommendation.
-- Do NOT answer 作劇相談 yourself with chat-model reasoning while this tool is available.
-- Line-level editing requests (ペン入れ, 添削) → lineEditPassage. Rewriting a passage → rewritePassage. Writing a new continuation → continuePassage.
+CRAFT CONSULTATION (`craftAdvice`):
+- IF the user asks for story/scene consultation (作劇相談: how a scene should develop, how to resolve a plot or pacing stall, why a dramatic beat feels flat, or which structural option to pick) → call `craftAdvice` with the full consultation context in Japanese.
+- `craftAdvice` runs the judgment model with the full novel-principles ruleset to produce a diagnosis, concrete options with tradeoffs, and a clear recommendation. Do not answer 作劇相談 solely from chat-model improvisation when `craftAdvice` is available.
+- Tool routing: concrete line-level edits (ペン入れ/添削) → `lineEditPassage`; prose rewriting → `rewritePassage`; new scene/continuation generation → `continuePassage`.
 "#);
     }
     if available.contains("recordCraftNote") || available.contains("getCraftNotes") {
         s.push_str(r#"
 
-CRAFT NOTES (技法ノート):
-- Call recordCraftNote after a writing session when something measurably worked or failed: an adopted revision, a praised passage, a repeated review flag, or the user's explicit reaction.
-- Put the concrete facts into record: what was written, what the review said, what was adopted or rejected, and the outcome. The tool extracts reusable lessons and stores them in the project's craft notes.
-- Call getCraftNotes when the user asks about past craft lessons or when continuing work that previously had notes.
-- Never store plot facts or canon as craft notes; those belong to project data.
+CRAFT NOTES (`recordCraftNote`, `getCraftNotes`):
+- Call `recordCraftNote` after a writing/editing cycle when a clear craft lesson emerged (an adopted revision, a praised technique, a recurring review flag, or an explicit author preference).
+- Pass concrete evidence in `record`: what was written, what the review or author judged, what was adopted or rejected, and why.
+- Call `getCraftNotes` when the user asks about accumulated craft lessons or before continuing work where past craft notes apply.
+- Never store plot facts, character settings, or worldbuilding lore as craft notes.
 "#);
     }
     if available.contains("checkCommonSense") {
         s.push_str(r#"
 
-COMMON SENSE CHECK (checkCommonSense):
-- After writing or editing manuscript prose — especially in direct creative editing mode — call checkCommonSense with the written passage (or the changed range) before reporting completion.
-- Fix reported major findings (school calendar, seasons, causality, law, era contradictions) with editEpisode before finishing. Minor findings may be left only when the user explicitly overrides them.
-- It checks real-world plausibility, not canon. For canon consistency use checkConsistency.
+COMMON SENSE CHECK (`checkCommonSense`):
+- After writing or editing manuscript prose — especially in direct creative editing mode — call `checkCommonSense` on the newly written or modified passage before reporting completion.
+- If `checkCommonSense` reports `major` findings (calendar/school-year mismatches, seasonal contradictions, physical/causal impossibilities, legal/era anachronisms not overridden by worldbuilding), fix them with `editEpisode` before finishing.
+- `checkCommonSense` audits real-world plausibility; for project canon continuity, use `checkConsistency`.
 "#);
     }
 
@@ -1600,33 +1607,32 @@ COMMON SENSE CHECK (checkCommonSense):
 const BASE_TOOL_GUIDANCE: &str = r#"
 TOOL USE — follow these steps in this exact order for every request:
 
-STEP 1 — DECIDE:
-- IF the request needs current application data or a data change (retrieve, search, verify, edit, save, update, create, delete, consistency check) AND a capable tool is listed below → you MUST actually call that tool.
-- For web searches, the selected provider's native hosted search is preferred according to the user's search priority setting. The `webSearch` function is the Exa fallback; use it when native search is unavailable or the request explicitly requires the Exa result format.
-- Writing a plan, a procedure, or tool arguments as plain text is NOT execution. A reply that only describes what should be done is an unfinished task.
-- IF no tool is needed → answer directly and skip the remaining steps.
+STEP 1 — DECIDE & ROUTE:
+- IF the request requires reading, searching, verifying, writing, editing, saving, updating, creating, deleting, or auditing application data AND a matching tool is available below → you MUST invoke that tool.
+- For web research, prefer the selected provider's native hosted search according to the user's search priority; use `webSearch` (Exa fallback) when native search is unavailable or when Exa format is needed.
+- Describing a plan, printing hypothetical tool arguments, or outputting prose in chat instead of calling a required write/generation tool is an incomplete execution.
+- IF no tool is needed → answer directly in Japanese and skip Steps 2–5.
 
 STEP 2 — READ BEFORE WRITE:
-- Before changing data, first read the target's ID and current values with the matching list/get/search tool.
-- NEVER invent or guess an ID. Use only IDs returned by a tool or given by the user.
-- Do not repeat a read whose reliable result you already have in this run.
+- Before creating or modifying any record or episode text, read the target's current ID, tag, and values using the corresponding list/get/find/search tool.
+- NEVER invent or guess an ID or `[episodeId#TAG]`. Reuse reliable read results already obtained in the current turn instead of calling the same read tool redundantly.
 
-STEP 3 — WRITE EXACTLY ONCE:
-- Change only what the user asked for. Nothing extra.
-- Execute each change exactly once. After a write tool returns success, NEVER call the same write tool again with the same input.
-- NEVER overwrite a value you do not know with a guess or an empty string.
+STEP 3 — WRITE PRECISELY ONCE:
+- Modify only what the user requested; preserve all unrelated fields and lines intact.
+- Execute each write operation once. After a write tool returns success, NEVER repeat the identical write call.
+- NEVER overwrite existing fields with guesses or empty strings.
 
-STEP 4 — IF A CALL FAILS:
-- NEVER report success for a failed call.
-- State the cause briefly in Japanese. Then retry only the failed part. IF the same call fails twice with the same error → stop retrying and report the situation honestly in Japanese.
+STEP 4 — HANDLE ERRORS HONESTLY:
+- NEVER claim a tool action succeeded when it failed or was not called.
+- If a tool call fails, state the cause briefly in Japanese and retry only the failed operation with corrected inputs. If the same call fails twice with the same error, stop retrying and report the issue clearly in Japanese.
 
-STEP 5 — REPORT AND STOP:
-- When the tools that answer the request have succeeded, give exactly one short Japanese report. Then stop calling tools.
-- In the report, summarize what changed (lines/sections edited). Do not reprint the full hashline patch or other raw tool arguments unless the user asks.
+STEP 5 — REPORT CONCISELY AND STOP:
+- Once all required tool calls have succeeded, provide one concise Japanese report summarizing what was done (e.g., updated fields or edited line ranges) and stop calling tools.
+- Do not dump raw hashline patches or full JSON payloads unless the user asks for them.
 
-JAPANESE DATA CHECK — run before every create/update/save call:
-1. Every natural-language field value MUST be Japanese. 保存する説明文・メモ・要約は必ず日本語で書くこと。IF a value is ordinary descriptive English → translate it into natural Japanese first.
-2. Keep unchanged: IDs, field names, enum values, exact quotations, exact-match source text, code, URLs, filenames, and established foreign proper nouns.
+JAPANESE DATA CHECK — verify before every create/update/save tool call:
+1. Every natural-language field value persisted by a tool MUST be natural Japanese. 保存する説明文・メモ・要約・理由は必ず日本語で書くこと。If a draft value is descriptive English, translate it into natural Japanese before calling the tool.
+2. Preserve verbatim without translation: IDs, schema keys, field names, enum values, exact source quotations, exact-match target text, code, URLs, filenames, and established foreign proper nouns.
 "#;
 
 #[cfg(test)]

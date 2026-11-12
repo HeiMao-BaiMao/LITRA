@@ -334,9 +334,8 @@ pub async fn feedback_selection(
         drop(current);
         ai::generate_streaming(
             "judgment",
-            format!(
-                "あなたは率直で建設的な小説編集者です。\n\n{}",
-                crate::windows::main_app::generation::craft::principles(scaffold.as_deref())
+            crate::windows::main_app::generation::craft::system_with_principles(
+                scaffold.as_deref(),
             ),
             prompt,
             provider.as_deref(),

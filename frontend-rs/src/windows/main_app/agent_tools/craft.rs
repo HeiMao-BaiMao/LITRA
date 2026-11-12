@@ -56,7 +56,7 @@ pub async fn execute(
     let input = input.as_object().cloned().unwrap_or_default();
     match name {
         "craftAdvice" => craft_advice(state, current_episode, &input, on_progress).await,
-        "recordCraftNote" => record_craft_note(project_id, &input).await,
+        "recordCraftNote" => record_craft_note(state, project_id, &input).await,
         "getCraftNotes" => get_craft_notes(project_id).await,
         _ => Ok(json!({"error": format!("未知の作劇ツールです: {name}")})),
     }
@@ -135,7 +135,11 @@ async fn craft_advice(
     }
 }
 
-async fn record_craft_note(project_id: &str, input: &Map<String, Value>) -> Result<Value, JsValue> {
+async fn record_craft_note(
+    state: &Rc<RefCell<State>>,
+    project_id: &str,
+    input: &Map<String, Value>,
+) -> Result<Value, JsValue> {
     let cancellation_epoch = ai::cancellation_epoch();
     let record = required(input, "record")?;
     let document = load_notes(project_id).await?;
@@ -188,6 +192,7 @@ async fn record_craft_note(project_id: &str, input: &Map<String, Value>) -> Resu
     }
     let saved = merged.len().saturating_sub(existing.len());
     projects::write_document(project_id, "craft-notes", &json!({"notes": merged})).await?;
+    state.borrow_mut().craft_notes = merged.clone();
     Ok(json!({
         "success": true,
         "message": format!("技法ノートを{saved}件保存しました。"),

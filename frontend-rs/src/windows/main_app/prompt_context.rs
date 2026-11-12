@@ -18,6 +18,7 @@ struct Budgets {
     settings_field: usize,
     settings_section: usize,
     project_memos: usize,
+    craft_notes: usize,
     previous_summary: usize,
     current_memo: usize,
 }
@@ -56,6 +57,7 @@ fn budgets(settings: &Value) -> Budgets {
         settings_field: scaled(0.015, 800),
         settings_section: scaled(0.12, 8_000),
         project_memos: scaled(0.08, 5_000),
+        craft_notes: scaled(0.04, 2_500),
         previous_summary: scaled(0.035, 2_200),
         current_memo: scaled(0.06, 3_500),
     }
@@ -142,6 +144,42 @@ pub fn build_settings_context(state: &State, settings: &Value) -> String {
     );
     if !project_memos.trim().is_empty() {
         parts.push(format!("【作品メモ】\n{project_memos}"));
+    }
+
+    let craft_notes = limit_prompt_text(
+        &state
+            .craft_notes
+            .iter()
+            .filter_map(|note| {
+                let title = text(note, "title").map(str::trim).unwrap_or_default();
+                let statement = text(note, "statement").map(str::trim).unwrap_or_default();
+                if title.is_empty() && statement.is_empty() {
+                    return None;
+                }
+                let category = match text(note, "category") {
+                    Some("technique") => "技法",
+                    Some("failure") => "禁則・失敗例",
+                    Some("voice") => "作品の声",
+                    Some(other) if !other.trim().is_empty() => other.trim(),
+                    _ => "技法",
+                };
+                if title.is_empty() {
+                    Some(format!("- [{category}] {statement}"))
+                } else if statement.is_empty() {
+                    Some(format!("- [{category}] {title}"))
+                } else {
+                    Some(format!("- [{category}] {title}: {statement}"))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        budgets.craft_notes,
+        "tail",
+    );
+    if !craft_notes.trim().is_empty() {
+        parts.push(format!(
+            "【技法ノート（この作品の文体・作劇ルール）】\n{craft_notes}"
+        ));
     }
 
     if let Some(current_id) = state.current_episode_id.as_deref() {
@@ -549,5 +587,30 @@ mod tests {
         assert!(context.contains("王都"));
         assert!(context.contains("【キャラクター設定】"));
         assert!(context.contains("春香"));
+        assert!(!context.contains("【技法ノート"));
+    }
+
+    #[test]
+    fn settings_context_includes_craft_notes_when_present() {
+        let mut state = State::default();
+        state.craft_notes = vec![
+            serde_json::json!({
+                "title": "感情の直接ラベル禁止",
+                "statement": "主人公の焦りは心拍ではなく視線の移動と手元の所作で示す。",
+                "category": "voice"
+            }),
+            serde_json::json!({
+                "title": "段落末の教訓まとめ回避",
+                "statement": "場面末尾で「それが二人の距離だった」と総括しない。",
+                "category": "failure"
+            }),
+        ];
+        let context = build_settings_context(
+            &state,
+            &serde_json::json!({"maxContextTokens":65536,"maxTokens":8192}),
+        );
+        assert!(context.contains("【技法ノート（この作品の文体・作劇ルール）】"));
+        assert!(context.contains("[作品の声] 感情の直接ラベル禁止: 主人公の焦りは心拍ではなく視線の移動と手元の所作で示す。"));
+        assert!(context.contains("[禁則・失敗例] 段落末の教訓まとめ回避"));
     }
 }

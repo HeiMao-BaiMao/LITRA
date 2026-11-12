@@ -406,6 +406,7 @@ struct ConsistencyOutput {
 }
 
 fn build_consistency_prompt(focus: &str, numbered_text: &str, settings_context: &str) -> String {
+    let focus = crate::ai::prompt_data::escape_reference_delimiters(focus);
     let numbered_text = crate::ai::prompt_data::format_reference_data(
         "target_episode_numbered_text",
         numbered_text,
@@ -414,37 +415,38 @@ fn build_consistency_prompt(focus: &str, numbered_text: &str, settings_context: 
         crate::ai::prompt_data::format_reference_data("project_reference", settings_context);
     format!(
         r#"TASK:
-Compare the target episode text with the supplied project data. Find statements that cannot both be true for the same subject, at the same time, under the same conditions.
+Audit continuity between `target_episode_numbered_text` and `project_reference`. Identify only explicit contradictions where two recorded statements cannot both be true for the same subject, at the same time, under the same conditions.
 
-OUTPUT LANGUAGE:
-- Write summary, location, description, evidence, and suggestion in Japanese. 報告文は必ず日本語で書くこと。
-- Keep category, severity, and confidence enum values in English, exactly as defined.
+OUTPUT LANGUAGE & SCHEMA CONTRACT:
+- Write `summary`, `location`, `description`, `evidence`, and `suggestion` in clear Japanese. 報告文は必ず日本語で書くこと。
+- Keep `category` (`"character" | "world" | "timeline" | "plot" | "relationship" | "description" | "other"`), `severity` (`"major" | "minor"`), and `confidence` (`"high" | "medium"`) in English exactly as defined by the schema.
 
 USER-SPECIFIED FOCUS:
 {focus}
 
 WHAT COUNTS AS AN ISSUE:
-- An issue exists only when you can point to at least two explicit statements that cannot both be true.
-- NOT an issue: missing information, an unexplained detail, or a mystery that may be explained later.
-- NOT an issue: spelling variation, stylistic preference, or weak prose unless it creates a factual, causal, or scene-state contradiction.
-- NOT an issue: a change in emotion, relationship, ability, injury, possession, or status, IF the manuscript or summaries show a trigger or elapsed time.
-- NEVER infer a problem inside text omitted by 【中略】. The omitted part is unknown.
-- IF two candidates come from the same underlying conflict → merge them.
+- An issue exists ONLY when you can cite at least two explicit statements (either two lines within the episode, or an episode line vs. a setting/summary record) that directly conflict.
+- NOT an issue: unrevealed facts, mysteries, or details not yet explained.
+- NOT an issue: stylistic preferences, phrasing variants, or orthography differences unless they create a factual, causal, or scene-state contradiction.
+- NOT an issue: changes in emotion, relationship, ability, injury, possession, or status when the text or summaries show a trigger or elapsed time between states.
+- NEVER infer contradictions from text omitted by 【中略】; omitted spans are unknown.
+- Merge multiple symptoms of the same underlying contradiction into a single issue entry.
 
 CHECK AREAS:
-- Character attributes, voice, first-person pronoun, ability conditions, history, emotional response.
-- World geography, climate, culture, history, technology, politics, law, religion, names, institutions.
-- Timeline and causality: age, dates, order, location, season, time, cause and effect.
-- Relationships and status: forms of address, politeness, role, and status change.
-- Scene continuity: location, movement, injury, fatigue, possessions, conversation, and emotion.
+- `character`: physical traits, age/social attributes, first-person pronoun, speech register, ability rules, backstory, and knowledge boundaries.
+- `world`: geography, climate, institutions, laws, technology/magic rules, terminology, and cultural norms.
+- `timeline` / `plot`: chronological order, elapsed time, dates, seasons, travel time, and cause-and-effect chains.
+- `relationship`: forms of address, familiarity/politeness level, roles, and interpersonal history.
+- `description`: within-scene continuity of location, posture, lighting, weather, injuries, and held items.
 
 HOW TO FILL EACH ISSUE:
-- severity: major for incompatible canon, chronology, causality, or character attributes; minor for local continuity.
-- confidence: high when both statements compare directly; medium when one contextual inference is needed. Weaker than medium → omit.
-- location: manuscript line numbers plus relevant setting, character, or episode title, in Japanese.
-- evidence: both sides briefly as 「本文: … / 設定または別資料: …」.
-- suggestion: the smallest correction or a question to confirm. Never silently change canon.
-- IF no explicit issue exists → issues=[] and include 「明確な不整合は確認できない」 in summary.
+- `severity`: `"major"` for broken canon, chronology, causality, or core character attributes; `"minor"` for localized scene-state or address slips.
+- `confidence`: `"high"` when two explicit statements clash directly; `"medium"` when one straightforward contextual step connects them. Omit anything weaker than `"medium"`.
+- `location`: in Japanese, cite the 1-based line number(s) in the episode plus the relevant character/world/episode reference name.
+- `description`: in Japanese, state the contradiction concisely in 1–2 sentences.
+- `evidence`: in Japanese, quote both sides side by side as 「本文(L番号): … / 設定または別資料: …」.
+- `suggestion`: in Japanese, propose the minimal manuscript edit (or a confirmation question if canon revision might be intended) without silently rewriting project canon.
+- IF no explicit contradiction exists → return `issues: []` and include 「明確な不整合は確認できない」 in `summary`.
 
 {numbered_text}
 
