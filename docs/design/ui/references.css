@@ -1,0 +1,628 @@
+/* ============================================================
+   LITRA — 資料ビュー / プロジェクトメモ（UIデザイン案）
+   base.css の token を共有。コンポーネント固有クラスは ref-/rel- 接頭辞。
+   ============================================================ */
+
+.ref-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.ref-loading {
+  padding: 32px 24px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.ref-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- ヘッダ ---------- */
+
+.ref-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+  flex-wrap: wrap;
+}
+
+.ref-header-main {
+  min-width: 0;
+}
+
+.ref-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ref-title {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ref-note {
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 56ch;
+}
+
+.ref-header-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ref-status {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.ref-status[data-status-mode="saving"],
+.ref-status[data-status-mode="pending"] {
+  color: var(--accent);
+}
+
+.ref-status[data-status-mode="error"] {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.ref-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ---------- タブ ---------- */
+
+.ref-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+  overflow-x: auto;
+}
+
+.ref-tab {
+  appearance: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 9px 14px;
+  margin-bottom: -1px;
+  font-size: 13.5px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 6px 6px 0 0;
+}
+
+.ref-tab:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.ref-tab[aria-selected="true"] {
+  color: var(--accent);
+  font-weight: 700;
+  border-bottom-color: var(--accent);
+}
+
+/* ---------- 本体レイアウト ---------- */
+
+.ref-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ref-editor {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
+}
+
+/* ---------- サイドバー一覧 ---------- */
+
+.ref-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-raised);
+}
+
+.ref-side-head {
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ref-count {
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.ref-side-empty {
+  padding: 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.ref-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ref-item {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius);
+}
+
+.ref-item.is-active {
+  background: var(--accent-soft);
+}
+
+.ref-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ref-item-main:hover {
+  background: var(--accent-soft);
+}
+
+.ref-item.is-active .ref-item-main {
+  color: var(--accent);
+}
+
+.ref-item-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.ref-item.is-active .ref-item-name {
+  border-left: 3px solid var(--accent);
+  padding-left: 7px;
+  margin-left: -10px;
+}
+
+.ref-item-sub {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.ref-item-del {
+  align-self: center;
+  margin-right: 4px;
+  opacity: 0;
+}
+
+.ref-item:hover .ref-item-del,
+.ref-item:focus-within .ref-item-del,
+.ref-item-del:focus-visible {
+  opacity: 1;
+}
+
+.ref-item-del:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+/* ---------- 詳細ペイン ---------- */
+
+.ref-detail-pane {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+}
+
+.ref-detail {
+  max-width: 780px;
+}
+
+.ref-detail-head {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ref-eyebrow {
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.ref-detail-name {
+  font-size: 17px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+
+.ref-memo-updated {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ref-section {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.ref-section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.ref-section-empty {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.ref-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.ref-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ref-field-wide {
+  grid-column: 1 / -1;
+}
+
+.ref-field-label {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.ref-textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 7px 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 2.6em;
+}
+
+.ref-detail-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0 8px;
+}
+
+/* ---------- カスタム項目 ---------- */
+
+.ref-custom-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ref-custom-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.ref-custom-del {
+  margin-top: 4px;
+}
+
+.ref-custom-del:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+/* ---------- 関係 ---------- */
+
+.ref-editor-single {
+  display: block;
+}
+
+.rel-pane {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+}
+
+.rel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.rel-head-text {
+  min-width: 0;
+}
+
+.ref-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+}
+
+.rel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rel-row {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rel-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rel-char {
+  flex: 1 1 130px;
+  min-width: 0;
+}
+
+.rel-dir {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.rel-del {
+  flex: none;
+}
+
+.rel-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+.rel-del:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.rel-desc {
+  font-size: 13.5px;
+}
+
+.rel-count {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.rel-actions {
+  margin-top: 4px;
+}
+
+.rel-warning {
+  margin-bottom: 12px;
+}
+
+/* ---------- 空状態 ---------- */
+
+.ref-empty {
+  margin: 40px auto;
+  max-width: 42ch;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.rel-warning .ref-empty {
+  margin: 0;
+  align-items: flex-start;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+/* ---------- メモ ---------- */
+
+.ref-memo-body .ref-memo-content {
+  min-height: 12em;
+  font-family: var(--font-prose);
+  font-size: 14.5px;
+}
+
+/* ---------- ダイアログ ---------- */
+
+.ref-confirm .ref-btn-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.ref-confirm .ref-btn-danger:hover {
+  background: var(--danger);
+  color: var(--surface);
+}
+
+/* ---------- 小画面（390px・小さな分離窓） ---------- */
+
+@media (max-width: 560px) {
+  .ref-header {
+    padding: 12px 14px 10px;
+    flex-direction: column;
+  }
+
+  .ref-header-side {
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .ref-actions {
+    justify-content: flex-start;
+  }
+
+  .ref-tabs {
+    padding: 0 14px;
+  }
+
+  .ref-editor {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr);
+  }
+
+  .ref-side {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    max-height: 34%;
+  }
+
+  .ref-list {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .ref-item {
+    min-width: 160px;
+  }
+
+  .ref-detail-pane,
+  .rel-pane {
+    padding: 14px 14px 24px;
+  }
+
+  .ref-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .ref-custom-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ref-custom-label {
+    grid-column: 1 / 2;
+  }
+
+  .ref-custom-value {
+    grid-column: 1 / 2;
+  }
+
+  .ref-custom-del {
+    grid-column: 2 / 3;
+    grid-row: 1 / 3;
+    margin-top: 0;
+  }
+
+  .rel-row-main {
+    flex-wrap: wrap;
+  }
+
+  .rel-char {
+    flex: 1 1 calc(100% - 40px);
+  }
+
+  .rel-head {
+    flex-direction: column;
+  }
+
+  .ref-scope {
+    width: 100%;
+    min-width: 0;
+  }
+}

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LITRA — ジャンルライブラリ UIデザイン案</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="genres.css">
+<link rel="stylesheet" href="interactions.css">
+<script type="module" src="app.js"></script>
+</head>
+<body data-design-surface="genres">
+
+<header class="gl-topbar">
+  <div class="brand">
+    <span class="brand-name">LITRA</span>
+    <span class="brand-context">ジャンルライブラリ</span>
+    <span class="badge" title="画面案専用のブラウザ保存です。実アプリの作品・AI・同期とは別です">画面案専用データ・実アプリとは別</span>
+  </div>
+  <div class="gl-topbar-side">
+    <button type="button" class="btn btn-small" data-open-main>主画面へ</button>
+    <button type="button" class="btn btn-small" data-reattach>この別窓を閉じて戻る</button>
+    <span class="conn" data-design-connection>画面案データを読み込み中</span>
+  </div>
+</header>
+
+<!-- 親ランタイム(app.js)が mountGenreLibrary() をここへ適用する -->
+<main class="gl-page" data-genre-library-root>
+  <p class="gl-boot muted">ジャンルライブラリを読み込んでいます…</p>
+</main>
+
+<p class="sr-status" data-design-status role="status" aria-live="polite">UIデザイン案 — 接続状態表示領域</p>
+<noscript><p>JavaScript が無効です。この画面案は操作できません。</p></noscript>
+
+</body>
+</html>

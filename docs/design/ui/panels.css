@@ -1,0 +1,464 @@
+/* ============================================================
+   panels.css — 分離補助パネル（チャット/要約/メモ）
+   値は base.css の token のみ参照。ここでは値を再定義しない。
+   ============================================================ */
+
+body[data-design-surface="panels"] {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  margin: 0;
+  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- シェル: 小窓でも1枚の紙面として成立させる ---------- */
+.panel-shell {
+  flex: 1;
+  width: 100%;
+  max-width: 52rem;
+  margin-inline: auto;
+  padding: clamp(0.75rem, 2.5vw, 1.5rem);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.9rem;
+}
+
+/* ---------- ヘッダ ---------- */
+.panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.panel-head-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.panel-backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink);
+  font-size: 0.85rem;
+  text-decoration: none;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.panel-backlink:hover { background: var(--accent-soft); }
+
+.design-flag {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 0.2rem 0.55rem;
+  white-space: nowrap;
+}
+
+.panel-head-main { display: flex; flex-direction: column; gap: 0.35rem; }
+
+.panel-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.panel-context {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* ---------- タブ ---------- */
+.panel-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--line);
+  margin-top: 0.4rem;
+}
+
+.panel-tab {
+  display: inline-block;
+  padding: 0.5rem 0.9rem 0.55rem;
+  margin-bottom: -1px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.panel-tab:hover { color: var(--ink); background: var(--surface); }
+.panel-tab[aria-selected="true"],
+.panel-tab.is-active {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line);
+  font-weight: 600;
+}
+
+.panel-tab:focus-visible,
+.panel-backlink:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+details summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- パネル本体 ---------- */
+.panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-height: 0;
+  overflow: auto;
+}
+.panel-content[hidden] { display: none; }
+
+.sample-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* ---------- チャット: ツールバー ---------- */
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.chat-role { margin: 0; }
+.chat-role strong { color: var(--ink); font-weight: 600; }
+.chat-toolbar-actions { display: flex; gap: 0.4rem; }
+
+/* ---------- チャット: ログ ---------- */
+.chat-log {
+  flex: 1;
+  margin: 0;
+  padding: 0.9rem clamp(0.8rem, 2vw, 1.2rem);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-height: 6rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 92%;
+}
+.msg-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.msg-body {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 0.92rem;
+  line-height: 1.85;
+}
+.msg-body p { margin: 0 0 0.55em; }
+.msg-body p:last-child { margin-bottom: 0; }
+
+.msg-user { align-self: flex-end; text-align: left; }
+.msg-user .msg-body {
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.8rem;
+}
+.msg-user .msg-meta { text-align: right; }
+
+.msg-ai { align-self: flex-start; }
+.msg-ai .msg-body {
+  border-left: 2px solid var(--line);
+  padding-left: 0.8rem;
+}
+
+/* ---------- 入力欄 ---------- */
+.composer {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.8rem;
+}
+.composer-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.composer textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  max-height: 25dvh;
+  min-height: 3.2em;
+  font-family: var(--font-prose);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.65rem;
+}
+.composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.composer-note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ---------- 要約/メモの文書パネル ---------- */
+.doc-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: clamp(0.8rem, 2vw, 1.2rem);
+}
+.panel-lead {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.field { display: flex; flex-direction: column; gap: 0.3rem; }
+.field-label { font-size: 0.78rem; color: var(--muted); }
+.field input[type="text"],
+.field textarea,
+.field select {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-prose);
+  font-size: 0.92rem;
+  line-height: 1.75;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.65rem;
+}
+.field select {
+  font-family: var(--font-ui);
+  font-size: 0.88rem;
+}
+.field textarea { resize: vertical; }
+
+/* ---------- ボタン ---------- */
+.btn-quiet,
+.btn-primary {
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  border-radius: var(--radius);
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+.btn-quiet {
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.btn-quiet:hover { background: var(--accent-soft); }
+.btn-primary {
+  color: var(--ink);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+}
+.btn-quiet:disabled,
+.btn-primary:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+/* ---------- フッタ: 接続表示・状態見本 ---------- */
+.panel-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  max-height: 25dvh;
+  overflow-y: auto;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+.design-connection {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.state-samples {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.state-samples > summary {
+  cursor: pointer;
+  padding: 0.3rem 0;
+  list-style-position: inside;
+}
+.state-samples-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.6rem 0 0.4rem;
+}
+
+.state-sample {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: 0.7rem;
+}
+.state-badge {
+  flex: none;
+  font-size: 0.7rem;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.05rem 0.45rem;
+  background: var(--surface);
+}
+.state-badge-danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* 生成中メッセージの見本 */
+.state-sample-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-left: 2px solid var(--accent);
+  padding-left: 0.7rem;
+}
+.state-streaming .msg-body { font-family: var(--font-prose); color: var(--ink); }
+.caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 0.15em;
+  vertical-align: -0.15em;
+  background: var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .caret { animation: panel-caret 1.1s steps(1) infinite; }
+  @keyframes panel-caret { 50% { opacity: 0; } }
+}
+.state-actions { margin-top: 0.15rem; }
+
+/* ---------- ダイアログ ---------- */
+.panel-dialog {
+  max-width: min(26rem, calc(100vw - 2rem));
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--ink);
+  padding: 1.1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.panel-dialog::backdrop { background: color-mix(in srgb, var(--ink) 35%, transparent); }
+.panel-dialog:not([open]) { display: none; }
+.panel-dialog h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.dialog-lead {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+/* ---------- 幅別の調整 ---------- */
+@media (max-width: 26rem) {
+  .panel-tabs { overflow-x: auto; }
+  .panel-tab { padding-inline: 0.7rem; white-space: nowrap; }
+  .msg { max-width: 100%; }
+  .composer-foot { align-items: stretch; flex-direction: column; }
+  .composer-foot .btn-primary { align-self: flex-end; }
+}
+
+@media (min-width: 90rem) {
+  .panel-shell { max-width: 60rem; }
+}
+
+/* ---------- ユーティリティ ---------- */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Short windows retain document scrolling instead of clipping their controls. */
+@media (max-height: 40rem) {
+  body[data-design-surface="panels"] {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+  .panel-shell { min-height: 100dvh; }
+  .panel-content { flex: none; overflow: visible; }
+  .chat-log { flex: none; max-height: 18rem; }
+  .panel-foot { max-height: none; overflow: visible; }
+}

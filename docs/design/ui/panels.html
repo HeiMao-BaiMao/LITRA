@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LITRA — 分離パネル</title>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="panels.css">
+  <link rel="stylesheet" href="references.css">
+  <link rel="stylesheet" href="genres.css">
+  <link rel="stylesheet" href="interactions.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body data-design-surface="panels">
+<div class="panel-shell">
+  <header class="panel-head">
+    <div class="panel-head-top"><button type="button" class="panel-backlink" data-reattach>← 再結合して主画面へ</button><span class="design-flag">画面案専用データ・実アプリとは別</span></div>
+    <div class="panel-head-main"><h1 class="panel-title" data-panel-title>分離パネル</h1><p class="panel-context" data-panel-context></p></div>
+    <div class="shared-context" data-project-context><label>作品<select class="input" data-project-picker aria-label="共有する作品"></select></label><label>エピソード<select class="input" data-episode-picker aria-label="共有するエピソード"></select></label></div>
+    <p class="review-note" data-follow-note>作品・話の選択は主画面と共有します。人物資料とプロジェクトメモは作品全体のデータです。</p>
+    <details class="other-panels"><summary>他のパネルを別ウィンドウで開く</summary><nav class="other-panel-links" aria-label="他の分離パネル"><button type="button" class="btn btn-small" data-detach="chat">チャット ↗</button><button type="button" class="btn btn-small" data-detach="summary">要約 ↗</button><button type="button" class="btn btn-small" data-detach="memo">話別メモ ↗</button><button type="button" class="btn btn-small" data-detach="settings">作品設定資料 ↗</button><button type="button" class="btn btn-small" data-detach="project-memos">プロジェクトメモ ↗</button><button type="button" class="btn btn-small" data-open-library>ジャンル研究 ↗</button></nav></details>
+  </header>
+  <main class="panel-content panel-host" id="panel-root" aria-label="分離された編集画面"></main>
+  <footer class="panel-foot"><p class="design-connection" data-design-connection>画面案データを読み込み中</p><p data-feedback hidden></p><details><summary>ウィンドウの状態・復元</summary><div data-windows-tray hidden></div><p class="review-note">前回の別窓は操作ごとに復元します。位置やサイズはブラウザが許す範囲です。</p></details></footer>
+</div>
+<p class="sr-status" data-design-status role="status" aria-live="polite"></p>
+<dialog class="dlg" id="app-settings" aria-labelledby="app-settings-title"><header class="dlg-head"><h2 id="app-settings-title">役割別モデル</h2><button type="button" class="btn-icon" data-close-dialog aria-label="閉じる">×</button></header><div class="dlg-body"><p class="dlg-note">画面案内で選択状態を共有します。実AI・APIキー・OAuthは未接続です。</p><div data-role-settings></div></div><footer class="dlg-foot"><button type="button" class="btn" data-close-dialog>閉じる</button></footer></dialog>
+</body>
+</html>

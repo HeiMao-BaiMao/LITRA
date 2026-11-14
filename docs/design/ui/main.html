@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LITRA — 執筆と作品資料の画面案</title>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="main.css">
+  <link rel="stylesheet" href="references.css">
+  <link rel="stylesheet" href="interactions.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body data-design-surface="main">
+<header class="topbar">
+  <div class="brand"><span class="brand-name">LITRA</span><span class="badge">画面案専用データ・実アプリとは別</span></div>
+  <div class="topbar-actions">
+    <label class="project-picker"><span class="design-sr-only">現在の作品</span><select id="project-select" aria-label="現在の作品"><option>読み込み中…</option></select></label>
+    <button type="button" class="btn btn-quiet" data-open-dialog="project-manager">作品管理</button>
+    <button type="button" class="btn btn-quiet" data-open-library>ジャンル研究</button>
+    <button type="button" class="btn btn-quiet" data-open-dialog="app-settings">AI・アプリ設定</button>
+    <span class="conn" data-design-connection>画面案データを読み込み中</span>
+  </div>
+</header>
+<div class="layout">
+  <nav class="sidenav" aria-label="作品とエピソード">
+    <div class="nav-block nav-work"><p class="nav-eyebrow">作品</p><h1 class="work-title" data-project-title>読み込み中</h1><p class="work-meta" data-project-meta></p></div>
+    <section class="nav-block">
+      <h2 class="nav-eyebrow">エピソード <button type="button" class="btn-icon" data-episode-action="create" aria-label="エピソードを追加">＋</button></h2>
+      <ol class="ep-list" id="episode-list"></ol>
+      <div class="episode-tools"><button type="button" class="btn btn-small" data-episode-action="rename">改名</button><button type="button" class="btn btn-small" data-episode-action="up" aria-label="エピソードを上へ">↑</button><button type="button" class="btn btn-small" data-episode-action="down" aria-label="エピソードを下へ">↓</button><button type="button" class="btn btn-small" data-episode-action="delete">削除</button></div>
+    </section>
+    <section class="nav-block nav-refs">
+      <h2 class="nav-eyebrow">作品設定資料</h2>
+      <ul class="work-ref-links">
+        <li><button type="button" class="ref" data-main-view="editor">本文</button></li>
+        <li><button type="button" class="ref" data-main-view="characters">人物</button></li>
+        <li><button type="button" class="ref" data-main-view="world">世界観・用語</button></li>
+        <li><button type="button" class="ref" data-main-view="relationships">全体・話別の人間関係</button></li>
+        <li><button type="button" class="ref" data-main-view="project-memos">プロジェクトメモ</button></li>
+      </ul>
+      <div class="reference-popouts"><button type="button" class="btn btn-small" data-detach="settings">資料を分離 ↗</button><button type="button" class="btn btn-small" data-detach="project-memos">プロジェクトメモを分離 ↗</button></div>
+    </section>
+    <section class="nav-block window-overview" aria-label="ウィンドウの状態"><h2 class="nav-eyebrow">別ウィンドウ</h2><div data-windows-tray hidden></div></section>
+    <p class="review-note">編集はこの画面案専用のブラウザ保存です。実際の作品ファイル・AI・WebDAVとは接続していません。</p>
+    <button type="button" class="btn btn-small" data-export-review>画面案データを書き出す</button>
+  </nav>
+
+  <main class="manuscript" aria-label="執筆と作品設定資料">
+    <section id="editor-view" data-main-pane="editor">
+      <header class="manu-head"><div class="manu-titles"><p class="manu-eyebrow" data-episode-order></p><h2 class="manu-title" data-episode-title></h2><p class="manu-note">架空の表示例から編集できます。画面案専用のブラウザ保存です。</p></div><div class="manu-actions" role="group" aria-label="未接続の執筆エンジン"><button type="button" class="btn" disabled title="実AI/WASM執筆エンジンは未接続です">続きを生成</button><button type="button" class="btn" disabled title="実AI/WASM編集エンジンは未接続です">選択範囲を書き直し</button><button type="button" class="btn" disabled title="実AIは未接続です">講評</button></div></header>
+      <div data-panel-scope="editor"><textarea class="manu-editor" spellcheck="false" data-document-field="content" aria-label="原稿本文"></textarea></div>
+      <footer class="manu-foot"><p class="manu-status" data-editor-save>ブラウザ保存を確認中</p><p class="manu-meta" data-word-count></p></footer>
+      <p class="empty-state" data-no-episode hidden>エピソードを追加して本文を編集してください。</p>
+    </section>
+    <section id="reference-view" data-main-pane="references" data-panel-scope="settings" hidden></section>
+    <section id="project-memos-view" data-main-pane="project-memos" data-panel-scope="project-memos" hidden></section>
+    <section class="detached-placeholder" data-main-pane="detached" hidden><p data-detached-description></p><button type="button" class="btn" data-return-active-panel>この画面に戻す</button></section>
+  </main>
+
+  <aside class="rail" aria-label="AIチャットと話別の要約・メモ">
+    <section class="panel" data-docked-panel="chat" data-panel-scope="chat"><header class="panel-head"><h3>AIチャット</h3><button type="button" class="btn-icon" data-detach="chat" aria-label="チャットを分離">↗</button></header><div class="panel-body"><p class="review-note" data-chat-model></p><ol class="chat-log" data-chat-history data-scroll-key="project-chat-log" aria-label="作品の会話履歴"></ol><div class="chat-compose"><label class="design-sr-only" for="main-chat-input">作品チャットの下書き</label><textarea id="main-chat-input" class="chat-input" rows="3" data-project-chat placeholder="この作品について考える…"></textarea><div class="chat-actions"><label class="direct-writing-label"><input type="checkbox" data-direct-writing> 直接編集</label><button type="button" class="btn btn-primary" disabled title="実AIは未接続です。下書きや履歴は消しません。">送信（AI未接続）</button></div></div></div></section>
+    <section class="panel" data-docked-panel="summary" data-panel-scope="summary"><header class="panel-head"><h3>エピソード要約</h3><button type="button" class="btn-icon" data-detach="summary" aria-label="要約を分離">↗</button></header><div class="panel-body scalar-fields"><label>一行要約<input type="text" class="input" data-document-field="oneLiner"></label><label>要約<textarea rows="5" data-document-field="summary"></textarea></label><button type="button" class="btn btn-block" disabled title="実AIの要約生成は未接続です">要約を生成（AI未接続）</button></div></section>
+    <section class="panel" data-docked-panel="memo" data-panel-scope="memo"><header class="panel-head"><h3>エピソードメモ</h3><button type="button" class="btn-icon" data-detach="memo" aria-label="エピソードメモを分離">↗</button></header><div class="panel-body"><label class="design-sr-only" for="main-episode-memo">エピソードメモ</label><textarea id="main-episode-memo" rows="5" class="episode-memo-input" data-document-field="memo"></textarea><p class="review-note">選択中の話だけのメモ。作品全体のメモとは別です。</p></div></section>
+  </aside>
+</div>
+<p class="sr-status" data-design-status role="status" aria-live="polite"></p>
+
+<dialog class="dlg" id="project-manager" aria-labelledby="project-manager-title"><header class="dlg-head"><h2 id="project-manager-title">作品管理</h2><button type="button" class="btn-icon" data-close-dialog aria-label="閉じる">×</button></header><div class="dlg-body"><p class="dlg-note">実アプリとは別の、画面案専用作品です。</p><ul class="proj-list" data-project-list></ul></div><footer class="dlg-foot"><button type="button" class="btn" data-project-action="create">作品を追加</button><button type="button" class="btn" data-project-action="rename">現在の作品を改名</button><button type="button" class="btn btn-danger-quiet" data-project-action="delete">現在の作品を削除</button></footer></dialog>
+<dialog class="dlg" id="app-settings" aria-labelledby="app-settings-title"><header class="dlg-head"><h2 id="app-settings-title">AI・アプリ設定</h2><button type="button" class="btn-icon" data-close-dialog aria-label="閉じる">×</button></header><div class="dlg-body"><p class="dlg-note">役割別の選択状態を画面案で共有します。APIキーやOAuthには接続しません。</p><div data-role-settings></div><h3>保存と分離ウィンドウ</h3><p class="dlg-note">画面案のデータはIndexedDBに保存します。別窓の前回配置は復元ボタンから一つずつ開けます。位置とサイズはブラウザが許す範囲です。</p><h3>実アプリへの接続が必要な機能</h3><p class="dlg-note">AI生成・分析・ツール編集、実作品のインポート、WebDAV、OS資格情報、ネイティブ更新は未接続です。成功した表示は行いません。</p></div><footer class="dlg-foot"><button type="button" class="btn" data-close-dialog>閉じる</button></footer></dialog>
+<dialog class="dlg" id="record-dialog" aria-labelledby="record-dialog-title"><form method="dialog"><header class="dlg-head"><h2 id="record-dialog-title"></h2><button type="button" class="btn-icon" data-close-dialog aria-label="キャンセル">×</button></header><div class="dlg-body"><p data-record-description></p><label data-record-label>名前<input type="text" class="input" name="title" autocomplete="off"></label></div><footer class="dlg-foot"><button type="button" class="btn" data-close-dialog>キャンセル</button><button type="submit" class="btn btn-primary" value="accept">確定</button></footer></form></dialog>
+</body>
+</html>

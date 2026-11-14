@@ -1,0 +1,70 @@
+[hidden] { display: none !important; }
+
+.design-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.design-warning { color: var(--danger); }
+.design-global-feedback {
+  position: fixed; z-index: 100; inset: auto 1rem 1rem auto;
+  max-width: min(38rem, calc(100vw - 2rem)); padding: .8rem 1rem;
+  background: var(--surface-raised); color: var(--danger); border: 1px solid var(--danger);
+  border-radius: var(--radius); box-shadow: 0 4px 20px rgb(0 0 0 / .1);
+  font: .85rem/1.65 var(--font-ui); overflow-wrap: anywhere;
+}
+.review-note { margin: .45rem 0; font: .75rem/1.65 var(--font-ui); color: var(--muted); }
+.project-picker { min-width: 0; max-width: 15rem; }
+.project-picker select { max-width: 100%; padding: .35rem .5rem; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.episode-tools, .reference-popouts { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .6rem; }
+.work-ref-links .ref { text-align: left; }
+.work-ref-links [aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+.window-overview { min-width: 0; }
+[data-windows-tray] { display: flex; flex-wrap: wrap; gap: .4rem; font: .75rem/1.6 var(--font-ui); }
+[data-windows-tray] > p { width: 100%; color: var(--muted); }
+.design-window-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem; width: 100%; border-bottom: 1px solid var(--line); padding-block: .45rem; }
+.design-window-row span { min-width: 0; overflow-wrap: anywhere; }
+.scalar-fields { display: flex; flex-direction: column; gap: .7rem; }
+.scalar-fields label, .shared-context label, .role-setting label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; color: var(--muted); }
+.scalar-fields input, .scalar-fields textarea, .episode-memo-input { width: 100%; min-width: 0; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); font: .9rem/1.8 var(--font-prose); }
+.scalar-fields textarea, .episode-memo-input { resize: vertical; }
+.review-chat-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.direct-writing-label { display: inline-flex; align-items: center; gap: .3rem; margin-right: auto; font-size: .75rem; }
+.role-setting { border: 1px solid var(--line); border-radius: var(--radius); margin-block: .65rem; padding: .8rem; display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.role-setting legend { padding-inline: .3rem; font-size: .85rem; }
+.detached-placeholder { border: 1px dashed var(--line); padding: 2rem; background: var(--surface); border-radius: var(--radius); }
+.detached-placeholder p { margin-bottom: 1rem; line-height: 1.8; }
+#reference-view, #project-memos-view { height: max(32rem, calc(100dvh - 9rem)); min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+#reference-view > .ref-root, #project-memos-view > .ref-root { height: 100%; }
+.shared-context { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.shared-context select { max-width: 100%; min-width: 0; }
+.other-panels { font-size: .75rem; color: var(--muted); }
+.other-panels summary { cursor: pointer; padding-block: .25rem; }
+.other-panel-links { display: flex; flex-wrap: wrap; gap: .4rem; padding-block: .5rem; }
+.panel-host { min-width: 0; }
+.panel-host[data-panel-scope="settings"], .panel-host[data-panel-scope="project-memos"], .panel-host[data-panel-scope="genre-chat"] { overflow: hidden; }
+.panel-host > .ref-root { height: 100%; min-height: 0; }
+.panel-host > .gc-panel { flex: 1; min-height: 0; }
+.panel-host .chat-toolbar { flex-shrink: 0; }
+.panel-host .composer { flex-shrink: 0; }
+.panel-foot > details { font-size: .75rem; color: var(--muted); }
+.panel-foot > details > summary { cursor: pointer; }
+.panel-backlink { font: inherit; cursor: pointer; }
+.panel-shell .dlg { color: var(--ink); }
+
+@media (max-width: 768px) {
+  #reference-view, #project-memos-view { height: 74dvh; min-height: 30rem; }
+  .window-overview { padding-top: .5rem; }
+  .review-note { font-size: .72rem; }
+}
+@media (max-width: 520px) {
+  .topbar-actions { flex-wrap: wrap; overflow-x: visible; }
+  .topbar-actions > .project-picker { flex: 1; max-width: none; }
+  .topbar-actions > .btn { padding-inline: 6px; font-size: 12px; }
+  .role-setting { grid-template-columns: 1fr; }
+  .shared-context { gap: .35rem; }
+  .panel-head-top { align-items: flex-start; }
+  .panel-shell .design-flag { white-space: normal; }
+}
+@media (max-height: 40rem) {
+  .panel-host[data-panel-scope="settings"], .panel-host[data-panel-scope="project-memos"], .panel-host[data-panel-scope="genre-chat"] { overflow: visible; min-height: 28rem; }
+}
